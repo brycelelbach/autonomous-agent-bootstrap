@@ -635,6 +635,26 @@ PY
     [ ! -f "$SETTINGS_FILE" ]
 }
 
+@test "entry-point guard fires when piped via curl | bash (issue #53)" {
+    # Regression for issue #53: when the script is read from stdin (the
+    # `curl ... | bash` install recipe), BASH_SOURCE is empty and the bare
+    # `${BASH_SOURCE[0]}` tripped `set -u` before main could run. Extract the
+    # entry-point block from bootstrap.bash and exercise it through a piped
+    # bash with a stubbed main — under the fix, main fires and no unbound-
+    # variable error is emitted.
+    local guard
+    guard=$(awk '/^# `:-\$0` covers/,/^fi$/' "$REPO_ROOT/bootstrap.bash")
+    [ -n "$guard" ] || fail "could not locate entry-point guard in bootstrap.bash"
+    run bash <<SH
+set -euo pipefail
+main() { echo MAIN_REACHED; }
+$guard
+SH
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"MAIN_REACHED"* ]]
+    [[ "$output" != *"unbound variable"* ]]
+}
+
 @test "install_base_deps is a no-op when all required commands are present" {
     # Runs on a host (or CI runner) where curl / python3 / git / tar / gawk /
     # sudo and the CA bundle are preinstalled — the dev-box / runner default.
