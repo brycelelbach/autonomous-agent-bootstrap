@@ -106,7 +106,10 @@ run_docker_e2e() {
     # Forward GITHUB_TOKEN (if set) so the Brev installer's release-info
     # call to api.github.com isn't rate-limited in CI; -e X without a value
     # is a no-op when the caller doesn't export it.
-    docker run --rm \
+    # `-t` allocates a pseudo-tty so /dev/tty is openable inside the
+    # container, matching what real shell users see and surfacing any
+    # interactive prompt a third-party installer might pop (issue #55).
+    docker run --rm -t \
         -e GITHUB_TOKEN \
         -e AAB_BREV_API_KEY \
         -e AAB_BREV_ORG_ID \

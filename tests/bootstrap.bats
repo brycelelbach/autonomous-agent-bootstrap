@@ -233,20 +233,28 @@ if [ -n "$config" ]; then
 fi
 
 if [ -n "$output" ]; then
-    cat > "$output" <<'INSTALLER'
+    cat > "$output" <<INSTALLER
 #!/usr/bin/env bash
 set -euo pipefail
 curl -fsSL https://api.github.com/repos/openai/codex/releases/latest >/dev/null
 curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz >/dev/null
+maybe_launch_codex_now() {
+    : > "$TEST_HOME/codex-installer-launch-prompt-fired"
+}
+maybe_launch_codex_now
 INSTALLER
     exit 0
 fi
 
-cat <<'INSTALLER'
+cat <<INSTALLER
 #!/usr/bin/env bash
 set -euo pipefail
 curl -fsSL https://api.github.com/repos/openai/codex/releases/latest >/dev/null
 curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz >/dev/null
+maybe_launch_codex_now() {
+    : > "$TEST_HOME/codex-installer-launch-prompt-fired"
+}
+maybe_launch_codex_now
 INSTALLER
 SH
     chmod +x "$FAKE_CODEX_INSTALLER_BIN/curl"
@@ -261,6 +269,25 @@ SH
     grep -Eq '^--config .+ https://api.github.com/repos/openai/codex/releases/latest$' "$TEST_HOME/codex-installer-curl-invocations"
     grep -Fxq -- '-fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz' "$TEST_HOME/codex-installer-curl-invocations"
     grep -Fq 'header = "Authorization: Bearer github-test-token"' "$TEST_HOME/codex-installer-curl-configs"
+}
+
+@test "install_codex strips the upstream maybe_launch_codex_now call (token path) (issue #55)" {
+    # The fixture installer ends with a `maybe_launch_codex_now` call whose
+    # body drops a sentinel file. install_codex must sed that call out before
+    # running the installer, so the sentinel must NOT be created.
+    setup_fake_codex_installer
+    GH_TOKEN="github-test-token" run install_codex
+    [ "$status" -eq 0 ]
+    [ ! -f "$TEST_HOME/codex-installer-launch-prompt-fired" ]
+}
+
+@test "install_codex strips the upstream maybe_launch_codex_now call (no-token path) (issue #55)" {
+    # Same suppression must apply on the unauthenticated path that bare
+    # `curl ... | bash` users hit when no GitHub token is exported.
+    setup_fake_codex_installer
+    run install_codex
+    [ "$status" -eq 0 ]
+    [ ! -f "$TEST_HOME/codex-installer-launch-prompt-fired" ]
 }
 
 @test "install_codex leaves installer calls unauthenticated without a GitHub token" {

@@ -303,14 +303,34 @@ install_claude() {
 
 # ---------------------------------------------------------------------------
 # 2. Install / upgrade Codex via OpenAI's standalone installer.
+#
+# The upstream installer ends with a `maybe_launch_codex_now` call that
+# prompts `Start Codex now? [y/N]` whenever `/dev/tty` is openable (i.e. any
+# real shell). Bootstrap is unattended, so the installer is always downloaded
+# to disk first and that single trailing call is sed'd out before bash runs
+# it. The function definition itself is left intact in case the installer
+# grows internal references.
 # ---------------------------------------------------------------------------
+_codex_strip_launch_prompt() {
+    sed -i 's/^maybe_launch_codex_now$/: # disabled by autonomous-agent-bootstrap/' "$1"
+}
+
 install_codex() {
     log "Installing / updating Codex CLI via standalone installer..."
     local installer_url="https://github.com/openai/codex/releases/latest/download/install.sh"
     local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
 
     if [ -z "$github_token" ]; then
-        curl -fsSL "$installer_url" | bash
+        local tmpdir
+        tmpdir="$(mktemp -d)"
+        (
+            set -euo pipefail
+            trap 'rm -rf "$tmpdir"' EXIT
+            local installer="${tmpdir}/codex-install.sh"
+            curl -fsSL "$installer_url" -o "$installer"
+            _codex_strip_launch_prompt "$installer"
+            bash "$installer"
+        )
         return
     fi
 
@@ -348,6 +368,7 @@ BASH
 
         log "Using GitHub authentication for Codex release metadata requests."
         "$real_curl" -fsSL "$installer_url" -o "$installer"
+        _codex_strip_launch_prompt "$installer"
         CODEX_INSTALLER_REAL_CURL="$real_curl" \
             CODEX_INSTALLER_CURL_CONFIG="$curl_config" \
             PATH="${tmpdir}:$PATH" \
