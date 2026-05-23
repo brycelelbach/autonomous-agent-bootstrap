@@ -1115,20 +1115,20 @@ update_bashrc() {
             'export DEBUG_SDK=1' \
             "alias claude='claude --dangerously-skip-permissions'" \
             "alias codex='codex --dangerously-bypass-approvals-and-sandbox'"
-        printf 'export CLAUDE_CODE_EFFORT_LEVEL=%q\n' "$effort"
+        printf 'export CLAUDE_CODE_EFFORT_LEVEL="%s"\n' "$effort"
         if [ -n "$github_token" ]; then
-            printf 'export AAB_GH_TOKEN=%q\n' "$github_token"
-            printf 'export GH_TOKEN=%q\n' "$github_token"
+            printf 'export AAB_GH_TOKEN="%s"\n' "$github_token"
+            printf 'export GH_TOKEN="%s"\n' "$github_token"
         fi
         if [ -n "$codex_first_party_api_key" ]; then
-            printf 'export AAB_CODEX_FIRST_PARTY_API_KEY=%q\n' "$codex_first_party_api_key"
-            printf 'export OPENAI_API_KEY=%q\n' "$codex_first_party_api_key"
+            printf 'export AAB_CODEX_FIRST_PARTY_API_KEY="%s"\n' "$codex_first_party_api_key"
+            printf 'export OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
         fi
         if [ -n "$brev_api_key" ]; then
-            printf 'export AAB_BREV_API_KEY=%q\n' "$brev_api_key"
+            printf 'export AAB_BREV_API_KEY="%s"\n' "$brev_api_key"
         fi
         if [ -n "$brev_org_id" ]; then
-            printf 'export AAB_BREV_ORG_ID=%q\n' "$brev_org_id"
+            printf 'export AAB_BREV_ORG_ID="%s"\n' "$brev_org_id"
         fi
 
         # Inner managed block — rewritten in place by
@@ -1144,28 +1144,28 @@ update_bashrc() {
         printf '    unset ANTHROPIC_AUTH_TOKEN\n'
         printf '    unset CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS\n'
         if [ -n "$first_party_api_key" ]; then
-            printf '    export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=%q\n' "$first_party_api_key"
-            printf '    export ANTHROPIC_API_KEY=%q\n' "$first_party_api_key"
+            printf '    export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="%s"\n' "$first_party_api_key"
+            printf '    export ANTHROPIC_API_KEY="%s"\n' "$first_party_api_key"
         fi
-        printf '    export ANTHROPIC_MODEL=%q\n' "$model"
-        printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL=%q\n' "$haiku_model"
-        printf '    export ANTHROPIC_DEFAULT_SONNET_MODEL=%q\n' "$sonnet_model"
-        printf '    export ANTHROPIC_DEFAULT_OPUS_MODEL=%q\n' "$opus_model"
+        printf '    export ANTHROPIC_MODEL="%s"\n' "$model"
+        printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n' "$haiku_model"
+        printf '    export ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "$sonnet_model"
+        printf '    export ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n' "$opus_model"
         printf 'else\n'
         printf '    unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY\n'
         printf '    unset ANTHROPIC_API_KEY\n'
         if [ -n "$third_party_base_url" ]; then
-            printf '    export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL=%q\n' "$third_party_base_url"
-            printf '    export ANTHROPIC_BASE_URL=%q\n' "$third_party_base_url"
+            printf '    export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="%s"\n' "$third_party_base_url"
+            printf '    export ANTHROPIC_BASE_URL="%s"\n' "$third_party_base_url"
         fi
         if [ -n "$third_party_auth_token" ]; then
-            printf '    export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN=%q\n' "$third_party_auth_token"
-            printf '    export ANTHROPIC_AUTH_TOKEN=%q\n' "$third_party_auth_token"
+            printf '    export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="%s"\n' "$third_party_auth_token"
+            printf '    export ANTHROPIC_AUTH_TOKEN="%s"\n' "$third_party_auth_token"
         fi
-        printf '    export ANTHROPIC_MODEL=%q\n' "$third_party_model"
-        printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL=%q\n' "$third_party_haiku_model"
-        printf '    export ANTHROPIC_DEFAULT_SONNET_MODEL=%q\n' "$third_party_sonnet_model"
-        printf '    export ANTHROPIC_DEFAULT_OPUS_MODEL=%q\n' "$third_party_opus_model"
+        printf '    export ANTHROPIC_MODEL="%s"\n' "$third_party_model"
+        printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n' "$third_party_haiku_model"
+        printf '    export ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "$third_party_sonnet_model"
+        printf '    export ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n' "$third_party_opus_model"
         printf '    export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1\n'
         printf 'fi\n\n'
 

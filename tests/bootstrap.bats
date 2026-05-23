@@ -520,8 +520,8 @@ PY
 
 @test "update_bashrc exports Codex first-party API key when set" {
     AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" update_bashrc
-    grep -q 'export AAB_CODEX_FIRST_PARTY_API_KEY=codex-first-party-test-key' "$BASHRC"
-    grep -q 'export OPENAI_API_KEY=codex-first-party-test-key' "$BASHRC"
+    grep -q 'export AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key"' "$BASHRC"
+    grep -q 'export OPENAI_API_KEY="codex-first-party-test-key"' "$BASHRC"
 }
 
 @test "update_bashrc is idempotent (single managed block after two runs)" {
@@ -547,8 +547,8 @@ PY
 
 @test "update_bashrc exports first-party API key under AAB and Claude runtime names" {
     AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" update_bashrc
-    grep -q 'export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=sk-ant-test-key' "$BASHRC"
-    grep -q 'export ANTHROPIC_API_KEY=sk-ant-test-key' "$BASHRC"
+    grep -q 'export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key"' "$BASHRC"
+    grep -q 'export ANTHROPIC_API_KEY="sk-ant-test-key"' "$BASHRC"
 }
 
 @test "update_bashrc exports third-party credentials under AAB and Claude runtime names" {
@@ -556,16 +556,16 @@ PY
     AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com" \
     AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz" \
         update_bashrc
-    grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL=https://gateway.example.com' "$BASHRC"
-    grep -q 'export ANTHROPIC_BASE_URL=https://gateway.example.com' "$BASHRC"
-    grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN=bearer-token-xyz' "$BASHRC"
-    grep -q 'export ANTHROPIC_AUTH_TOKEN=bearer-token-xyz' "$BASHRC"
+    grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com"' "$BASHRC"
+    grep -q 'export ANTHROPIC_BASE_URL="https://gateway.example.com"' "$BASHRC"
+    grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz"' "$BASHRC"
+    grep -q 'export ANTHROPIC_AUTH_TOKEN="bearer-token-xyz"' "$BASHRC"
 }
 
 @test "update_bashrc exports GitHub token under AAB and gh runtime names" {
     AAB_GH_TOKEN="ghp_test_token" update_bashrc
-    grep -q 'export AAB_GH_TOKEN=ghp_test_token' "$BASHRC"
-    grep -q 'export GH_TOKEN=ghp_test_token' "$BASHRC"
+    grep -q 'export AAB_GH_TOKEN="ghp_test_token"' "$BASHRC"
+    grep -q 'export GH_TOKEN="ghp_test_token"' "$BASHRC"
 }
 
 @test "update_bashrc honors third-party provider selection" {
@@ -575,11 +575,9 @@ PY
 
 @test "update_bashrc exports default ANTHROPIC_DEFAULT_*_MODEL in both branches" {
     update_bashrc
-    # %q-quoting (single-quote, double-quote, or bare) varies by character class
-    # in the value; accept any of the three.
-    grep -qE "export ANTHROPIC_DEFAULT_HAIKU_MODEL=('?\"?)claude-haiku-4-5\\1?$"   "$BASHRC"
-    grep -qE "export ANTHROPIC_DEFAULT_SONNET_MODEL=('?\"?)claude-sonnet-4-6\\1?$" "$BASHRC"
-    grep -qE "export ANTHROPIC_DEFAULT_OPUS_MODEL=('?\"?)claude-opus-4-7\\1?$"     "$BASHRC"
+    grep -q 'export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-4-5"'   "$BASHRC"
+    grep -q 'export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-6"' "$BASHRC"
+    grep -q 'export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-7"'     "$BASHRC"
     # Both branches export each var — two of each.
     for tier in HAIKU SONNET OPUS; do
         local export_count
@@ -598,14 +596,14 @@ PY
         AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
         AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
         update_bashrc
-    grep -q "ANTHROPIC_MODEL=claude-opus-first"                                      "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-haiku-first"                         "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-first"                       "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-first"                           "$BASHRC"
-    grep -q "ANTHROPIC_MODEL=aws/anthropic/bedrock-claude-opus-4-7"                    "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_HAIKU_MODEL=aws/anthropic/claude-haiku-4-5-v1"          "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_SONNET_MODEL=aws/anthropic/bedrock-claude-sonnet-4-6" "$BASHRC"
-    grep -q "ANTHROPIC_DEFAULT_OPUS_MODEL=aws/anthropic/bedrock-claude-opus-4-7"     "$BASHRC"
+    grep -q 'ANTHROPIC_MODEL="claude-opus-first"'                                  "$BASHRC"
+    grep -q 'ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-first"'                    "$BASHRC"
+    grep -q 'ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-first"'                  "$BASHRC"
+    grep -q 'ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-first"'                      "$BASHRC"
+    grep -q 'ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-opus-4-7"'               "$BASHRC"
+    grep -q 'ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"'     "$BASHRC"
+    grep -q 'ANTHROPIC_DEFAULT_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"' "$BASHRC"
+    grep -q 'ANTHROPIC_DEFAULT_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"'     "$BASHRC"
 }
 
 @test "update_bashrc third-party explicit model vars resolve verbatim when provider flips" {
