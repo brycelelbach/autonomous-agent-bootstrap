@@ -335,11 +335,11 @@ You can upload the same public key under both types if you want a single blob to
 | Path | How |
 | --- | --- |
 | `~/.local/bin/claude` (+ `~/.local/bin/env`) | Written by the Claude Code native installer. |
-| `~/.local/bin/codex` (+ `~/.codex/packages/standalone/...`) | Written by OpenAI's Codex standalone installer. |
+| `~/.local/bin/codex` (+ `~/.local/bin/codex-aab-real`, `~/.codex/packages/standalone/...`) | Written by OpenAI's Codex standalone installer, then replaced with AAB's unattended launcher wrapper. The real standalone binary remains available through `codex-aab-real`. |
 | `~/.local/bin/brev` | Written by the Brev CLI installer. |
 | `~/.claude/settings.json` | Overwritten with unattended-mode defaults, then merged with `extraKnownMarketplaces` / `enabledPlugins` entries for each plugin in `agent_plugins.txt`. Existing file backed up to `settings.json.bak.<timestamp>` before the rewrite. |
 | `~/.claude/plugins/{marketplaces,cache}` | Written by `claude plugin marketplace add` and `claude plugin install --scope user` for each resolved plugin in `agent_plugins.txt`. |
-| `~/.codex/config.toml` | Overwritten with unattended Codex defaults while preserving existing Codex plugin marketplace/plugin tables: `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, `web_search = "live"`, credential-preserving shell env inheritance, and trusted entries for `$HOME` plus the bootstrap launch directory. Existing file backed up to `config.toml.bak.<timestamp>` before the rewrite. |
+| `~/.codex/config.toml` | Overwritten with unattended Codex defaults while preserving existing Codex plugin marketplace/plugin tables: `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, `web_search = "live"`, `check_for_update_on_startup = false`, credential-preserving shell env inheritance, and trusted entries for `$HOME` plus the bootstrap launch directory. Existing file backed up to `config.toml.bak.<timestamp>` before the rewrite. |
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when `AAB_CODEX_FIRST_PARTY_API_KEY` is set, selecting Codex API-key auth for first launch. |
 | `~/.codex/.tmp/marketplaces/*`, `~/.codex/plugins/cache/*` | Written by `codex plugin marketplace add` and `codex plugin add` for each resolved plugin in `agent_plugins.txt`. |
 | `~/.brev/credentials.json` | Written by `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set, selecting Brev API-key auth for future commands. |

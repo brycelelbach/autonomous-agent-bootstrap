@@ -46,6 +46,8 @@ grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG" \
     || fail "Codex sandbox_mode is not danger-full-access."
 grep -q "^model_reasoning_effort = \"${expected_codex_effort}\"$" "$CODEX_CONFIG" \
     || fail "Codex reasoning effort is not ${expected_codex_effort}."
+grep -q '^check_for_update_on_startup = false$' "$CODEX_CONFIG" \
+    || fail "Codex startup update check is not disabled."
 grep -q '^hide_full_access_warning = true$' "$CODEX_CONFIG" \
     || fail "Codex full-access warning acknowledgement not written."
 grep -q '^inherit = "all"$' "$CODEX_CONFIG" \
@@ -151,6 +153,10 @@ case "$claude_plugins" in
 esac
 pass "Claude Code agent plugins installed."
 command -v codex  >/dev/null 2>&1 || fail "codex not on PATH after bootstrap."
+grep -q 'Autonomous-agent-bootstrap Codex launcher' "$(command -v codex)" \
+    || fail "Codex unattended launcher wrapper not installed."
+[ -x "$HOME/.local/bin/codex-aab-real" ] \
+    || fail "Codex real binary link not installed."
 codex --version >/dev/null 2>&1 || fail "codex binary does not run."
 pass "codex binary installed and runnable."
 codex_plugins=$(codex plugin list 2>&1) || fail "codex plugin list failed."

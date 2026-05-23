@@ -7,7 +7,9 @@
 #      container images that ship only apt-get. Skipped silently if already
 #      present.
 #   1. Installs / upgrades Claude Code via the native installer.
-#   2. Installs / upgrades Codex via OpenAI's standalone installer.
+#   2. Installs / upgrades Codex via OpenAI's standalone installer, with
+#      its launch prompt disabled by running the installer without a
+#      controlling TTY.
 #   3. Installs / upgrades the Brev CLI via the official install-latest.sh.
 #  3b. If AAB_BREV_API_KEY and AAB_BREV_ORG_ID are set, logs Brev in via
 #      `brev login --api-key ... --org-id ...` so Brev commands can run
@@ -17,8 +19,8 @@
 #   5. Writes ~/.claude/settings.json with unattended-mode defaults
 #      (bypassPermissions, sandboxed, configured effort, opus-4-7).
 #   6. Writes ~/.codex/config.toml with unattended-mode defaults
-#      (approval_policy=never, sandbox_mode=danger-full-access, xhigh effort,
-#      and trusted project roots).
+#      (approval_policy=never, sandbox_mode=danger-full-access, update checks
+#      disabled, xhigh effort, and trusted project roots).
 #  6b. If AAB_CODEX_FIRST_PARTY_API_KEY is set, pipes it into
 #      `codex login --with-api-key` so Codex uses first-party API-key auth
 #      without a device-code login prompt.
@@ -42,10 +44,13 @@
 #      (default: agitentic + autocuda) into both Claude Code and Codex.
 #      Claude Code also gets ~/.claude/settings.json extraKnownMarketplaces
 #      / enabledPlugins entries so it picks them up with no prompt.
+# 10b. Installs a Codex launcher wrapper that injects yolo mode and a
+#      dynamic trust override for the current directory before delegating to
+#      the real Codex binary.
 #  11. Appends PATH / alias / env exports to ~/.bashrc (managed block) so
 #      interactive shells pick up ~/.local/bin, run `claude` with
-#      --dangerously-skip-permissions, run `codex` with
-#      --dangerously-bypass-approvals-and-sandbox, and export credential
+#      --dangerously-skip-permissions, run `codex` through AAB's unattended
+#      launcher, and export credential
 #      env vars for future shells when they were set at bootstrap time.
 #  12. Mirrors the resolved credential / config env vars (provider tokens,
 #      model names, AAB_GH_TOKEN, AAB_CODEX_FIRST_PARTY_API_KEY, …) into
@@ -308,12 +313,6 @@ install_codex() {
     log "Installing / updating Codex CLI via standalone installer..."
     local installer_url="https://github.com/openai/codex/releases/latest/download/install.sh"
     local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
-
-    if [ -z "$github_token" ]; then
-        curl -fsSL "$installer_url" | bash
-        return
-    fi
-
     local real_curl
     real_curl="$(command -v curl)"
     local tmpdir
@@ -322,17 +321,20 @@ install_codex() {
         set -euo pipefail
         trap 'rm -rf "$tmpdir"' EXIT
 
-        local curl_config="${tmpdir}/github-curl.conf"
-        local curl_wrapper="${tmpdir}/curl"
         local installer="${tmpdir}/codex-install.sh"
+        local installer_env=(env)
 
-        umask 077
-        {
-            printf 'header = "Authorization: Bearer %s"\n' "$github_token"
-            printf 'header = "X-GitHub-Api-Version: 2022-11-28"\n'
-        } > "$curl_config"
+        if [ -n "$github_token" ]; then
+            local curl_config="${tmpdir}/github-curl.conf"
+            local curl_wrapper="${tmpdir}/curl"
 
-        cat > "$curl_wrapper" <<'BASH'
+            umask 077
+            {
+                printf 'header = "Authorization: Bearer %s"\n' "$github_token"
+                printf 'header = "X-GitHub-Api-Version: 2022-11-28"\n'
+            } > "$curl_config"
+
+            cat > "$curl_wrapper" <<'BASH'
 #!/usr/bin/env bash
 set -euo pipefail
 for arg in "$@"; do
@@ -344,15 +346,33 @@ for arg in "$@"; do
 done
 exec "${CODEX_INSTALLER_REAL_CURL:?}" "$@"
 BASH
-        chmod 700 "$curl_wrapper"
+            chmod 700 "$curl_wrapper"
 
-        log "Using GitHub authentication for Codex release metadata requests."
+            log "Using GitHub authentication for Codex release metadata requests."
+            installer_env=(
+                env
+                "CODEX_INSTALLER_REAL_CURL=$real_curl"
+                "CODEX_INSTALLER_CURL_CONFIG=$curl_config"
+                "PATH=${tmpdir}:$PATH"
+            )
+        fi
+
         "$real_curl" -fsSL "$installer_url" -o "$installer"
-        CODEX_INSTALLER_REAL_CURL="$real_curl" \
-            CODEX_INSTALLER_CURL_CONFIG="$curl_config" \
-            PATH="${tmpdir}:$PATH" \
-            bash "$installer"
+        _run_without_controlling_tty "${installer_env[@]}" bash "$installer"
     )
+}
+
+_run_without_controlling_tty() {
+    if ! command -v setsid >/dev/null 2>&1; then
+        warn "setsid not found; cannot guarantee an unattended Codex installer run."
+        exit 1
+    fi
+
+    if setsid --help 2>&1 | grep -q -- ' -w,'; then
+        setsid -w "$@" </dev/null
+    else
+        setsid "$@" </dev/null
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -518,6 +538,7 @@ model_reasoning_effort = "${effort}"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 web_search = "live"
+check_for_update_on_startup = false
 
 [notice]
 hide_full_access_warning = true
@@ -1054,6 +1075,107 @@ install_codex_plugins() {
 }
 
 # ---------------------------------------------------------------------------
+# 10b. Install the Codex launcher wrapper.
+#
+# Codex project trust is keyed by exact paths. The wrapper keeps startup
+# unattended from any shell working directory by injecting an in-memory trust
+# override for the current directory and, when available, its Git root.
+# ---------------------------------------------------------------------------
+install_codex_launcher() {
+    local codex_bin="${HOME}/.local/bin/codex"
+    local real_bin="${HOME}/.local/bin/codex-aab-real"
+
+    if [ ! -e "$codex_bin" ]; then
+        warn "codex binary not found at ${codex_bin}; cannot install unattended launcher."
+        exit 1
+    fi
+
+    if [ -L "$codex_bin" ]; then
+        local target
+        target=$(readlink "$codex_bin")
+        ln -sfn "$target" "$real_bin"
+    elif ! grep -q 'Autonomous-agent-bootstrap Codex launcher' "$codex_bin" 2>/dev/null; then
+        mv "$codex_bin" "$real_bin"
+    elif [ ! -e "$real_bin" ]; then
+        warn "Codex launcher is installed but ${real_bin} is missing."
+        exit 1
+    fi
+
+    local tmp
+    tmp=$(mktemp "${codex_bin}.tmp.XXXXXX")
+    cat > "$tmp" <<'BASH'
+#!/usr/bin/env bash
+# Autonomous-agent-bootstrap Codex launcher.
+set -euo pipefail
+
+real_bin="${AAB_CODEX_REAL_BIN:-$HOME/.local/bin/codex-aab-real}"
+if [ ! -x "$real_bin" ]; then
+    printf '[bootstrap] WARN: Codex real binary not executable: %s\n' "$real_bin" >&2
+    exit 127
+fi
+
+toml_escape() {
+    local s="$1"
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    printf '%s' "$s"
+}
+
+canonical_dir() {
+    local dir="$1"
+    if [ -d "$dir" ]; then
+        (cd "$dir" 2>/dev/null && pwd -P) || printf '%s' "$dir"
+    else
+        printf '%s' "$dir"
+    fi
+}
+
+cwd=$(canonical_dir "${PWD:-.}")
+git_root=""
+if command -v git >/dev/null 2>&1; then
+    git_root=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || true)
+    if [ -n "$git_root" ]; then
+        git_root=$(canonical_dir "$git_root")
+    fi
+fi
+
+cwd_escaped=$(toml_escape "$cwd")
+trust_override="projects={\"${cwd_escaped}\"={trust_level=\"trusted\"}"
+if [ -n "$git_root" ] && [ "$git_root" != "$cwd" ]; then
+    git_root_escaped=$(toml_escape "$git_root")
+    trust_override="${trust_override},\"${git_root_escaped}\"={trust_level=\"trusted\"}"
+fi
+trust_override="${trust_override}}"
+
+has_yolo=0
+has_hook_bypass=0
+for arg in "$@"; do
+    case "$arg" in
+        --dangerously-bypass-approvals-and-sandbox|--yolo)
+            has_yolo=1
+            ;;
+        --dangerously-bypass-hook-trust)
+            has_hook_bypass=1
+            ;;
+    esac
+done
+
+extra_args=(-c "$trust_override")
+if [ "$has_hook_bypass" -eq 0 ]; then
+    extra_args=(--dangerously-bypass-hook-trust "${extra_args[@]}")
+fi
+if [ "$has_yolo" -eq 0 ]; then
+    extra_args=(--dangerously-bypass-approvals-and-sandbox "${extra_args[@]}")
+fi
+
+exec "$real_bin" "${extra_args[@]}" "$@"
+BASH
+    chmod 755 "$tmp"
+    mv -f "$tmp" "$codex_bin"
+    log "Installed unattended Codex launcher at ${codex_bin}."
+}
+
+# ---------------------------------------------------------------------------
 # 11. Rewrite the unattended-mode block in ~/.bashrc.
 #
 # The block is identified by the BEGIN/END markers. On re-run we strip the
@@ -1464,6 +1586,7 @@ main() {
     install_auth_ssh_key
     install_signing_ssh_key
     install_agent_plugins
+    install_codex_launcher
     update_bashrc
     update_etc_environment
     run_inference_smoke_tests

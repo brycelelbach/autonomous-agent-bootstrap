@@ -148,6 +148,7 @@ PY
     grep -q '^approval_policy = "never"$' "$CODEX_CONFIG"
     grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG"
     grep -q '^web_search = "live"$' "$CODEX_CONFIG"
+    grep -q '^check_for_update_on_startup = false$' "$CODEX_CONFIG"
     grep -q '^hide_full_access_warning = true$' "$CODEX_CONFIG"
     grep -q '^inherit = "all"$' "$CODEX_CONFIG"
     grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG"
@@ -236,6 +237,12 @@ if [ -n "$output" ]; then
     cat > "$output" <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
+if (: </dev/tty) 2>/dev/null; then
+    echo dev-tty-present > "$TEST_HOME/codex-installer-tty"
+fi
+if [ -t 0 ]; then
+    echo stdin-tty-present > "$TEST_HOME/codex-installer-tty"
+fi
 curl -fsSL https://api.github.com/repos/openai/codex/releases/latest >/dev/null
 curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz >/dev/null
 INSTALLER
@@ -245,6 +252,12 @@ fi
 cat <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
+if (: </dev/tty) 2>/dev/null; then
+    echo dev-tty-present > "$TEST_HOME/codex-installer-tty"
+fi
+if [ -t 0 ]; then
+    echo stdin-tty-present > "$TEST_HOME/codex-installer-tty"
+fi
 curl -fsSL https://api.github.com/repos/openai/codex/releases/latest >/dev/null
 curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz >/dev/null
 INSTALLER
@@ -261,6 +274,7 @@ SH
     grep -Eq '^--config .+ https://api.github.com/repos/openai/codex/releases/latest$' "$TEST_HOME/codex-installer-curl-invocations"
     grep -Fxq -- '-fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz' "$TEST_HOME/codex-installer-curl-invocations"
     grep -Fq 'header = "Authorization: Bearer github-test-token"' "$TEST_HOME/codex-installer-curl-configs"
+    [ ! -f "$TEST_HOME/codex-installer-tty" ]
 }
 
 @test "install_codex leaves installer calls unauthenticated without a GitHub token" {
@@ -270,6 +284,54 @@ SH
     [[ "$output" != *"Using GitHub authentication for Codex release metadata requests."* ]]
     ! grep -Fq -- '--config' "$TEST_HOME/codex-installer-curl-invocations"
     [ ! -f "$TEST_HOME/codex-installer-curl-configs" ]
+    [ ! -f "$TEST_HOME/codex-installer-tty" ]
+}
+
+@test "install_codex_launcher wraps codex with dynamic trust and bypass flags" {
+    mkdir -p "$HOME/.local/bin" "$TEST_HOME/work/subdir"
+    cat > "$TEST_HOME/real-codex" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
+SH
+    chmod +x "$TEST_HOME/real-codex"
+    ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
+
+    install_codex_launcher
+
+    [ -x "$HOME/.local/bin/codex" ]
+    [ -L "$HOME/.local/bin/codex-aab-real" ]
+    (
+        cd "$TEST_HOME/work/subdir"
+        "$HOME/.local/bin/codex" --version
+    )
+
+    grep -Fxq -- '--dangerously-bypass-approvals-and-sandbox' "$TEST_HOME/codex-launcher-args"
+    grep -Fxq -- '--dangerously-bypass-hook-trust' "$TEST_HOME/codex-launcher-args"
+    grep -Fxq -- '-c' "$TEST_HOME/codex-launcher-args"
+    grep -Fxq "projects={\"$TEST_HOME/work/subdir\"={trust_level=\"trusted\"}}" "$TEST_HOME/codex-launcher-args"
+    grep -Fxq -- '--version' "$TEST_HOME/codex-launcher-args"
+}
+
+@test "install_codex_launcher adds git root to dynamic trust override" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    mkdir -p "$HOME/.local/bin" "$TEST_HOME/repo/nested"
+    git -C "$TEST_HOME/repo" init >/dev/null
+    cat > "$TEST_HOME/real-codex" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
+SH
+    chmod +x "$TEST_HOME/real-codex"
+    ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
+
+    install_codex_launcher
+    (
+        cd "$TEST_HOME/repo/nested"
+        "$HOME/.local/bin/codex" plugin list
+    )
+
+    grep -Fxq "projects={\"$TEST_HOME/repo/nested\"={trust_level=\"trusted\"},\"$TEST_HOME/repo\"={trust_level=\"trusted\"}}" "$TEST_HOME/codex-launcher-args"
+    grep -Fxq -- 'plugin' "$TEST_HOME/codex-launcher-args"
+    grep -Fxq -- 'list' "$TEST_HOME/codex-launcher-args"
 }
 
 setup_fake_codex() {
