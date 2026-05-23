@@ -1470,6 +1470,8 @@ main() {
     log "Done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
 }
 
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+# `:-$0` covers the `curl ... | bash` case, where BASH_SOURCE is empty and
+# would otherwise trip `set -u`.
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
     main "$@"
 fi
