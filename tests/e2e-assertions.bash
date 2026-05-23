@@ -132,7 +132,7 @@ pass "DEBUG_SDK=1 exported (claude debug logging on)."
 
 # 8d. CLAUDE_CODE_EFFORT_LEVEL mirrors AAB_CLAUDE_CODE_EFFORT, defaulting
 # to max so non-interactive launches keep the same effort setting.
-grep -q 'export CLAUDE_CODE_EFFORT_LEVEL=max' "$BASHRC" \
+grep -q 'export CLAUDE_CODE_EFFORT_LEVEL="max"' "$BASHRC" \
     || fail "CLAUDE_CODE_EFFORT_LEVEL=max export missing from bashrc managed block."
 pass "CLAUDE_CODE_EFFORT_LEVEL=max exported."
 
