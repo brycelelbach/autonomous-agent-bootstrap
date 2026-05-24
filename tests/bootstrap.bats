@@ -23,7 +23,7 @@ setup() {
           AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL \
           AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN \
           AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT \
-          AAB_CODEX_FIRST_PARTY_API_KEY AAB_SKIP_INFERENCE_SMOKE_TESTS \
+          AAB_CODEX_FIRST_PARTY_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SIGNING_PRIVATE_KEY_B64 \
@@ -460,70 +460,6 @@ PY
     [ "$status" -ne 0 ]
     [[ "$output" == *"brev login --api-key failed"* ]]
     [[ "$output" != *"brev-test-key"* ]]
-}
-
-setup_fake_smoke_agents() {
-    export FAKE_SMOKE_BIN="$TEST_HOME/fake-smoke-bin"
-    mkdir -p "$FAKE_SMOKE_BIN"
-
-    cat > "$FAKE_SMOKE_BIN/claude" <<SH
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$TEST_HOME/claude-smoke-invocations"
-if [ "\${FAKE_CLAUDE_SMOKE_FAIL:-0}" = "1" ]; then
-    exit 42
-fi
-exit 0
-SH
-    chmod +x "$FAKE_SMOKE_BIN/claude"
-
-    cat > "$FAKE_SMOKE_BIN/codex" <<SH
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$TEST_HOME/codex-smoke-invocations"
-if [ "\${FAKE_CODEX_SMOKE_FAIL:-0}" = "1" ]; then
-    exit 43
-fi
-exit 0
-SH
-    chmod +x "$FAKE_SMOKE_BIN/codex"
-
-    export PATH="$FAKE_SMOKE_BIN:$PATH"
-}
-
-@test "run_inference_smoke_tests skips when AAB_SKIP_INFERENCE_SMOKE_TESTS is true" {
-    local empty_bin="$TEST_HOME/empty-bin"
-    mkdir -p "$empty_bin"
-    AAB_SKIP_INFERENCE_SMOKE_TESTS=1 PATH="$empty_bin" run run_inference_smoke_tests
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Skipping Claude Code and Codex inference smoke tests"* ]]
-}
-
-@test "run_inference_smoke_tests runs Claude Code and Codex hello-world prompts" {
-    setup_fake_smoke_agents
-    run run_inference_smoke_tests
-    [ "$status" -eq 0 ]
-    grep -Fxq -- '--dangerously-skip-permissions -p hello world' "$TEST_HOME/claude-smoke-invocations"
-    grep -Fxq -- 'exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check hello world' "$TEST_HOME/codex-smoke-invocations"
-    [[ "$output" == *"Claude Code inference smoke test passed."* ]]
-    [[ "$output" == *"Codex inference smoke test passed."* ]]
-}
-
-@test "run_inference_smoke_tests fails when Claude Code smoke fails" {
-    setup_fake_smoke_agents
-    export FAKE_CLAUDE_SMOKE_FAIL=1
-    run run_inference_smoke_tests
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"Claude Code inference smoke test failed."* ]]
-    [ ! -f "$TEST_HOME/codex-smoke-invocations" ]
-}
-
-@test "run_inference_smoke_tests fails when Codex smoke fails" {
-    setup_fake_smoke_agents
-    export FAKE_CODEX_SMOKE_FAIL=1
-    run run_inference_smoke_tests
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"Codex inference smoke test failed."* ]]
-    grep -Fxq -- '--dangerously-skip-permissions -p hello world' "$TEST_HOME/claude-smoke-invocations"
-    grep -Fxq -- 'exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check hello world' "$TEST_HOME/codex-smoke-invocations"
 }
 
 @test "skip_onboarding creates .claude.json with hasCompletedOnboarding=true" {

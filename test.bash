@@ -12,8 +12,8 @@
 #                            ~/.bashrc managed block, modifies global git
 #                            config, writes a synthetic Codex API-key login,
 #                            writes a Brev API-key login when AAB_BREV_*
-#                            vars are set, skips live inference smoke tests,
-#                            and installs claude / codex / brev / gh.
+#                            vars are set, and installs claude / codex /
+#                            brev / gh.
 #                            Only run on a disposable machine.
 #   ./test.bash --docker     same as --e2e, but inside a fresh ubuntu:22.04
 #                            docker container — safe to run anywhere with
@@ -61,12 +61,11 @@ run_e2e() {
     : "${AAB_CODEX_FIRST_PARTY_MODEL:=gpt-5.5}"
     : "${AAB_CODEX_EFFORT:=xhigh}"
     : "${AAB_CODEX_FIRST_PARTY_API_KEY:=codex-e2e-test-key}"
-    : "${AAB_SKIP_INFERENCE_SMOKE_TESTS:=1}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
            AAB_CLAUDE_CODE_FIRST_PARTY_MODEL AAB_CLAUDE_CODE_EFFORT \
            AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
            AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT \
-           AAB_CODEX_FIRST_PARTY_API_KEY AAB_SKIP_INFERENCE_SMOKE_TESTS
+           AAB_CODEX_FIRST_PARTY_API_KEY
 
     bash bootstrap.bash
     bash tests/e2e-assertions.bash
