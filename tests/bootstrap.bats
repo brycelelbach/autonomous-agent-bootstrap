@@ -22,7 +22,7 @@ setup() {
           AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY \
           AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL \
           AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN \
-          AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT \
+          AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT AAB_CODEX_SERVICE_TIER \
           AAB_CODEX_FIRST_PARTY_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
@@ -145,6 +145,7 @@ PY
     [ -f "$CODEX_CONFIG" ]
     grep -q '^model = "gpt-5.5"$' "$CODEX_CONFIG"
     grep -q '^model_reasoning_effort = "xhigh"$' "$CODEX_CONFIG"
+    grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
     grep -q '^approval_policy = "never"$' "$CODEX_CONFIG"
     grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG"
     grep -q '^web_search = "live"$' "$CODEX_CONFIG"
@@ -156,12 +157,14 @@ PY
     grep -q '^trust_level = "trusted"$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config honors model and reasoning-effort overrides" {
+@test "write_codex_config honors model, reasoning-effort, and service-tier overrides" {
     AAB_CODEX_FIRST_PARTY_MODEL="gpt-5.4" \
         AAB_CODEX_EFFORT="high" \
+        AAB_CODEX_SERVICE_TIER="flex" \
         write_codex_config
     grep -q '^model = "gpt-5.4"$' "$CODEX_CONFIG"
     grep -q '^model_reasoning_effort = "high"$' "$CODEX_CONFIG"
+    grep -q '^service_tier = "flex"$' "$CODEX_CONFIG"
 }
 
 @test "write_codex_config defaults invalid reasoning effort back to xhigh" {
@@ -169,6 +172,18 @@ PY
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_CODEX_EFFORT='maximum'"* ]]
     grep -q '^model_reasoning_effort = "xhigh"$' "$CODEX_CONFIG"
+}
+
+@test "write_codex_config normalizes fast service tier to priority" {
+    AAB_CODEX_SERVICE_TIER="fast" write_codex_config
+    grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
+}
+
+@test "write_codex_config defaults invalid service tier back to priority" {
+    AAB_CODEX_SERVICE_TIER="premium" run write_codex_config
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"AAB_CODEX_SERVICE_TIER='premium'"* ]]
+    grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
 }
 
 @test "write_codex_config backs up pre-existing config.toml" {

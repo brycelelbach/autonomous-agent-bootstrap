@@ -177,6 +177,11 @@
 #                       Codex reasoning effort. Baked into
 #                       ~/.codex/config.toml's model_reasoning_effort field.
 #                       Defaults to xhigh.
+#   AAB_CODEX_SERVICE_TIER
+#                       Codex service tier. Baked into
+#                       ~/.codex/config.toml's service_tier field. Defaults to
+#                       priority. Allowed values are priority, flex, default,
+#                       and fast as an alias for priority.
 #   AAB_CODEX_FIRST_PARTY_API_KEY
 #                       OpenAI API key used by Codex. Piped into
 #                       `codex login --with-api-key` when set, exported as
@@ -240,6 +245,7 @@ DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_EFFORT="max"
 DEFAULT_CODEX_MODEL="gpt-5.5"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
+DEFAULT_CODEX_SERVICE_TIER="priority"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -510,11 +516,22 @@ write_codex_config() {
 
     local model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
     local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
+    local service_tier="${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
     case "$effort" in
         minimal|low|medium|high|xhigh) ;;
         *)
             warn "AAB_CODEX_EFFORT='${effort}' is not one of minimal, low, medium, high, or xhigh; defaulting to ${DEFAULT_CODEX_REASONING_EFFORT}."
             effort="$DEFAULT_CODEX_REASONING_EFFORT"
+            ;;
+    esac
+    case "$service_tier" in
+        priority|flex|default) ;;
+        fast)
+            service_tier="priority"
+            ;;
+        *)
+            warn "AAB_CODEX_SERVICE_TIER='${service_tier}' is not one of priority, flex, default, or fast; defaulting to ${DEFAULT_CODEX_SERVICE_TIER}."
+            service_tier="$DEFAULT_CODEX_SERVICE_TIER"
             ;;
     esac
 
@@ -527,6 +544,7 @@ write_codex_config() {
     cat > "${CODEX_CONFIG}" <<TOML
 model = "${model_escaped}"
 model_reasoning_effort = "${effort}"
+service_tier = "${service_tier}"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
 web_search = "live"
@@ -558,7 +576,7 @@ ${preserved_plugin_config}
 TOML
     fi
 
-    log "Wrote ${CODEX_CONFIG} (model=${model}, effort=${effort}, approval=never, sandbox=danger-full-access)."
+    log "Wrote ${CODEX_CONFIG} (model=${model}, effort=${effort}, service_tier=${service_tier}, approval=never, sandbox=danger-full-access)."
 }
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - `approval_policy = "never"` and `sandbox_mode = "danger-full-access"` in `~/.codex/config.toml`
    - `notice.hide_full_access_warning = true`
    - `shell_environment_policy.inherit = "all"` and `ignore_default_excludes = true` so spawned commands can see credential env vars such as `GH_TOKEN` and `OPENAI_API_KEY`
-   - Model selected via `AAB_CODEX_FIRST_PARTY_MODEL` (defaults to `gpt-5.5`), reasoning effort via `AAB_CODEX_EFFORT` (defaults to `xhigh`)
+   - Model selected via `AAB_CODEX_FIRST_PARTY_MODEL` (defaults to `gpt-5.5`), reasoning effort via `AAB_CODEX_EFFORT` (defaults to `xhigh`), service tier via `AAB_CODEX_SERVICE_TIER` (defaults to `priority`)
    - `AAB_CODEX_FIRST_PARTY_API_KEY` logged in via `codex login --with-api-key` when provided, then exported as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`
    - `codex` aliased to `codex --dangerously-bypass-approvals-and-sandbox` in interactive shells
    - The bootstrap user's `$HOME` and the bootstrap launch directory are marked trusted so project-local Codex config can load without a trust prompt
@@ -235,6 +235,7 @@ All optional. Anything unset is simply skipped.
 | `AAB_CLAUDE_CODE_EFFORT` | Claude Code effort level. Written to `~/.claude/settings.json`'s `"effortLevel"` field and exported as `CLAUDE_CODE_EFFORT_LEVEL`. Defaults to `max`. |
 | `AAB_CODEX_FIRST_PARTY_MODEL` | Codex first-party model name. Baked into `~/.codex/config.toml`'s `model` field. Defaults to `gpt-5.5`. |
 | `AAB_CODEX_EFFORT` | Codex reasoning effort (`minimal`, `low`, `medium`, `high`, or `xhigh`). Baked into `~/.codex/config.toml`'s `model_reasoning_effort` field. Defaults to `xhigh`; invalid values fall back to `xhigh`. |
+| `AAB_CODEX_SERVICE_TIER` | Codex service tier (`priority`, `flex`, `default`, or `fast` as an alias for `priority`). Baked into `~/.codex/config.toml`'s `service_tier` field. Defaults to `priority`; invalid values fall back to `priority`. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` | Anthropic first-party API key. Last 20 characters are written to `~/.claude.json` under `customApiKeyResponses.approved` so Claude Code doesn't prompt for approval. Also exported as `ANTHROPIC_API_KEY` from the anthropic branch of the `~/.bashrc` managed block. |
 | `AAB_CODEX_FIRST_PARTY_API_KEY` | OpenAI API key used by Codex. Piped into `codex login --with-api-key` when set, exported from the `~/.bashrc` managed block as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`, and mirrored into `/etc/environment` so Codex can use API-key auth without a first-run sign-in prompt. |
 | `AAB_BREV_API_KEY` | Brev organization-scoped API key. Used with `AAB_BREV_ORG_ID` to run `brev login --api-key ... --org-id ...`, exported from the `~/.bashrc` managed block, and mirrored into `/etc/environment`. |
@@ -337,7 +338,7 @@ You can upload the same public key under both types if you want a single blob to
 | `~/.local/bin/brev` | Written by the Brev CLI installer. |
 | `~/.claude/settings.json` | Overwritten with unattended-mode defaults, then merged with `extraKnownMarketplaces` / `enabledPlugins` entries for each plugin in `agent_plugins.txt`. Existing file backed up to `settings.json.bak.<timestamp>` before the rewrite. |
 | `~/.claude/plugins/{marketplaces,cache}` | Written by `claude plugin marketplace add` and `claude plugin install --scope user` for each resolved plugin in `agent_plugins.txt`. |
-| `~/.codex/config.toml` | Overwritten with unattended Codex defaults while preserving existing Codex plugin marketplace/plugin tables: `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, `web_search = "live"`, `check_for_update_on_startup = false`, credential-preserving shell env inheritance, and trusted entries for `$HOME` plus the bootstrap launch directory. Existing file backed up to `config.toml.bak.<timestamp>` before the rewrite. |
+| `~/.codex/config.toml` | Overwritten with unattended Codex defaults while preserving existing Codex plugin marketplace/plugin tables: `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, `service_tier = "priority"` by default, `web_search = "live"`, `check_for_update_on_startup = false`, credential-preserving shell env inheritance, and trusted entries for `$HOME` plus the bootstrap launch directory. Existing file backed up to `config.toml.bak.<timestamp>` before the rewrite. |
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when `AAB_CODEX_FIRST_PARTY_API_KEY` is set, selecting Codex API-key auth for first launch. |
 | `~/.codex/.tmp/marketplaces/*`, `~/.codex/plugins/cache/*` | Written by `codex plugin marketplace add` and `codex plugin add` for each resolved plugin in `agent_plugins.txt`. |
 | `~/.brev/credentials.json` | Written by `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set, selecting Brev API-key auth for future commands. |
@@ -373,11 +374,14 @@ All tests are driven by a single entry point, [`./test.bash`](./test.bash). `.gi
 ./test.bash --unit       # bats suite in tests/
 ./test.bash --e2e        # runs bootstrap.bash on THIS host + assertions — see warning below
 ./test.bash --docker     # same as --e2e, but inside a fresh ubuntu:22.04 container
+./test.bash --smoke      # live claude -p + codex exec smoke using local env credentials
 ./test.bash --secrets    # gitleaks scan of full history + working tree
 ./test.bash --all        # lint + unit + e2e + secrets, in order
 ```
 
 **`--e2e` is destructive.** It invokes `bootstrap.bash` for real against the current `$HOME`: overwrites `~/.claude/settings.json`, overwrites `~/.codex/config.toml`, writes a synthetic `~/.codex/auth.json`, writes Brev API-key credentials when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set, rewrites the `~/.bashrc` managed block, modifies global git config, and installs `claude` / `codex` / `brev` / `gh`. Only run it on a disposable VM or container (which is how CI exercises it). **`--docker` is the safe alternative** — it does the same run inside a throwaway `ubuntu:22.04` container, and also serves as the stronger check that `bootstrap.bash` works against a bare image with nothing pre-installed.
+
+**`--smoke` spends real inference.** It runs `claude --dangerously-skip-permissions -p` and `codex exec` with a short prompt. When `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY`, `AAB_CLAUDE_CODE_THIRD_PARTY_*`, or `AAB_CODEX_FIRST_PARTY_API_KEY` are present in the local environment, the smoke test maps them to the runtime variables those CLIs read for that invocation.
 
 Install the test prerequisites on Ubuntu/Debian with:
 

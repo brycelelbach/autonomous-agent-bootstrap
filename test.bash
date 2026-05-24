@@ -19,6 +19,8 @@
 #                            docker container — safe to run anywhere with
 #                            docker available, and the stronger check that
 #                            bootstrap works on a bare image.
+#   ./test.bash --smoke      live Claude + Codex inference smoke test using
+#                            real credentials from the current environment.
 #   ./test.bash --secrets    gitleaks scan of full history + working tree
 #   ./test.bash --all        lint + unit + e2e + secrets, in order
 #   ./test.bash -h|--help    print this usage
@@ -38,7 +40,7 @@ run_lint() {
     need bash
     need shellcheck
     bash -n bootstrap.bash
-    shellcheck -S warning bootstrap.bash tests/e2e-assertions.bash
+    shellcheck -S warning bootstrap.bash test.bash tests/e2e-assertions.bash
 }
 
 run_unit() {
@@ -118,6 +120,71 @@ run_docker_e2e() {
     echo "=== docker e2e passed ==="
 }
 
+redact_secrets() {
+    sed -E \
+        -e 's/sk-[A-Za-z0-9_-]+/sk-REDACTED/g' \
+        -e 's/(ghp_|github_pat_)[A-Za-z0-9_]+/GITHUB_TOKEN_REDACTED/g'
+}
+
+run_smoke() {
+    echo "=== live inference smoke (claude + codex exec) ==="
+    need timeout
+    need claude
+    need codex
+
+    local expected="${AAB_SMOKE_EXPECTED:-AAB_SMOKE_OK}"
+    local prompt="${AAB_SMOKE_PROMPT:-Reply with exactly ${expected}.}"
+    local claude_output codex_output
+
+    local -a claude_env=(env)
+    if [ -n "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}" ]; then
+        claude_env+=(ANTHROPIC_API_KEY="$AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY")
+    fi
+    if [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-}" = "third-party" ]; then
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}" ] \
+            && claude_env+=(ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL")
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}" ] \
+            && claude_env+=(ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN")
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-}" ] \
+            && claude_env+=(ANTHROPIC_MODEL="$AAB_CLAUDE_CODE_THIRD_PARTY_MODEL")
+    fi
+
+    if ! claude_output=$(timeout 180s "${claude_env[@]}" claude --dangerously-skip-permissions -p "$prompt" 2>&1); then
+        printf '%s\n' "$claude_output" | redact_secrets >&2
+        echo "test.bash: Claude smoke test failed." >&2
+        return 1
+    fi
+    if ! grep -Fq "$expected" <<<"$claude_output"; then
+        printf '%s\n' "$claude_output" | redact_secrets >&2
+        echo "test.bash: Claude smoke test did not return ${expected}." >&2
+        return 1
+    fi
+    echo "Claude smoke passed."
+
+    local -a codex_env=(env)
+    local codex_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-${OPENAI_API_KEY:-}}"
+    if [ -n "$codex_api_key" ]; then
+        if [ "$codex_api_key" = "codex-e2e-test-key" ]; then
+            echo "test.bash: --smoke requires a real Codex API key, not the synthetic e2e key." >&2
+            return 1
+        fi
+        codex_env+=(OPENAI_API_KEY="$codex_api_key")
+    fi
+
+    if ! codex_output=$(timeout 180s "${codex_env[@]}" codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$prompt" 2>&1); then
+        printf '%s\n' "$codex_output" | redact_secrets >&2
+        echo "test.bash: Codex smoke test failed." >&2
+        return 1
+    fi
+    if ! grep -Fq "$expected" <<<"$codex_output"; then
+        printf '%s\n' "$codex_output" | redact_secrets >&2
+        echo "test.bash: Codex smoke test did not return ${expected}." >&2
+        return 1
+    fi
+    echo "Codex smoke passed."
+    echo "=== live inference smoke passed ==="
+}
+
 run_secrets() {
     echo "=== secret scan (gitleaks) ==="
     need gitleaks
@@ -126,7 +193,7 @@ run_secrets() {
 }
 
 usage() {
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 if [ $# -eq 0 ]; then
@@ -141,6 +208,7 @@ for arg in "$@"; do
         --unit)    run_unit ;;
         --e2e)     run_e2e ;;
         --docker)  run_docker_e2e ;;
+        --smoke)   run_smoke ;;
         --secrets) run_secrets ;;
         --all)
             run_lint
