@@ -40,12 +40,20 @@ pass "settings.json written with unattended-mode defaults."
 # 2. config.toml is present and puts Codex in unattended yolo mode.
 [ -f "$CODEX_CONFIG" ] || fail "Codex config.toml not written."
 expected_codex_effort="${AAB_CODEX_EFFORT:-xhigh}"
+expected_codex_service_tier="${AAB_CODEX_SERVICE_TIER:-priority}"
+case "$expected_codex_service_tier" in
+    priority|flex|default) ;;
+    fast) expected_codex_service_tier="priority" ;;
+    *) expected_codex_service_tier="priority" ;;
+esac
 grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
     || fail "Codex approval_policy is not never."
 grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG" \
     || fail "Codex sandbox_mode is not danger-full-access."
 grep -q "^model_reasoning_effort = \"${expected_codex_effort}\"$" "$CODEX_CONFIG" \
     || fail "Codex reasoning effort is not ${expected_codex_effort}."
+grep -q "^service_tier = \"${expected_codex_service_tier}\"$" "$CODEX_CONFIG" \
+    || fail "Codex service tier is not ${expected_codex_service_tier}."
 grep -q '^check_for_update_on_startup = false$' "$CODEX_CONFIG" \
     || fail "Codex startup update check is not disabled."
 grep -q '^hide_full_access_warning = true$' "$CODEX_CONFIG" \
