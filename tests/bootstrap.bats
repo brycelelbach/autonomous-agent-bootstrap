@@ -765,6 +765,9 @@ setup_plugin_fakes() {
     cat > "$FAKE_BIN/gh" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+    if [ -n "${FAKE_GH_REQUIRED_TOKEN:-}" ]; then
+        [ "${GH_TOKEN:-}" = "$FAKE_GH_REQUIRED_TOKEN" ] && exit 0 || exit 1
+    fi
     [ "${FAKE_GH_AUTH_OK:-0}" = "1" ] && exit 0 || exit 1
 fi
 if [ "$1" = "api" ]; then
@@ -812,6 +815,25 @@ JSON
     setup_plugin_fakes
     export FAKE_GH_AUTH_OK=1
     # Fixture only reachable via gh — proves curl wasn't the source.
+    write_marketplace_fixture "$FAKE_GH_DIR" "acme/private-plugin" "acme-market" "widget"
+    echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
+    export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+
+    write_settings
+    install_agent_plugins
+
+    python3 - <<PY
+import json
+d = json.load(open("$SETTINGS_FILE"))
+assert d["extraKnownMarketplaces"]["acme-market"]["source"]["repo"] == "acme/private-plugin", d
+assert d["enabledPlugins"]["widget@acme-market"] is True, d
+PY
+}
+
+@test "install_agent_plugins maps AAB_GH_TOKEN to GH_TOKEN for private-repo fetches" {
+    setup_plugin_fakes
+    export FAKE_GH_REQUIRED_TOKEN="ghp_private_plugin_test"
+    export AAB_GH_TOKEN="$FAKE_GH_REQUIRED_TOKEN"
     write_marketplace_fixture "$FAKE_GH_DIR" "acme/private-plugin" "acme-market" "widget"
     echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
@@ -879,6 +901,9 @@ PY
 setup_fake_claude() {
     cat > "$FAKE_BIN/claude" <<SH
 #!/usr/bin/env bash
+if [ -n "\${FAKE_AGENT_REQUIRED_GH_TOKEN:-}" ] && [ "\${GH_TOKEN:-}" != "\$FAKE_AGENT_REQUIRED_GH_TOKEN" ]; then
+    exit 44
+fi
 printf '%s\n' "\$*" >> "$TEST_HOME/claude-invocations"
 exit 0
 SH
@@ -888,6 +913,9 @@ SH
 setup_fake_codex_plugin() {
     cat > "$FAKE_BIN/codex" <<SH
 #!/usr/bin/env bash
+if [ -n "\${FAKE_AGENT_REQUIRED_GH_TOKEN:-}" ] && [ "\${GH_TOKEN:-}" != "\$FAKE_AGENT_REQUIRED_GH_TOKEN" ]; then
+    exit 45
+fi
 printf '%s\n' "\$*" >> "$TEST_HOME/codex-plugin-invocations"
 exit 0
 SH
@@ -919,6 +947,26 @@ JSON
     # Dedupe: one marketplace add, not two.
     [ "$(grep -c 'plugin marketplace add' "$TEST_HOME/claude-invocations")" -eq 1 ]
     [ "$(grep -c 'plugin marketplace add' "$TEST_HOME/codex-plugin-invocations")" -eq 1 ]
+}
+
+@test "install_agent_plugins maps AAB_GH_TOKEN to GH_TOKEN for agent plugin CLIs" {
+    setup_plugin_fakes
+    setup_fake_claude
+    setup_fake_codex_plugin
+    export FAKE_GH_REQUIRED_TOKEN="ghp_agent_plugin_test"
+    export FAKE_AGENT_REQUIRED_GH_TOKEN="$FAKE_GH_REQUIRED_TOKEN"
+    export AAB_GH_TOKEN="$FAKE_GH_REQUIRED_TOKEN"
+    write_marketplace_fixture "$FAKE_GH_DIR" "acme/private-plugin" "acme-market" "widget"
+    echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
+    export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
+
+    write_settings
+    install_agent_plugins
+
+    grep -Fxq 'plugin marketplace add acme/private-plugin' "$TEST_HOME/claude-invocations"
+    grep -Fxq 'plugin install widget@acme-market --scope user' "$TEST_HOME/claude-invocations"
+    grep -Fxq 'plugin marketplace add acme/private-plugin' "$TEST_HOME/codex-plugin-invocations"
+    grep -Fxq 'plugin add widget@acme-market' "$TEST_HOME/codex-plugin-invocations"
 }
 
 @test "install_agent_plugins runs marketplace-add once per repo across distinct plugin lines" {

@@ -882,8 +882,13 @@ install_agent_plugins() {
     # it's installed and authenticated (works for both public and private
     # repos); fall back to unauthenticated raw.githubusercontent.com so
     # public plugins still work on hosts without a gh login.
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+    local -a github_env=(env)
+    if [ -n "$github_token" ]; then
+        github_env=(env "GH_TOKEN=$github_token")
+    fi
     local use_gh=0
-    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    if command -v gh >/dev/null 2>&1 && "${github_env[@]}" gh auth status >/dev/null 2>&1; then
         use_gh=1
     fi
 
@@ -894,7 +899,7 @@ install_agent_plugins() {
         marketplace_json=""
         for branch in main master; do
             if [ $use_gh -eq 1 ]; then
-                marketplace_json=$(gh api -H "Accept: application/vnd.github.v3.raw" \
+                marketplace_json=$("${github_env[@]}" gh api -H "Accept: application/vnd.github.v3.raw" \
                     "repos/${repo}/contents/.claude-plugin/marketplace.json?ref=${branch}" 2>/dev/null) \
                     || marketplace_json=""
             fi
@@ -978,6 +983,11 @@ PY
         warn "claude binary not on PATH; skipping Claude Code plugin install (settings.json was still written)."
         return
     fi
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+    local -a github_env=(env)
+    if [ -n "$github_token" ]; then
+        github_env=(env "GH_TOKEN=$github_token")
+    fi
 
     # Snapshot the post-write_settings + post-merge settings.json so
     # the re-merge below can restore AAB-managed top-level keys that
@@ -992,7 +1002,7 @@ PY
         repo="${t%%|*}"
         if [ -z "${seen_repos[$repo]:-}" ]; then
             log "Adding marketplace ${repo} to claude's plugin registry."
-            "$claude_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
+            "${github_env[@]}" "$claude_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
                 warn "claude plugin marketplace add ${repo} returned non-zero (private repo without access? skipping)."
             seen_repos[$repo]=1
         fi
@@ -1004,7 +1014,7 @@ PY
         plugin="${marketplace#*|}"
         marketplace="${marketplace%|*}"
         log "Installing Claude Code plugin ${plugin}@${marketplace}."
-        "$claude_bin" plugin install "${plugin}@${marketplace}" --scope user 2>&1 | sed 's/^/  /' || \
+        "${github_env[@]}" "$claude_bin" plugin install "${plugin}@${marketplace}" --scope user 2>&1 | sed 's/^/  /' || \
             warn "claude plugin install ${plugin}@${marketplace} returned non-zero."
     done
 
@@ -1049,6 +1059,11 @@ install_codex_plugins() {
         warn "codex binary not on PATH; skipping Codex plugin install."
         return
     fi
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+    local -a github_env=(env)
+    if [ -n "$github_token" ]; then
+        github_env=(env "GH_TOKEN=$github_token")
+    fi
 
     # Dedupe repos before `marketplace add`.
     local -A seen_repos=()
@@ -1057,7 +1072,7 @@ install_codex_plugins() {
         repo="${t%%|*}"
         if [ -z "${seen_repos[$repo]:-}" ]; then
             log "Adding marketplace ${repo} to codex's plugin registry."
-            "$codex_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
+            "${github_env[@]}" "$codex_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
                 warn "codex plugin marketplace add ${repo} returned non-zero (private repo without access? skipping)."
             seen_repos[$repo]=1
         fi
@@ -1069,7 +1084,7 @@ install_codex_plugins() {
         plugin="${marketplace#*|}"
         marketplace="${marketplace%|*}"
         log "Installing Codex plugin ${plugin}@${marketplace}."
-        "$codex_bin" plugin add "${plugin}@${marketplace}" 2>&1 | sed 's/^/  /' || \
+        "${github_env[@]}" "$codex_bin" plugin add "${plugin}@${marketplace}" 2>&1 | sed 's/^/  /' || \
             warn "codex plugin add ${plugin}@${marketplace} returned non-zero."
     done
 }
