@@ -53,6 +53,8 @@ if [ "$expected_codex_provider" = "third-party" ]; then
 else
     expected_codex_model="${AAB_CODEX_FIRST_PARTY_MODEL:-gpt-5.5}"
 fi
+expected_codex_agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-16}"
+expected_codex_agent_max_threads_valid=1
 case "$expected_codex_service_tier" in
     priority|flex|default) ;;
     fast) expected_codex_service_tier="priority" ;;
@@ -70,6 +72,17 @@ if [ "$expected_codex_provider" = "third-party" ]; then
     grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN"$' "$CODEX_CONFIG" \
         || fail "Codex third-party provider env key is not AAB_CODEX_THIRD_PARTY_AUTH_TOKEN."
 fi
+case "$expected_codex_agent_max_threads" in
+    [1-9]*)
+        case "$expected_codex_agent_max_threads" in
+            *[!0-9]*) expected_codex_agent_max_threads_valid=0 ;;
+        esac
+        ;;
+    *) expected_codex_agent_max_threads_valid=0 ;;
+esac
+if [ "$expected_codex_agent_max_threads_valid" -eq 0 ]; then
+    expected_codex_agent_max_threads="16"
+fi
 grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
     || fail "Codex approval_policy is not never."
 grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG" \
@@ -86,6 +99,8 @@ grep -q '^inherit = "all"$' "$CODEX_CONFIG" \
     || fail "Codex shell env inheritance is not all."
 grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG" \
     || fail "Codex shell env token inheritance is not enabled."
+grep -q "^max_threads = ${expected_codex_agent_max_threads}$" "$CODEX_CONFIG" \
+    || fail "Codex agent max_threads is not ${expected_codex_agent_max_threads}."
 grep -qF "[projects.\"$HOME\"]" "$CODEX_CONFIG" \
     || fail "Codex HOME project trust entry missing."
 pass "Codex config.toml written with unattended yolo-mode defaults."

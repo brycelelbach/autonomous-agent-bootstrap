@@ -24,6 +24,7 @@ setup() {
           AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN \
           AAB_CODEX_INFERENCE_PROVIDER \
           AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT AAB_CODEX_SERVICE_TIER \
+          AAB_CODEX_AGENT_MAX_THREADS \
           AAB_CODEX_FIRST_PARTY_API_KEY \
           AAB_CODEX_THIRD_PARTY_MODEL AAB_CODEX_THIRD_PARTY_BASE_URL AAB_CODEX_THIRD_PARTY_AUTH_TOKEN \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
@@ -155,18 +156,22 @@ PY
     grep -q '^hide_full_access_warning = true$' "$CODEX_CONFIG"
     grep -q '^inherit = "all"$' "$CODEX_CONFIG"
     grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG"
+    grep -q '^\[agents\]$' "$CODEX_CONFIG"
+    grep -q '^max_threads = 16$' "$CODEX_CONFIG"
     grep -qF "[projects.\"$HOME\"]" "$CODEX_CONFIG"
     grep -q '^trust_level = "trusted"$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config honors model, reasoning-effort, and service-tier overrides" {
+@test "write_codex_config honors model, reasoning-effort, service-tier, and agent thread overrides" {
     AAB_CODEX_FIRST_PARTY_MODEL="gpt-5.4" \
         AAB_CODEX_EFFORT="high" \
         AAB_CODEX_SERVICE_TIER="flex" \
+        AAB_CODEX_AGENT_MAX_THREADS="24" \
         write_codex_config
     grep -q '^model = "gpt-5.4"$' "$CODEX_CONFIG"
     grep -q '^model_reasoning_effort = "high"$' "$CODEX_CONFIG"
     grep -q '^service_tier = "flex"$' "$CODEX_CONFIG"
+    grep -q '^max_threads = 24$' "$CODEX_CONFIG"
 }
 
 @test "write_codex_config can target a third-party OpenAI-compatible Responses endpoint" {
@@ -201,6 +206,13 @@ PY
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_CODEX_SERVICE_TIER='premium'"* ]]
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
+}
+
+@test "write_codex_config defaults invalid agent max threads back to 16" {
+    AAB_CODEX_AGENT_MAX_THREADS="many" run write_codex_config
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"AAB_CODEX_AGENT_MAX_THREADS='many'"* ]]
+    grep -q '^max_threads = 16$' "$CODEX_CONFIG"
 }
 
 @test "write_codex_config backs up pre-existing config.toml" {
