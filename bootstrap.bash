@@ -58,9 +58,6 @@
 #      remote command, systemd services that EnvironmentFile=/etc/environment)
 #      see them too. Needs sudo; warns and skips if passwordless sudo isn't
 #      available.
-#  13. Runs final inference smoke tests (`claude -p "hello world"` and
-#      `codex exec "hello world"`) so missing / invalid model credentials
-#      fail during bootstrap instead of first agent launch.
 #
 # Optional env vars:
 #   AAB_CLAUDE_CODE_INFERENCE_PROVIDER
@@ -186,11 +183,6 @@
 #                       both AAB_CODEX_FIRST_PARTY_API_KEY and OPENAI_API_KEY
 #                       from the ~/.bashrc managed block, and mirrored into
 #                       /etc/environment.
-#   AAB_SKIP_INFERENCE_SMOKE_TESTS
-#                       Set to 1/true/yes to skip the final Claude Code and
-#                       Codex inference smoke tests. Intended for e2e tests
-#                       that use synthetic credentials.
-#
 # Can be run from a local checkout or piped via `curl ... | bash`. Safe to
 # re-run: existing settings.json, config.toml, and .claude.json are backed
 # up before overwrite, and the ~/.bashrc managed block is replaced
@@ -1450,58 +1442,6 @@ update_etc_environment() {
 }
 
 # ---------------------------------------------------------------------------
-# 13. Run real inference smoke tests.
-#
-# The bootstrap's contract is a ready-to-use autonomous agent environment.
-# Installing binaries and writing config is not enough if the configured
-# credentials cannot complete an actual model turn. Run a tiny prompt through
-# both CLIs as the final step so auth/model failures surface while the
-# bootstrap still has the operator's attention.
-# ---------------------------------------------------------------------------
-run_inference_smoke_tests() {
-    case "${AAB_SKIP_INFERENCE_SMOKE_TESTS:-}" in
-        1|true|TRUE|yes|YES)
-            log "Skipping Claude Code and Codex inference smoke tests because AAB_SKIP_INFERENCE_SMOKE_TESTS is set."
-            return 0
-            ;;
-    esac
-
-    local claude_bin=""
-    if command -v claude >/dev/null 2>&1; then
-        claude_bin=$(command -v claude)
-    elif [ -x "${HOME}/.local/bin/claude" ]; then
-        claude_bin="${HOME}/.local/bin/claude"
-    else
-        warn "claude binary not on PATH; cannot run Claude Code inference smoke test."
-        exit 1
-    fi
-
-    local codex_bin=""
-    if command -v codex >/dev/null 2>&1; then
-        codex_bin=$(command -v codex)
-    elif [ -x "${HOME}/.local/bin/codex" ]; then
-        codex_bin="${HOME}/.local/bin/codex"
-    else
-        warn "codex binary not on PATH; cannot run Codex inference smoke test."
-        exit 1
-    fi
-
-    log 'Running Claude Code inference smoke test: claude -p "hello world".'
-    if ! "$claude_bin" --dangerously-skip-permissions -p "hello world" >/dev/null; then
-        warn "Claude Code inference smoke test failed."
-        exit 1
-    fi
-    log "Claude Code inference smoke test passed."
-
-    log 'Running Codex inference smoke test: codex exec "hello world".'
-    if ! "$codex_bin" exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check "hello world" >/dev/null; then
-        warn "Codex inference smoke test failed."
-        exit 1
-    fi
-    log "Codex inference smoke test passed."
-}
-
-# ---------------------------------------------------------------------------
 # Optional config input (positional arg or stdin).
 #
 # main() picks one of three modes, in order:
@@ -1589,7 +1529,6 @@ main() {
     install_codex_launcher
     update_bashrc
     update_etc_environment
-    run_inference_smoke_tests
     log "Done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
 }
 

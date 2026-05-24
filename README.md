@@ -24,15 +24,14 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - Runs `brev login --api-key ... --org-id ...` so Brev commands can run without a browser login prompt
    - Writes `~/.brev/onboarding_step.json` so the first `brev` invocation skips the interactive tutorial
    - Exports `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` from the managed `~/.bashrc` block and mirrors them into `/etc/environment`
-4. **Inference smoke tests** — as the final bootstrap step, runs `claude -p "hello world"` and `codex exec "hello world"` so missing or invalid model credentials fail before first agent launch.
-5. **`gh` CLI** — latest release from the official `cli.github.com` apt repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
-6. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt. If `AAB_GIT_SIGNING_PRIVATE_KEY_B64` is set, git is also configured to sign every commit and tag with that key (see [SSH keys](#ssh-keys)).
-7. **SSH keys for GitHub** — two independent optional env vars, each for a distinct role:
+4. **`gh` CLI** — latest release from the official `cli.github.com` apt repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
+5. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt. If `AAB_GIT_SIGNING_PRIVATE_KEY_B64` is set, git is also configured to sign every commit and tag with that key (see [SSH keys](#ssh-keys)).
+6. **SSH keys for GitHub** — two independent optional env vars, each for a distinct role:
    - `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` -> the **authentication** identity. Decoded to `~/.ssh/id_aab_auth` (mode 0600) and wired as the `IdentityFile` for `github.com` in a managed block in `~/.ssh/config`.
    - `AAB_GIT_SIGNING_PRIVATE_KEY_B64` -> the **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600) and wired into git's `user.signingkey` / `commit.gpgsign` / `tag.gpgsign` config. Does **not** touch `~/.ssh/config`.
 
    See [SSH keys](#ssh-keys) for how to generate, encode, and upload them.
-8. **Agent plugins** — marketplaces listed in [`agent_plugins.txt`](./agent_plugins.txt) are installed into both Claude Code and Codex. Claude Code also gets `~/.claude/settings.json` `extraKnownMarketplaces` / `enabledPlugins` entries so the plugins are enabled without a prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach-private/autocuda) (private); add more by editing the file and re-running the bootstrap. Plugin repos can be public or private — the bootstrap fetches each marketplace manifest via `gh api` when `gh` is authenticated (picks up `AAB_GH_TOKEN` via the exported `GH_TOKEN` runtime variable, or `gh auth login` credentials) and falls back to unauthenticated `raw.githubusercontent.com` otherwise. Entries the caller lacks access to are logged and skipped; they do not fail the bootstrap.
+7. **Agent plugins** — marketplaces listed in [`agent_plugins.txt`](./agent_plugins.txt) are installed into both Claude Code and Codex. Claude Code also gets `~/.claude/settings.json` `extraKnownMarketplaces` / `enabledPlugins` entries so the plugins are enabled without a prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach-private/autocuda) (private); add more by editing the file and re-running the bootstrap. Plugin repos can be public or private — the bootstrap fetches each marketplace manifest via `gh api` when `gh` is authenticated (picks up `AAB_GH_TOKEN` via the exported `GH_TOKEN` runtime variable, or `gh auth login` credentials) and falls back to unauthenticated `raw.githubusercontent.com` otherwise. Entries the caller lacks access to are logged and skipped; they do not fail the bootstrap.
 
 ## Requirements
 
@@ -240,7 +239,6 @@ All optional. Anything unset is simply skipped.
 | `AAB_CODEX_FIRST_PARTY_API_KEY` | OpenAI API key used by Codex. Piped into `codex login --with-api-key` when set, exported from the `~/.bashrc` managed block as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`, and mirrored into `/etc/environment` so Codex can use API-key auth without a first-run sign-in prompt. |
 | `AAB_BREV_API_KEY` | Brev organization-scoped API key. Used with `AAB_BREV_ORG_ID` to run `brev login --api-key ... --org-id ...`, exported from the `~/.bashrc` managed block, and mirrored into `/etc/environment`. |
 | `AAB_BREV_ORG_ID` | Brev organization ID paired with `AAB_BREV_API_KEY`. Both values must be set to configure Brev API-key auth. |
-| `AAB_SKIP_INFERENCE_SMOKE_TESTS` | Set to `1`, `true`, or `yes` to skip the final Claude Code and Codex `hello world` inference smoke tests. Intended for e2e tests that use synthetic credentials. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL` | Base URL for the Anthropic-compatible third-party gateway. Also exported as `ANTHROPIC_BASE_URL` from the third-party branch. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN` | Bearer token for the third-party gateway. Also exported as `ANTHROPIC_AUTH_TOKEN` from the third-party branch. The third-party branch also exports `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` so context-management beta headers aren't sent to gateways that reject them. |
 | `AAB_GH_TOKEN` | GitHub personal access token. Exported from the `~/.bashrc` managed block as both `AAB_GH_TOKEN` and `GH_TOKEN`. `gh` reads `GH_TOKEN` from the environment directly, and since `gh auth git-credential` is registered as the `github.com` credential helper, `git clone` / `git push` reuse it automatically. |
@@ -361,7 +359,6 @@ Safe to re-run. Each run matches the current environment:
 - `settings.json`, `config.toml`, and `.claude.json` are backed up (timestamped `.bak`) before being rewritten.
 - `gh`, `claude`, and `codex` are skipped or updated by their installers if already installed.
 - Brev API-key login is re-run when both `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
-- Final Claude Code and Codex inference smoke tests run on each bootstrap unless `AAB_SKIP_INFERENCE_SMOKE_TESTS` is set.
 - `git config --global` is only touched for variables that are set.
 - The `~/.ssh/config` managed block is replaced in place on re-run; pre-existing entries outside the block are preserved. Re-running without `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` set leaves `~/.ssh/config` untouched — the block is **not** removed automatically. To turn signing off, use `git config --global --unset commit.gpgsign` (and similar) after dropping `AAB_GIT_SIGNING_PRIVATE_KEY_B64`.
 - The `/etc/environment` managed block is replaced in place on re-run, mirroring the same resolved-at-bootstrap-time provider / model / token state that goes into `~/.bashrc`. The runtime `claude_code_switch_inference_provider` shell function only updates `~/.bashrc` (interactive sessions); to make a switch visible to non-interactive shells (ssh remote command, systemd `EnvironmentFile=`), re-run the bootstrap with the new provider.
@@ -380,7 +377,7 @@ All tests are driven by a single entry point, [`./test.bash`](./test.bash). `.gi
 ./test.bash --all        # lint + unit + e2e + secrets, in order
 ```
 
-**`--e2e` is destructive.** It invokes `bootstrap.bash` for real against the current `$HOME`: overwrites `~/.claude/settings.json`, overwrites `~/.codex/config.toml`, writes a synthetic `~/.codex/auth.json`, writes Brev API-key credentials when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set, rewrites the `~/.bashrc` managed block, modifies global git config, skips the live inference smoke tests, and installs `claude` / `codex` / `brev` / `gh`. Only run it on a disposable VM or container (which is how CI exercises it). **`--docker` is the safe alternative** — it does the same run inside a throwaway `ubuntu:22.04` container, and also serves as the stronger check that `bootstrap.bash` works against a bare image with nothing pre-installed.
+**`--e2e` is destructive.** It invokes `bootstrap.bash` for real against the current `$HOME`: overwrites `~/.claude/settings.json`, overwrites `~/.codex/config.toml`, writes a synthetic `~/.codex/auth.json`, writes Brev API-key credentials when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set, rewrites the `~/.bashrc` managed block, modifies global git config, and installs `claude` / `codex` / `brev` / `gh`. Only run it on a disposable VM or container (which is how CI exercises it). **`--docker` is the safe alternative** — it does the same run inside a throwaway `ubuntu:22.04` container, and also serves as the stronger check that `bootstrap.bash` works against a bare image with nothing pre-installed.
 
 Install the test prerequisites on Ubuntu/Debian with:
 
