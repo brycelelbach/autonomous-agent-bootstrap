@@ -199,6 +199,10 @@
 #                       ~/.codex/config.toml's service_tier field. Defaults to
 #                       priority. Allowed values are priority, flex, default,
 #                       and fast as an alias for priority.
+#   AAB_CODEX_AGENT_MAX_THREADS
+#                       Maximum number of concurrently open Codex subagent
+#                       threads. Baked into ~/.codex/config.toml's
+#                       [agents].max_threads field. Defaults to 16.
 #   AAB_CODEX_FIRST_PARTY_API_KEY
 #                       OpenAI API key used by Codex when
 #                       AAB_CODEX_INFERENCE_PROVIDER=openai. Piped into
@@ -267,6 +271,7 @@ DEFAULT_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5"
 DEFAULT_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
 DEFAULT_CODEX_SERVICE_TIER="priority"
+DEFAULT_CODEX_AGENT_MAX_THREADS="16"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -563,6 +568,7 @@ write_codex_config() {
     fi
     local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
     local service_tier="${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
+    local agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
     case "$effort" in
         minimal|low|medium|high|xhigh) ;;
         *)
@@ -580,6 +586,19 @@ write_codex_config() {
             service_tier="$DEFAULT_CODEX_SERVICE_TIER"
             ;;
     esac
+    local agent_max_threads_valid=1
+    case "$agent_max_threads" in
+        [1-9]*)
+            case "$agent_max_threads" in
+                *[!0-9]*) agent_max_threads_valid=0 ;;
+            esac
+            ;;
+        *) agent_max_threads_valid=0 ;;
+    esac
+    if [ "$agent_max_threads_valid" -eq 0 ]; then
+        warn "AAB_CODEX_AGENT_MAX_THREADS='${agent_max_threads}' is not a valid positive integer; defaulting to ${DEFAULT_CODEX_AGENT_MAX_THREADS}."
+        agent_max_threads="$DEFAULT_CODEX_AGENT_MAX_THREADS"
+    fi
 
     local model_escaped home_escaped cwd cwd_escaped third_party_base_url_escaped
     model_escaped=$(_toml_escape "$model")
@@ -630,6 +649,9 @@ TOML
 
     cat >> "${CODEX_CONFIG}" <<TOML
 
+[agents]
+max_threads = ${agent_max_threads}
+
 [projects."${home_escaped}"]
 trust_level = "trusted"
 TOML
@@ -649,7 +671,7 @@ ${preserved_plugin_config}
 TOML
     fi
 
-    log "Wrote ${CODEX_CONFIG} (provider=${codex_provider}, model=${model}, effort=${effort}, service_tier=${service_tier}, approval=never, sandbox=danger-full-access)."
+    log "Wrote ${CODEX_CONFIG} (provider=${codex_provider}, model=${model}, effort=${effort}, service_tier=${service_tier}, agent_max_threads=${agent_max_threads}, approval=never, sandbox=danger-full-access)."
 }
 
 # ---------------------------------------------------------------------------
