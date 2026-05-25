@@ -36,7 +36,7 @@
 #  9b. If AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is set, decodes it to
 #      ~/.ssh/id_aab_auth and writes a managed block to ~/.ssh/config
 #      pointing github.com at that key.
-#  9c. If AAB_GIT_SIGNING_PRIVATE_KEY_B64 is set, decodes it to
+#  9c. If AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 is set, decodes it to
 #      ~/.ssh/id_aab_signing and configures git to sign commits / tags
 #      with it (gpg.format=ssh, user.signingkey, commit.gpgsign,
 #      tag.gpgsign). Does NOT touch ~/.ssh/config — signing role only.
@@ -151,7 +151,7 @@
 #                       a managed block in ~/.ssh/config points github.com
 #                       at it with IdentitiesOnly=yes. Does NOT configure
 #                       git signing.
-#   AAB_GIT_SIGNING_PRIVATE_KEY_B64
+#   AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
 #                       Base64-encoded OpenSSH private key used ONLY as
 #                       the git commit / tag signing key. Decoded to
 #                       ~/.ssh/id_aab_signing (mode 0600); public half at
@@ -698,7 +698,7 @@ configure_git() {
 # ---------------------------------------------------------------------------
 # 9b. Install SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
 # github.com auth: clone/push over SSH) and/or
-# $AAB_GIT_SIGNING_PRIVATE_KEY_B64 (for git commit/tag signing). These are
+# $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 (for git commit/tag signing). These are
 # two separate roles and the
 # bootstrap treats them independently: either may be set, or both, or
 # neither. The signing key path does NOT touch ~/.ssh/config.
@@ -813,13 +813,13 @@ install_auth_ssh_key() {
     log "Installed GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
 }
 
-# install_signing_ssh_key: Decode $AAB_GIT_SIGNING_PRIVATE_KEY_B64 to
+# install_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_signing and configure git to sign commits/tags with it.
 # Does NOT touch ~/.ssh/config — this key is for signing only. Silent
 # no-op when the env var is unset.
 install_signing_ssh_key() {
-    local encoded="${AAB_GIT_SIGNING_PRIVATE_KEY_B64:-}"
-    local label="AAB_GIT_SIGNING_PRIVATE_KEY_B64"
+    local encoded="${AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64:-}"
+    local label="AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
 
     if ! command -v base64 >/dev/null 2>&1; then

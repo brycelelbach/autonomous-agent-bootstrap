@@ -26,7 +26,7 @@ setup() {
           AAB_CODEX_FIRST_PARTY_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
-          AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SIGNING_PRIVATE_KEY_B64 \
+          AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           OPENAI_API_KEY GH_TOKEN GITHUB_TOKEN \
           AAB_AGENT_PLUGINS_FILE AAB_AGENT_PLUGINS_URL
@@ -996,7 +996,7 @@ gen_test_ssh_key_b64() {
     [ ! -e "$SSH_CONFIG" ]
 }
 
-@test "install_signing_ssh_key is a no-op when AAB_GIT_SIGNING_PRIVATE_KEY_B64 is unset" {
+@test "install_signing_ssh_key is a no-op when AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 is unset" {
     run install_signing_ssh_key
     [ "$status" -eq 0 ]
     [ ! -e "$SIGNING_KEY" ]
@@ -1020,8 +1020,8 @@ gen_test_ssh_key_b64() {
 }
 
 @test "install_signing_ssh_key writes id_aab_signing (0600) and id_aab_signing.pub (0644)" {
-    AAB_GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export AAB_GIT_SIGNING_PRIVATE_KEY_B64
+    AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
     install_signing_ssh_key
 
     [ -f "$SIGNING_KEY" ]
@@ -1059,8 +1059,8 @@ gen_test_ssh_key_b64() {
 }
 
 @test "install_signing_ssh_key does NOT touch ~/.ssh/config" {
-    AAB_GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export AAB_GIT_SIGNING_PRIVATE_KEY_B64
+    AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
     install_signing_ssh_key
 
     [ ! -e "$SSH_CONFIG" ]
@@ -1068,8 +1068,8 @@ gen_test_ssh_key_b64() {
 
 @test "install_signing_ssh_key configures git SSH signing (gpg.format, signingkey, commit/tag.gpgsign)" {
     command -v git >/dev/null || skip "precondition: git must exist"
-    AAB_GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
-    export AAB_GIT_SIGNING_PRIVATE_KEY_B64
+    AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
     install_signing_ssh_key
 
     [ "$(git config --global --get gpg.format)" = "ssh" ]
@@ -1124,10 +1124,10 @@ EOF
 }
 
 @test "install_signing_ssh_key warns and skips on decoded-garbage input" {
-    export AAB_GIT_SIGNING_PRIVATE_KEY_B64="$(printf 'not-an-ssh-key' | base64 -w0)"
+    export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64="$(printf 'not-an-ssh-key' | base64 -w0)"
     run install_signing_ssh_key
     [ "$status" -eq 0 ]
-    [[ "$output" == *"AAB_GIT_SIGNING_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
+    [[ "$output" == *"AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
     [ ! -e "$SIGNING_KEY" ]
     [ ! -e "$SIGNING_KEY_PUB" ]
 }
@@ -1135,8 +1135,8 @@ EOF
 @test "auth and signing keys can be set independently (different keys, both installed)" {
     # Generate two distinct keys, set each env var to a different encoding.
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/auth_key")
-    AAB_GIT_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/sign_key")
-    export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SIGNING_PRIVATE_KEY_B64
+    AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/sign_key")
+    export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
 
     install_auth_ssh_key
     install_signing_ssh_key
