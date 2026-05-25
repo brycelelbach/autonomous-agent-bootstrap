@@ -25,10 +25,10 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - Writes `~/.brev/onboarding_step.json` so the first `brev` invocation skips the interactive tutorial
    - Exports `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` from the managed `~/.bashrc` block and mirrors them into `/etc/environment`
 4. **`gh` CLI** — latest release from the official `cli.github.com` apt repo (the distro-shipped `gh` predates `gh auth token` / `gh auth git-credential`).
-5. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt. If `AAB_GIT_SIGNING_PRIVATE_KEY_B64` is set, git is also configured to sign every commit and tag with that key (see [SSH keys](#ssh-keys)).
+5. **git** — `user.name` / `user.email` set from env, and `gh` registered as the `github.com` credential helper so `git clone` / `git push` reuse the gh-stored token with no interactive prompt. If `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` is set, git is also configured to sign every commit and tag with that key (see [SSH keys](#ssh-keys)).
 6. **SSH keys for GitHub** — two independent optional env vars, each for a distinct role:
    - `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` -> the **authentication** identity. Decoded to `~/.ssh/id_aab_auth` (mode 0600) and wired as the `IdentityFile` for `github.com` in a managed block in `~/.ssh/config`.
-   - `AAB_GIT_SIGNING_PRIVATE_KEY_B64` -> the **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600) and wired into git's `user.signingkey` / `commit.gpgsign` / `tag.gpgsign` config. Does **not** touch `~/.ssh/config`.
+   - `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` -> the **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600) and wired into git's `user.signingkey` / `commit.gpgsign` / `tag.gpgsign` config. Does **not** touch `~/.ssh/config`.
 
    See [SSH keys](#ssh-keys) for how to generate, encode, and upload them.
 7. **Agent plugins** — marketplaces listed in [`agent_plugins.txt`](./agent_plugins.txt) are installed into both Claude Code and Codex. Claude Code also gets `~/.claude/settings.json` `extraKnownMarketplaces` / `enabledPlugins` entries so the plugins are enabled without a prompt. Defaults ship [agitentic](https://github.com/brycelelbach/agitentic) and [autocuda](https://github.com/brycelelbach-private/autocuda) (private); add more by editing the file and re-running the bootstrap. Plugin repos can be public or private — the bootstrap fetches each marketplace manifest via `gh api` when `gh` is authenticated (picks up `AAB_GH_TOKEN` via the exported `GH_TOKEN` runtime variable, or `gh auth login` credentials) and falls back to unauthenticated `raw.githubusercontent.com` otherwise. Entries the caller lacks access to are logged and skipped; they do not fail the bootstrap.
@@ -128,7 +128,7 @@ codex exec "Say hello from Codex"
 
 If you didn't pass `AAB_GH_TOKEN`, sign in to gh (`gh auth login`) before using GitHub.
 
-To wire in GitHub SSH keys, export `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` (auth identity for `git`-over-SSH) and/or `AAB_GIT_SIGNING_PRIVATE_KEY_B64` (commit & tag signing) before running the bootstrap. See [SSH keys](#ssh-keys) for details.
+To wire in GitHub SSH keys, export `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` (auth identity for `git`-over-SSH) and/or `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` (commit & tag signing) before running the bootstrap. See [SSH keys](#ssh-keys) for details.
 
 ### 4. Config file or stdin
 
@@ -246,7 +246,7 @@ All optional. Anything unset is simply skipped.
 | `AAB_GIT_AUTHOR_NAME` | `git config --global user.name` |
 | `AAB_GIT_AUTHOR_EMAIL` | `git config --global user.email` |
 | `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key used as the `github.com` **authentication** identity. Decoded to `~/.ssh/id_aab_auth` (mode 0600); public half at `~/.ssh/id_aab_auth.pub`. A managed block in `~/.ssh/config` wires it as `IdentityFile` for `github.com` with `IdentitiesOnly yes`. Does **not** touch git signing config. See [SSH keys](#ssh-keys). |
-| `AAB_GIT_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key used **only** as the git commit/tag **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600); public half at `~/.ssh/id_aab_signing.pub`. Sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_aab_signing.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`. Does **not** touch `~/.ssh/config`. See [SSH keys](#ssh-keys). |
+| `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key used **only** as the git commit/tag **signing** key. Decoded to `~/.ssh/id_aab_signing` (mode 0600); public half at `~/.ssh/id_aab_signing.pub`. Sets `gpg.format=ssh`, `user.signingkey=~/.ssh/id_aab_signing.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`. Does **not** touch `~/.ssh/config`. See [SSH keys](#ssh-keys). |
 | `AAB_AGENT_PLUGINS_FILE` | Path to a local `agent_plugins.txt`. If set and the file exists, it's used instead of fetching the canonical list. |
 | `AAB_AGENT_PLUGINS_URL` | URL of the plugin list to fetch when `AAB_AGENT_PLUGINS_FILE` is unset. Defaults to `agent_plugins.txt` on `main` of this repo. |
 
@@ -270,7 +270,7 @@ The bootstrap handles two independent optional env vars for GitHub SSH keys, eac
 | Env var | Role | Writes private key to | Touches `~/.ssh/config`? | Touches git signing config? |
 | --- | --- | --- | --- | --- |
 | `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | GitHub authentication (clone/push/pull over SSH) | `~/.ssh/id_aab_auth` | **Yes** — managed block wires `github.com` -> `IdentityFile` | No |
-| `AAB_GIT_SIGNING_PRIVATE_KEY_B64` | git commit / tag signing | `~/.ssh/id_aab_signing` | **No** | **Yes** — `gpg.format=ssh`, `user.signingkey`, `commit.gpgsign=true`, `tag.gpgsign=true` |
+| `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` | git commit / tag signing | `~/.ssh/id_aab_signing` | **No** | **Yes** — `gpg.format=ssh`, `user.signingkey`, `commit.gpgsign=true`, `tag.gpgsign=true` |
 
 Keeping them separate lets you:
 
@@ -294,7 +294,7 @@ Host github.com
 
 Pre-existing entries in `~/.ssh/config` (other `Host` blocks, `IdentityFile` lines for other hosts) are preserved — re-runs rewrite **only** the managed block between the marker pair.
 
-**`AAB_GIT_SIGNING_PRIVATE_KEY_B64`** — sets the following in `~/.gitconfig` via `git config --global`:
+**`AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64`** — sets the following in `~/.gitconfig` via `git config --global`:
 
 ```
 gpg.format        = ssh
@@ -319,7 +319,7 @@ Copy the single-line output and set it on whichever env var matches the role:
 
 ```bash
 export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64="AAAA...=="      # auth identity
-export AAB_GIT_SIGNING_PRIVATE_KEY_B64="AAAA...=="      # signing key
+export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64="AAAA...=="      # signing key
 ```
 
 Upload the matching **public** key (`~/.ssh/new_key.pub`) to GitHub under *Settings → SSH and GPG keys → New SSH key*. GitHub lets you choose the key type:
@@ -345,9 +345,9 @@ You can upload the same public key under both types if you want a single blob to
 | `~/.brev/onboarding_step.json` | Written with the Brev tutorial steps marked complete. Existing file backed up to `onboarding_step.json.bak.<timestamp>` before the rewrite. |
 | `~/.claude.json` | Merged — `hasCompletedOnboarding=true` and optional `customApiKeyResponses.approved` entry. Existing file backed up to `.claude.json.bak.<timestamp>`. |
 | `~/.bashrc` | Managed block between `# >>> autonomous-agent-bootstrap >>>` and `# <<< autonomous-agent-bootstrap <<<`. Rewritten wholesale on every run. The Codex standalone installer may also add its own PATH block when `~/.local/bin` was not already on `PATH`. |
-| `~/.gitconfig` | `user.name`, `user.email`, and `credential.https://github.com.helper`. When `AAB_GIT_SIGNING_PRIVATE_KEY_B64` is set, also `gpg.format=ssh`, `user.signingkey=~/.ssh/id_aab_signing.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`. |
+| `~/.gitconfig` | `user.name`, `user.email`, and `credential.https://github.com.helper`. When `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` is set, also `gpg.format=ssh`, `user.signingkey=~/.ssh/id_aab_signing.pub`, `commit.gpgsign=true`, `tag.gpgsign=true`. |
 | `~/.ssh/id_aab_auth`, `~/.ssh/id_aab_auth.pub` | Written only when `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` is set. Private key mode 0600, public key mode 0644, `~/.ssh` dir mode 0700. |
-| `~/.ssh/id_aab_signing`, `~/.ssh/id_aab_signing.pub` | Written only when `AAB_GIT_SIGNING_PRIVATE_KEY_B64` is set. Same mode layout as the auth pair. |
+| `~/.ssh/id_aab_signing`, `~/.ssh/id_aab_signing.pub` | Written only when `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` is set. Same mode layout as the auth pair. |
 | `~/.ssh/config` | Managed block (same `# >>> … <<<` marker pair as `~/.bashrc`) mapping `github.com` to `~/.ssh/id_aab_auth`. Only touched when `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` is set — the signing-only flow leaves `~/.ssh/config` alone. Pre-existing entries outside the managed block are preserved. |
 | `/etc/environment` | Managed block (same `# >>> … <<<` marker pair) mirroring the resolved provider / model / token state into a `KEY=VALUE` file PAM loads for every session. Pre-existing entries outside the block are preserved; re-runs replace the block in place. Requires `sudo`; the bootstrap warns and skips this step if passwordless `sudo` isn't available. |
 | System-wide | `gh` package, its apt source + signing keyring (requires `sudo`; script skips with a warning if passwordless `sudo` isn't available). `openssh-client` is also installed on demand when either SSH-key env var is set and `ssh-keygen` isn't already available. |
@@ -361,7 +361,7 @@ Safe to re-run. Each run matches the current environment:
 - `gh`, `claude`, and `codex` are skipped or updated by their installers if already installed.
 - Brev API-key login is re-run when both `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 - `git config --global` is only touched for variables that are set.
-- The `~/.ssh/config` managed block is replaced in place on re-run; pre-existing entries outside the block are preserved. Re-running without `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` set leaves `~/.ssh/config` untouched — the block is **not** removed automatically. To turn signing off, use `git config --global --unset commit.gpgsign` (and similar) after dropping `AAB_GIT_SIGNING_PRIVATE_KEY_B64`.
+- The `~/.ssh/config` managed block is replaced in place on re-run; pre-existing entries outside the block are preserved. Re-running without `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` set leaves `~/.ssh/config` untouched — the block is **not** removed automatically. To turn signing off, use `git config --global --unset commit.gpgsign` (and similar) after dropping `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64`.
 - The `/etc/environment` managed block is replaced in place on re-run, mirroring the same resolved-at-bootstrap-time provider / model / token state that goes into `~/.bashrc`. The runtime `claude_code_switch_inference_provider` shell function only updates `~/.bashrc` (interactive sessions); to make a switch visible to non-interactive shells (ssh remote command, systemd `EnvironmentFile=`), re-run the bootstrap with the new provider.
 
 ## Running the tests
