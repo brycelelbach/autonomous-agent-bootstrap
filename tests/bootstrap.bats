@@ -13,20 +13,26 @@ setup() {
           AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL \
           AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL \
           AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL \
-          AAB_CLAUDE_CODE_THIRD_PARTY_MODEL \
-          AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL \
-          AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL \
-          AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL \
           AAB_CLAUDE_CODE_EFFORT \
           AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
           AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY \
-          AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL \
-          AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN \
+          AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY \
+          AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY \
           AAB_CODEX_INFERENCE_PROVIDER \
           AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT AAB_CODEX_SERVICE_TIER \
           AAB_CODEX_AGENT_MAX_THREADS \
           AAB_CODEX_FIRST_PARTY_API_KEY \
-          AAB_CODEX_THIRD_PARTY_MODEL AAB_CODEX_THIRD_PARTY_BASE_URL AAB_CODEX_THIRD_PARTY_AUTH_TOKEN \
+          AAB_CODEX_THIRD_PARTY_OPENAI_MODEL AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
@@ -143,6 +149,40 @@ PY
     [ "$backup_count" -ge 1 ]
 }
 
+@test "write_aab_env_file writes AAB config and credentials with private permissions" {
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL="https://deepseek.example.com/v1" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY="deepseek-test-key" \
+        AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" \
+        AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://openai-compatible.example.com/v1" \
+        AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY="codex-third-party-test-key" \
+        AAB_GH_TOKEN="ghp_test_token" \
+        write_aab_env_file
+
+    [ -f "$AAB_ENV_FILE" ]
+    [ "$(stat -c '%a' "$AAB_ENV_FILE")" = "600" ]
+    [ "$(stat -c '%a' "$AAB_DIR")" = "700" ]
+    # shellcheck disable=SC1090
+    . "$AAB_ENV_FILE"
+    [ "$AAB_CLAUDE_CODE_INFERENCE_PROVIDER" = "third-party-deepseek" ]
+    [ "$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL" = "https://deepseek.example.com/v1" ]
+    [ "$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY" = "deepseek-test-key" ]
+    [ "$AAB_CODEX_INFERENCE_PROVIDER" = "third-party-openai" ]
+    [ "$AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL" = "https://openai-compatible.example.com/v1" ]
+    [ "$AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY" = "codex-third-party-test-key" ]
+    [ "$AAB_GH_TOKEN" = "ghp_test_token" ]
+}
+
+@test "write_aab_env_file does not write runtime API-key aliases" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" \
+        AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" \
+        write_aab_env_file
+
+    ! grep -q '^export ANTHROPIC_API_KEY=' "$AAB_ENV_FILE"
+    ! grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE"
+    ! grep -q '^export GH_TOKEN=' "$AAB_ENV_FILE"
+}
+
 @test "write_codex_config writes unattended yolo-mode defaults" {
     write_codex_config
     [ -f "$CODEX_CONFIG" ]
@@ -175,17 +215,17 @@ PY
 }
 
 @test "write_codex_config can target a third-party OpenAI-compatible Responses endpoint" {
-    AAB_CODEX_INFERENCE_PROVIDER="third-party" \
-        AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5" \
-        AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1" \
+    AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" \
+        AAB_CODEX_THIRD_PARTY_OPENAI_MODEL="openai/openai/gpt-5.5" \
+        AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://inference-api.nvidia.com/v1" \
         write_codex_config
 
     grep -q '^model = "openai/openai/gpt-5.5"$' "$CODEX_CONFIG"
-    grep -q '^model_provider = "third-party"$' "$CODEX_CONFIG"
-    grep -q '^\[model_providers."third-party"\]$' "$CODEX_CONFIG"
-    grep -q '^name = "Third Party"$' "$CODEX_CONFIG"
+    grep -q '^model_provider = "third-party-openai"$' "$CODEX_CONFIG"
+    grep -q '^\[model_providers."third-party-openai"\]$' "$CODEX_CONFIG"
+    grep -q '^name = "Third Party OpenAI"$' "$CODEX_CONFIG"
     grep -q '^base_url = "https://inference-api.nvidia.com/v1"$' "$CODEX_CONFIG"
-    grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN"$' "$CODEX_CONFIG"
+    grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY"$' "$CODEX_CONFIG"
     grep -q '^wire_api = "responses"$' "$CODEX_CONFIG"
 }
 
@@ -378,6 +418,67 @@ SH
     grep -Fxq -- 'list' "$TEST_HOME/codex-launcher-args"
 }
 
+@test "install_codex_launcher selects third-party OpenAI wrapper and injects provider config" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$TEST_HOME/real-codex" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
+printf '%s\n' "\${AAB_CODEX_INFERENCE_PROVIDER:-}" > "$TEST_HOME/codex-launcher-provider"
+SH
+    chmod +x "$TEST_HOME/real-codex"
+    ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
+
+    AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" \
+        AAB_CODEX_THIRD_PARTY_OPENAI_MODEL="vendor/model" \
+        AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://gateway.example.com/v1" \
+        AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY="gateway-test-key" \
+        write_aab_env_file
+    AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" install_codex_launcher
+
+    [ "$(readlink "$HOME/.local/bin/codex")" = "codex-third-party-openai" ]
+    "$HOME/.local/bin/codex" exec hello
+
+    [ "$(cat "$TEST_HOME/codex-launcher-provider")" = "third-party-openai" ]
+    grep -Fxq 'model="vendor/model"' "$TEST_HOME/codex-launcher-args"
+    grep -Fxq 'model_provider="third-party-openai"' "$TEST_HOME/codex-launcher-args"
+    grep -Fq 'env_key="AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY"' "$TEST_HOME/codex-launcher-args"
+    grep -Fq 'base_url="https://gateway.example.com/v1"' "$TEST_HOME/codex-launcher-args"
+}
+
+@test "install_claude_launcher selects provider wrapper and maps env from .env" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$TEST_HOME/real-claude" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TEST_HOME/claude-launcher-args"
+{
+    printf 'provider=%s\n' "\${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-}"
+    printf 'base_url=%s\n' "\${ANTHROPIC_BASE_URL:-}"
+    printf 'auth_token=%s\n' "\${ANTHROPIC_AUTH_TOKEN:-}"
+    printf 'model=%s\n' "\${ANTHROPIC_MODEL:-}"
+    printf 'debug=%s\n' "\${DEBUG_SDK:-}"
+} > "$TEST_HOME/claude-launcher-env"
+SH
+    chmod +x "$TEST_HOME/real-claude"
+    ln -s "$TEST_HOME/real-claude" "$HOME/.local/bin/claude"
+
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL="https://deepseek.example.com/v1" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY="deepseek-test-key" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL="deepseek-reasoner" \
+        write_aab_env_file
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" install_claude_launcher
+
+    [ "$(readlink "$HOME/.local/bin/claude")" = "claude-third-party-deepseek" ]
+    "$HOME/.local/bin/claude" -p hello
+
+    grep -Fxq -- '--dangerously-skip-permissions' "$TEST_HOME/claude-launcher-args"
+    grep -Fxq 'provider=third-party-deepseek' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'base_url=https://deepseek.example.com/v1' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'auth_token=deepseek-test-key' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'model=deepseek-reasoner' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
+}
+
 setup_fake_codex() {
     export FAKE_CODEX_BIN="$TEST_HOME/fake-codex-bin"
     mkdir -p "$FAKE_CODEX_BIN"
@@ -425,7 +526,7 @@ PY
 
 @test "configure_codex_auth skips OpenAI login when Codex provider is third-party" {
     setup_fake_codex
-    AAB_CODEX_INFERENCE_PROVIDER="third-party" \
+    AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" \
         AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" \
         run configure_codex_auth
     [ "$status" -eq 0 ]
@@ -565,30 +666,6 @@ PY
     grep -q "$BASHRC_MARKER_END" "$BASHRC"
 }
 
-@test "update_bashrc aliases codex through yolo mode" {
-    update_bashrc
-    grep -q "alias codex='codex --dangerously-bypass-approvals-and-sandbox'" "$BASHRC"
-}
-
-@test "update_bashrc exports Codex first-party API key when set" {
-    AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" update_bashrc
-    grep -q 'export AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key"' "$BASHRC"
-    grep -q 'export OPENAI_API_KEY="codex-first-party-test-key"' "$BASHRC"
-}
-
-@test "update_bashrc exports Codex third-party provider settings when selected" {
-    AAB_CODEX_INFERENCE_PROVIDER="third-party" \
-        AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5" \
-        AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1" \
-        AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="nvapi-test-key" \
-        update_bashrc
-    grep -q 'export AAB_CODEX_INFERENCE_PROVIDER="third-party"' "$BASHRC"
-    grep -q 'export AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5"' "$BASHRC"
-    grep -q 'export AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1"' "$BASHRC"
-    grep -q 'export AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="nvapi-test-key"' "$BASHRC"
-    ! grep -q '^export OPENAI_API_KEY=' "$BASHRC"
-}
-
 @test "update_bashrc is idempotent (single managed block after two runs)" {
     update_bashrc
     update_bashrc
@@ -599,9 +676,15 @@ PY
     [ "$end_count" -eq 1 ]
 }
 
+@test "update_bashrc puts launcher directory on PATH without aliases" {
+    update_bashrc
+    grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC"
+    ! grep -q '^alias claude=' "$BASHRC"
+    ! grep -q '^alias codex=' "$BASHRC"
+}
+
 @test "update_bashrc exports DEBUG_SDK=1 (turns on Claude Code debug logging)" {
     update_bashrc
-    # Provider-agnostic — set unconditionally, outside the if/else.
     grep -qE "^export DEBUG_SDK=('?\"?)1\\1?$" "$BASHRC"
 }
 
@@ -610,84 +693,21 @@ PY
     grep -qE "^export CLAUDE_CODE_EFFORT_LEVEL=('?\"?)high\\1?$" "$BASHRC"
 }
 
-@test "update_bashrc exports first-party API key under AAB and Claude runtime names" {
-    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" update_bashrc
-    grep -q 'export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key"' "$BASHRC"
-    grep -q 'export ANTHROPIC_API_KEY="sk-ant-test-key"' "$BASHRC"
-}
-
-@test "update_bashrc exports third-party credentials under AAB and Claude runtime names" {
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
-    AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com" \
-    AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz" \
+@test "update_bashrc does not write credentials or provider AAB vars" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" \
+        AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" \
+        AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY="codex-third-party-test-key" \
+        AAB_GH_TOKEN="ghp_test_token" \
         update_bashrc
-    grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com"' "$BASHRC"
-    grep -q 'export ANTHROPIC_BASE_URL="https://gateway.example.com"' "$BASHRC"
-    grep -q 'export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz"' "$BASHRC"
-    grep -q 'export ANTHROPIC_AUTH_TOKEN="bearer-token-xyz"' "$BASHRC"
-}
 
-@test "update_bashrc exports GitHub token under AAB and gh runtime names" {
-    AAB_GH_TOKEN="ghp_test_token" update_bashrc
-    grep -q 'export AAB_GH_TOKEN="ghp_test_token"' "$BASHRC"
-    grep -q 'export GH_TOKEN="ghp_test_token"' "$BASHRC"
-}
-
-@test "update_bashrc honors third-party provider selection" {
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" update_bashrc
-    grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"' "$BASHRC"
-}
-
-@test "update_bashrc exports default ANTHROPIC_DEFAULT_*_MODEL in both branches" {
-    update_bashrc
-    grep -q 'export ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-4-5"'   "$BASHRC"
-    grep -q 'export ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-4-6"' "$BASHRC"
-    grep -q 'export ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-4-7"'     "$BASHRC"
-    # Both branches export each var — two of each.
-    for tier in HAIKU SONNET OPUS; do
-        local export_count
-        export_count=$(grep -c "export ANTHROPIC_DEFAULT_${tier}_MODEL=" "$BASHRC")
-        [ "$export_count" -eq 2 ]
-    done
-}
-
-@test "update_bashrc uses explicit first-party and third-party model vars" {
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-first" \
-        AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL="claude-haiku-first" \
-        AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL="claude-sonnet-first" \
-        AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL="claude-opus-first" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
-        update_bashrc
-    grep -q 'ANTHROPIC_MODEL="claude-opus-first"'                                  "$BASHRC"
-    grep -q 'ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-first"'                    "$BASHRC"
-    grep -q 'ANTHROPIC_DEFAULT_SONNET_MODEL="claude-sonnet-first"'                  "$BASHRC"
-    grep -q 'ANTHROPIC_DEFAULT_OPUS_MODEL="claude-opus-first"'                      "$BASHRC"
-    grep -q 'ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-opus-4-7"'               "$BASHRC"
-    grep -q 'ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"'     "$BASHRC"
-    grep -q 'ANTHROPIC_DEFAULT_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"' "$BASHRC"
-    grep -q 'ANTHROPIC_DEFAULT_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"'     "$BASHRC"
-}
-
-@test "update_bashrc third-party explicit model vars resolve verbatim when provider flips" {
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
-        AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
-        update_bashrc
-    # shellcheck disable=SC1090
-    ANTHROPIC_MODEL="" \
-        ANTHROPIC_DEFAULT_HAIKU_MODEL="" \
-        ANTHROPIC_DEFAULT_SONNET_MODEL="" \
-        ANTHROPIC_DEFAULT_OPUS_MODEL="" \
-        . "$BASHRC"
-    [ "$ANTHROPIC_MODEL"               = "aws/anthropic/bedrock-claude-opus-4-7" ]
-    [ "$ANTHROPIC_DEFAULT_HAIKU_MODEL"  = "aws/anthropic/claude-haiku-4-5-v1" ]
-    [ "$ANTHROPIC_DEFAULT_SONNET_MODEL" = "aws/anthropic/bedrock-claude-sonnet-4-6" ]
-    [ "$ANTHROPIC_DEFAULT_OPUS_MODEL"   = "aws/anthropic/bedrock-claude-opus-4-7" ]
+    ! grep -q 'sk-ant-test-key' "$BASHRC"
+    ! grep -q 'codex-first-party-test-key' "$BASHRC"
+    ! grep -q 'codex-third-party-test-key' "$BASHRC"
+    ! grep -q 'ghp_test_token' "$BASHRC"
+    ! grep -q '^export AAB_' "$BASHRC"
+    ! grep -q '^export ANTHROPIC_' "$BASHRC"
+    ! grep -q '^export OPENAI_API_KEY=' "$BASHRC"
+    ! grep -q '^export GH_TOKEN=' "$BASHRC"
 }
 
 @test "sourcing bootstrap.bash does NOT execute main" {
@@ -1249,181 +1269,42 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# update_etc_environment: covers the /etc/environment managed-block writer
-# used to expose AAB env vars to non-interactive shells (ssh remote command,
-# systemd EnvironmentFile=, etc.). Tests redirect ETC_ENV to a per-test
-# sandbox path and unset SUDO so the install runs as the current user.
+# update_etc_environment: removes stale AAB blocks from older installs.
 # ---------------------------------------------------------------------------
 
-# Common setup: redirect ETC_ENV under the per-test HOME so update_etc_environment
-# does not need root and does not touch the host's real /etc/environment.
 _etc_env_sandbox() {
     ETC_ENV="$TEST_HOME/environment"
     SUDO=""
 }
 
-@test "update_etc_environment writes managed block with both markers (anthropic provider)" {
+@test "update_etc_environment removes stale managed block and preserves other entries" {
     _etc_env_sandbox
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
-    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" \
-    AAB_CODEX_FIRST_PARTY_API_KEY="codex-etc-env-test-key" \
-    AAB_GH_TOKEN="ghp_etc_env_test" \
-        update_etc_environment
-
-    [ -f "$ETC_ENV" ]
-    grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
-    grep -qF "$ETC_ENV_MARKER_END"   "$ETC_ENV"
-    grep -q  '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"$' "$ETC_ENV"
-    grep -q  '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key"$' "$ETC_ENV"
-    grep -q  '^ANTHROPIC_API_KEY="sk-ant-test-key"$'            "$ETC_ENV"
-    grep -q  '^AAB_CODEX_FIRST_PARTY_API_KEY="codex-etc-env-test-key"$' "$ETC_ENV"
-    grep -q  '^OPENAI_API_KEY="codex-etc-env-test-key"$'        "$ETC_ENV"
-    grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$'              "$ETC_ENV"
-    grep -q  '^AAB_GH_TOKEN="ghp_etc_env_test"$'                "$ETC_ENV"
-    grep -q  '^GH_TOKEN="ghp_etc_env_test"$'                    "$ETC_ENV"
-    grep -q  '^CLAUDE_CODE_SANDBOXED="1"$'                      "$ETC_ENV"
-    grep -q  '^CLAUDE_CODE_EFFORT_LEVEL="max"$'                 "$ETC_ENV"
-    grep -q  '^DEBUG_SDK="1"$'                                  "$ETC_ENV"
-    # Anthropic branch must NOT carry the third-party-only vars.
-    ! grep -q '^ANTHROPIC_BASE_URL='                       "$ETC_ENV"
-    ! grep -q '^ANTHROPIC_AUTH_TOKEN='                     "$ETC_ENV"
-    ! grep -q '^CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='   "$ETC_ENV"
-}
-
-@test "update_etc_environment writes third-party provider block with explicit model names" {
-    _etc_env_sandbox
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party" \
-    AAB_CLAUDE_CODE_THIRD_PARTY_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
-    AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
-    AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6" \
-    AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7" \
-    AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com" \
-    AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz" \
-        update_etc_environment
-
-    grep -q '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party"$' "$ETC_ENV"
-    grep -q '^AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://gateway.example.com"$' "$ETC_ENV"
-    grep -q '^ANTHROPIC_BASE_URL="https://gateway.example.com"$' "$ETC_ENV"
-    grep -q '^AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="bearer-token-xyz"$' "$ETC_ENV"
-    grep -q '^ANTHROPIC_AUTH_TOKEN="bearer-token-xyz"$'          "$ETC_ENV"
-    grep -q '^ANTHROPIC_MODEL="aws/anthropic/bedrock-claude-opus-4-7"$' "$ETC_ENV"
-    grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"$'        "$ETC_ENV"
-    grep -q '^ANTHROPIC_DEFAULT_SONNET_MODEL="aws/anthropic/bedrock-claude-sonnet-4-6"$' "$ETC_ENV"
-    grep -q '^ANTHROPIC_DEFAULT_OPUS_MODEL="aws/anthropic/bedrock-claude-opus-4-7"$'     "$ETC_ENV"
-    grep -q '^CLAUDE_CODE_EFFORT_LEVEL="max"$'                    "$ETC_ENV"
-    grep -q '^CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS="1"$'       "$ETC_ENV"
-    # Third-party branch must NOT carry the first-party-only API key.
-    ! grep -q '^ANTHROPIC_API_KEY=' "$ETC_ENV"
-}
-
-@test "update_etc_environment writes Codex third-party provider block" {
-    _etc_env_sandbox
-    AAB_CODEX_INFERENCE_PROVIDER="third-party" \
-        AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5" \
-        AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1" \
-        AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="nvapi-test-key" \
-        AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" \
-        update_etc_environment
-
-    grep -q '^AAB_CODEX_INFERENCE_PROVIDER="third-party"$' "$ETC_ENV"
-    grep -q '^AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5"$' "$ETC_ENV"
-    grep -q '^AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1"$' "$ETC_ENV"
-    grep -q '^AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="nvapi-test-key"$' "$ETC_ENV"
-    ! grep -q '^OPENAI_API_KEY=' "$ETC_ENV"
-}
-
-@test "update_etc_environment keeps first-party and third-party model vars separate" {
-    _etc_env_sandbox
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL="claude-haiku-first" \
-    AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1" \
-        update_etc_environment
-
-    grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="claude-haiku-first"$' "$ETC_ENV"
-    ! grep -q '^ANTHROPIC_DEFAULT_HAIKU_MODEL="aws/anthropic/claude-haiku-4-5-v1"$' "$ETC_ENV"
-}
-
-@test "update_etc_environment writes CLAUDE_CODE_EFFORT_LEVEL from AAB_CLAUDE_CODE_EFFORT" {
-    _etc_env_sandbox
-    AAB_CLAUDE_CODE_EFFORT="high" update_etc_environment
-    grep -q '^CLAUDE_CODE_EFFORT_LEVEL="high"$' "$ETC_ENV"
-}
-
-@test "update_etc_environment is idempotent (single managed block after two runs)" {
-    _etc_env_sandbox
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" AAB_GH_TOKEN="ghp_idem" update_etc_environment
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" AAB_GH_TOKEN="ghp_idem" update_etc_environment
-
-    local begin_count end_count
-    begin_count=$(grep -cF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV")
-    end_count=$(grep -cF "$ETC_ENV_MARKER_END"   "$ETC_ENV")
-    [ "$begin_count" -eq 1 ]
-    [ "$end_count"   -eq 1 ]
-}
-
-@test "update_etc_environment preserves pre-existing non-managed entries" {
-    _etc_env_sandbox
-    cat > "$ETC_ENV" <<'EOF'
-PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    cat > "$ETC_ENV" <<EOF
+PATH="/usr/local/bin:/usr/bin"
+$ETC_ENV_MARKER_BEGIN
+AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old"
+ANTHROPIC_API_KEY="sk-ant-old"
+$ETC_ENV_MARKER_END
 LC_ALL="C.UTF-8"
 EOF
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" AAB_GH_TOKEN="ghp_keep" update_etc_environment
 
-    # Pre-existing entries survive.
-    grep -q '^PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"$' "$ETC_ENV"
+    update_etc_environment
+
+    grep -q '^PATH="/usr/local/bin:/usr/bin"$' "$ETC_ENV"
     grep -q '^LC_ALL="C.UTF-8"$' "$ETC_ENV"
-    # AAB block sits below them.
-    grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
-    grep -q '^AAB_GH_TOKEN="ghp_keep"$' "$ETC_ENV"
-    grep -q '^GH_TOKEN="ghp_keep"$'  "$ETC_ENV"
-}
-
-@test "update_etc_environment replaces a stale managed block in place (re-runs match current env)" {
-    _etc_env_sandbox
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old" AAB_GH_TOKEN="ghp_old" update_etc_environment
-    grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old"$' "$ETC_ENV"
-    grep -q '^ANTHROPIC_API_KEY="sk-ant-old"$' "$ETC_ENV"
-
-    # Second run with different env: old values must NOT linger.
-    unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY AAB_GH_TOKEN
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-new" AAB_GH_TOKEN="ghp_new" update_etc_environment
-    grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-new"$' "$ETC_ENV"
-    grep -q '^ANTHROPIC_API_KEY="sk-ant-new"$' "$ETC_ENV"
-    grep -q '^AAB_GH_TOKEN="ghp_new"$'          "$ETC_ENV"
-    grep -q '^GH_TOKEN="ghp_new"$'             "$ETC_ENV"
-    ! grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old"$' "$ETC_ENV"
-    ! grep -q '^ANTHROPIC_API_KEY="sk-ant-old"$' "$ETC_ENV"
-    ! grep -q '^AAB_GH_TOKEN="ghp_old"$'          "$ETC_ENV"
-    ! grep -q '^GH_TOKEN="ghp_old"$'             "$ETC_ENV"
-}
-
-@test "update_etc_environment file mode is 0644" {
-    _etc_env_sandbox
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" update_etc_environment
+    ! grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
+    ! grep -q 'sk-ant-old' "$ETC_ENV"
     [ "$(stat -c '%a' "$ETC_ENV")" = "644" ]
 }
 
-@test "update_etc_environment skips when AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY is unset (anthropic branch)" {
+@test "update_etc_environment is a no-op when no stale managed block exists" {
     _etc_env_sandbox
-    # No AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY in env. The block should still
-    # be written but without stale API-key lines — re-runs match the
-    # current env.
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic" \
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" update_etc_environment
-
-    grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
-    grep -q  '^ANTHROPIC_MODEL="claude-opus-4-7"$' "$ETC_ENV"
-    ! grep -q '^AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=' "$ETC_ENV"
-    ! grep -q '^ANTHROPIC_API_KEY=' "$ETC_ENV"
-}
-
-@test "update_etc_environment defaults to anthropic provider when AAB_CLAUDE_CODE_INFERENCE_PROVIDER unset" {
-    _etc_env_sandbox
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" update_etc_environment
-    grep -q '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER="anthropic"$' "$ETC_ENV"
+    cat > "$ETC_ENV" <<'EOF'
+PATH="/usr/local/bin:/usr/bin"
+EOF
+    update_etc_environment
+    grep -q '^PATH="/usr/local/bin:/usr/bin"$' "$ETC_ENV"
+    ! grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
 }
 
 # ---------------------------------------------------------------------------
@@ -1437,13 +1318,13 @@ EOF
 @test "load_config_file populates unset env vars from KEY=VALUE lines" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-sonnet-4-6
-AAB_CLAUDE_CODE_INFERENCE_PROVIDER=third-party
+AAB_CLAUDE_CODE_INFERENCE_PROVIDER=third-party-anthropic
 AAB_GIT_AUTHOR_NAME="Alice Example"
 AAB_GIT_AUTHOR_EMAIL=alice@example.com
 EOF
     load_config_file "$TEST_HOME/aab.conf"
     [ "$AAB_CLAUDE_CODE_FIRST_PARTY_MODEL" = "claude-sonnet-4-6" ]
-    [ "$AAB_CLAUDE_CODE_INFERENCE_PROVIDER" = "third-party" ]
+    [ "$AAB_CLAUDE_CODE_INFERENCE_PROVIDER" = "third-party-anthropic" ]
     [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
     [ "$AAB_GIT_AUTHOR_EMAIL" = "alice@example.com" ]
 }
@@ -1485,10 +1366,10 @@ EOF
 
 @test "load_config_file preserves values containing '=' (only the FIRST '=' splits)" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="https://example.com/v1?foo=bar&baz=qux"
+AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL="https://example.com/v1?foo=bar&baz=qux"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL" = "https://example.com/v1?foo=bar&baz=qux" ]
+    [ "$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL" = "https://example.com/v1?foo=bar&baz=qux" ]
 }
 
 @test "load_config_file skips comments and blank lines" {

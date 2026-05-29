@@ -15,6 +15,7 @@ CODEX_CONFIG="${HOME}/.codex/config.toml"
 CODEX_AUTH="${HOME}/.codex/auth.json"
 BREV_ONBOARDING="${HOME}/.brev/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
+AAB_ENV_FILE="${HOME}/.aab/.env"
 
 # 1. settings.json is well-formed and has the expected shape.
 [ -f "$SETTINGS_FILE" ] || fail "settings.json not written."
@@ -41,15 +42,14 @@ pass "settings.json written with unattended-mode defaults."
 [ -f "$CODEX_CONFIG" ] || fail "Codex config.toml not written."
 expected_codex_effort="${AAB_CODEX_EFFORT:-xhigh}"
 expected_codex_service_tier="${AAB_CODEX_SERVICE_TIER:-priority}"
-expected_codex_provider="${AAB_CODEX_INFERENCE_PROVIDER:-openai}"
+expected_codex_provider="${AAB_CODEX_INFERENCE_PROVIDER:-first-party}"
 case "$expected_codex_provider" in
-    openai|first-party) expected_codex_provider="openai" ;;
-    third-party) ;;
-    *) expected_codex_provider="openai" ;;
+    first-party|third-party-openai) ;;
+    *) expected_codex_provider="first-party" ;;
 esac
-if [ "$expected_codex_provider" = "third-party" ]; then
-    expected_codex_model="${AAB_CODEX_THIRD_PARTY_MODEL:-openai/openai/gpt-5.5}"
-    expected_codex_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-https://inference-api.nvidia.com/v1}"
+if [ "$expected_codex_provider" = "third-party-openai" ]; then
+    expected_codex_model="${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-openai/openai/gpt-5.5}"
+    expected_codex_base_url="${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-https://inference-api.nvidia.com/v1}"
 else
     expected_codex_model="${AAB_CODEX_FIRST_PARTY_MODEL:-gpt-5.5}"
 fi
@@ -62,15 +62,15 @@ case "$expected_codex_service_tier" in
 esac
 grep -q "^model = \"${expected_codex_model}\"$" "$CODEX_CONFIG" \
     || fail "Codex model is not ${expected_codex_model}."
-if [ "$expected_codex_provider" = "third-party" ]; then
-    grep -q '^model_provider = "third-party"$' "$CODEX_CONFIG" \
-        || fail "Codex model_provider is not third-party."
-    grep -q '^\[model_providers."third-party"\]$' "$CODEX_CONFIG" \
-        || fail "Codex third-party provider table missing."
+if [ "$expected_codex_provider" = "third-party-openai" ]; then
+    grep -q '^model_provider = "third-party-openai"$' "$CODEX_CONFIG" \
+        || fail "Codex model_provider is not third-party-openai."
+    grep -q '^\[model_providers."third-party-openai"\]$' "$CODEX_CONFIG" \
+        || fail "Codex third-party-openai provider table missing."
     grep -q "^base_url = \"${expected_codex_base_url}\"$" "$CODEX_CONFIG" \
-        || fail "Codex third-party provider base URL is not ${expected_codex_base_url}."
-    grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN"$' "$CODEX_CONFIG" \
-        || fail "Codex third-party provider env key is not AAB_CODEX_THIRD_PARTY_AUTH_TOKEN."
+        || fail "Codex third-party-openai provider base URL is not ${expected_codex_base_url}."
+    grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY"$' "$CODEX_CONFIG" \
+        || fail "Codex third-party-openai provider env key is not AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY."
 fi
 case "$expected_codex_agent_max_threads" in
     [1-9]*)
@@ -130,67 +130,48 @@ end_count=$(grep -c '^# <<< autonomous-agent-bootstrap <<<$' "$BASHRC")
 [ "$end_count" -eq 1 ]   || fail "Expected 1 bashrc end marker, got $end_count."
 pass "bashrc managed block present exactly once."
 
-# 6. Provider-switch function is defined in the bashrc block.
-grep -q 'claude_code_switch_inference_provider()' "$BASHRC" \
-    || fail "Provider-switch function not written."
-pass "claude_code_switch_inference_provider function written."
-
-# 7. Codex yolo alias is defined in the bashrc block.
-grep -q "alias codex='codex --dangerously-bypass-approvals-and-sandbox'" "$BASHRC" \
-    || fail "Codex yolo alias not written."
-pass "Codex yolo alias written."
-
-# 7b. Codex first-party API key exports are present when configured.
-if [ "$expected_codex_provider" = "openai" ] && [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
-    grep -q '^export AAB_CODEX_FIRST_PARTY_API_KEY=' "$BASHRC" \
-        || fail "AAB_CODEX_FIRST_PARTY_API_KEY export not written."
-    grep -q '^export OPENAI_API_KEY=' "$BASHRC" \
-        || fail "OPENAI_API_KEY export derived from AAB_CODEX_FIRST_PARTY_API_KEY not written."
-    pass "Codex first-party API key exports written."
+# 6. AAB env file contains provider config and is private.
+[ -f "$AAB_ENV_FILE" ] || fail "$AAB_ENV_FILE not written."
+[ "$(stat -c '%a' "$AAB_ENV_FILE")" = "600" ] || fail "$AAB_ENV_FILE mode is not 600."
+expected_claude_provider="${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-first-party}"
+case "$expected_claude_provider" in
+    first-party|third-party-anthropic|third-party-deepseek) ;;
+    *) expected_claude_provider="first-party" ;;
+esac
+grep -q "^export AAB_CLAUDE_CODE_INFERENCE_PROVIDER=${expected_claude_provider}$" "$AAB_ENV_FILE" \
+    || fail "Claude provider not written to $AAB_ENV_FILE."
+grep -q "^export AAB_CODEX_INFERENCE_PROVIDER=${expected_codex_provider}$" "$AAB_ENV_FILE" \
+    || fail "Codex provider not written to $AAB_ENV_FILE."
+if [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
+    grep -q '^export AAB_CODEX_FIRST_PARTY_API_KEY=' "$AAB_ENV_FILE" \
+        || fail "AAB_CODEX_FIRST_PARTY_API_KEY not written to $AAB_ENV_FILE."
 fi
-if [ "$expected_codex_provider" = "third-party" ]; then
-    grep -q '^export AAB_CODEX_INFERENCE_PROVIDER="third-party"$' "$BASHRC" \
-        || fail "AAB_CODEX_INFERENCE_PROVIDER=third-party export not written."
-    grep -q '^export AAB_CODEX_THIRD_PARTY_BASE_URL=' "$BASHRC" \
-        || fail "AAB_CODEX_THIRD_PARTY_BASE_URL export not written."
-    if [ -n "${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}" ]; then
-        grep -q '^export AAB_CODEX_THIRD_PARTY_AUTH_TOKEN=' "$BASHRC" \
-            || fail "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN export not written."
-    fi
-    pass "Codex third-party provider exports written."
-fi
-if [ -n "${AAB_BREV_API_KEY:-}" ]; then
-    grep -q '^export AAB_BREV_API_KEY=' "$BASHRC" \
-        || fail "AAB_BREV_API_KEY export not written."
-    grep -q '^export AAB_BREV_ORG_ID=' "$BASHRC" \
-        || fail "AAB_BREV_ORG_ID export not written."
-    pass "Brev API-key auth exports written."
-fi
+! grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE" \
+    || fail "OPENAI_API_KEY should be mapped by wrappers, not stored in $AAB_ENV_FILE."
+! grep -q '^export ANTHROPIC_API_KEY=' "$AAB_ENV_FILE" \
+    || fail "ANTHROPIC_API_KEY should be mapped by wrappers, not stored in $AAB_ENV_FILE."
+pass "AAB env file written with private provider config."
 
-# 8. Inner provider marker block is present with the expected value.
-grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER=' "$BASHRC" \
-    || fail "Provider variable not written."
-pass "AAB_CLAUDE_CODE_INFERENCE_PROVIDER set in bashrc."
+# 7. bashrc exposes only PATH and non-secret unattended-mode defaults.
+grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC" \
+    || fail "PATH export missing from bashrc managed block."
+! grep -q '^alias claude=' "$BASHRC" || fail "claude alias should not be written."
+! grep -q '^alias codex=' "$BASHRC" || fail "codex alias should not be written."
+! grep -q 'claude_code_switch_inference_provider' "$BASHRC" \
+    || fail "provider switch function should not be written."
+! grep -q '^export AAB_' "$BASHRC" || fail "AAB vars should not be exported from bashrc."
+! grep -q '^export ANTHROPIC_' "$BASHRC" || fail "Anthropic runtime vars should not be exported from bashrc."
+! grep -q '^export OPENAI_API_KEY=' "$BASHRC" || fail "OpenAI API key should not be exported from bashrc."
+! grep -q '^export GH_TOKEN=' "$BASHRC" || fail "GitHub token should not be exported from bashrc."
+pass "bashrc managed block keeps credentials out."
 
-# 8b. Both branches export every ANTHROPIC_DEFAULT_*_MODEL so each model
-# tier (the haiku used for background tasks like web search, the sonnet
-# and opus available via /model swaps) resolves under whichever provider
-# is active.
-for tier in HAIKU SONNET OPUS; do
-    var="ANTHROPIC_DEFAULT_${tier}_MODEL"
-    count=$(grep -c "export ${var}=" "$BASHRC" || true)
-    [ "$count" -eq 2 ] \
-        || fail "Expected 2 ${var} exports, got $count."
-done
-pass "ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL exported in both provider branches."
-
-# 8c. DEBUG_SDK=1 is exported (provider-agnostic) so Claude Code writes
+# 8. DEBUG_SDK=1 is exported (provider-agnostic) so Claude Code writes
 # its debug logs to ~/.claude/debug/<uuid>.txt for every invocation.
 grep -q 'export DEBUG_SDK=1' "$BASHRC" \
     || fail "DEBUG_SDK=1 export missing from bashrc managed block."
 pass "DEBUG_SDK=1 exported (claude debug logging on)."
 
-# 8d. CLAUDE_CODE_EFFORT_LEVEL mirrors AAB_CLAUDE_CODE_EFFORT, defaulting
+# 8b. CLAUDE_CODE_EFFORT_LEVEL mirrors AAB_CLAUDE_CODE_EFFORT, defaulting
 # to max so non-interactive launches keep the same effort setting.
 grep -q 'export CLAUDE_CODE_EFFORT_LEVEL="max"' "$BASHRC" \
     || fail "CLAUDE_CODE_EFFORT_LEVEL=max export missing from bashrc managed block."
@@ -203,7 +184,14 @@ pass "bashrc parses cleanly."
 # 10. The binaries the bootstrap installed are on PATH (via ~/.local/bin).
 export PATH="$HOME/.local/bin:$PATH"
 command -v claude >/dev/null 2>&1 || fail "claude not on PATH after bootstrap."
-pass "claude binary installed and on PATH."
+[ -L "$HOME/.local/bin/claude" ] || fail "claude is not an AAB provider symlink."
+[ "$(readlink "$HOME/.local/bin/claude")" = "claude-${expected_claude_provider}" ] \
+    || fail "claude symlink does not target claude-${expected_claude_provider}."
+[ -x "$HOME/.local/bin/claude-aab-real" ] || fail "Claude real binary link not installed."
+[ -x "$HOME/.local/bin/claude-first-party" ] || fail "claude-first-party wrapper missing."
+[ -x "$HOME/.local/bin/claude-third-party-anthropic" ] || fail "claude-third-party-anthropic wrapper missing."
+[ -x "$HOME/.local/bin/claude-third-party-deepseek" ] || fail "claude-third-party-deepseek wrapper missing."
+pass "claude wrapper family installed and selected."
 claude_plugins=$(claude plugin list 2>&1) || fail "claude plugin list failed."
 case "$claude_plugins" in
     *"agitentic@robobryce-agitentic"*) ;;
@@ -211,19 +199,22 @@ case "$claude_plugins" in
 esac
 pass "Claude Code agent plugins installed."
 command -v codex  >/dev/null 2>&1 || fail "codex not on PATH after bootstrap."
-grep -q 'Autonomous-agent-bootstrap Codex launcher' "$(command -v codex)" \
-    || fail "Codex unattended launcher wrapper not installed."
+[ -L "$HOME/.local/bin/codex" ] || fail "codex is not an AAB provider symlink."
+[ "$(readlink "$HOME/.local/bin/codex")" = "codex-${expected_codex_provider}" ] \
+    || fail "codex symlink does not target codex-${expected_codex_provider}."
+[ -x "$HOME/.local/bin/codex-first-party" ] || fail "codex-first-party wrapper missing."
+[ -x "$HOME/.local/bin/codex-third-party-openai" ] || fail "codex-third-party-openai wrapper missing."
 [ -x "$HOME/.local/bin/codex-aab-real" ] \
     || fail "Codex real binary link not installed."
 codex --version >/dev/null 2>&1 || fail "codex binary does not run."
-pass "codex binary installed and runnable."
+pass "codex wrapper family installed and runnable."
 codex_plugins=$(codex plugin list 2>&1) || fail "codex plugin list failed."
 case "$codex_plugins" in
     *"agitentic@robobryce-agitentic"*) ;;
     *) fail "Codex agitentic plugin not installed." ;;
 esac
 pass "Codex agent plugins installed."
-if [ "$expected_codex_provider" = "openai" ] && [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
+if [ "$expected_codex_provider" = "first-party" ] && [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
     AAB_EXPECTED_CODEX_API_KEY="$AAB_CODEX_FIRST_PARTY_API_KEY" \
         python3 - "$CODEX_AUTH" <<'PY'
@@ -267,49 +258,17 @@ gh_helper=$(git config --global --get 'credential.https://github.com.helper' || 
     || fail "gh credential helper not registered (got: '$gh_helper')."
 pass "gh registered as github.com credential helper."
 
-# 13. /etc/environment carries the same provider / model / token state
-# that ~/.bashrc does, so non-interactive shells (ssh remote command,
-# systemd EnvironmentFile=, …) see the env vars too.
+# 13. /etc/environment does not carry AAB secrets or provider config.
 ETC_ENV=/etc/environment
 if [ ! -r "$ETC_ENV" ]; then
-    fail "$ETC_ENV not readable; non-interactive shells cannot pick up AAB env vars."
+    fail "$ETC_ENV not readable."
 fi
-grep -q '^# >>> autonomous-agent-bootstrap >>>$' "$ETC_ENV" \
-    || fail "$ETC_ENV begin marker missing."
-grep -q '^# <<< autonomous-agent-bootstrap <<<$' "$ETC_ENV" \
-    || fail "$ETC_ENV end marker missing."
-etc_begin=$(grep -c '^# >>> autonomous-agent-bootstrap >>>$' "$ETC_ENV")
-etc_end=$(grep -c '^# <<< autonomous-agent-bootstrap <<<$' "$ETC_ENV")
-[ "$etc_begin" -eq 1 ] || fail "Expected 1 $ETC_ENV begin marker, got $etc_begin."
-[ "$etc_end"   -eq 1 ] || fail "Expected 1 $ETC_ENV end marker, got $etc_end."
-grep -q '^AAB_CLAUDE_CODE_INFERENCE_PROVIDER=' "$ETC_ENV" \
-    || fail "AAB_CLAUDE_CODE_INFERENCE_PROVIDER missing from $ETC_ENV."
-grep -q '^ANTHROPIC_MODEL=' "$ETC_ENV" \
-    || fail "ANTHROPIC_MODEL missing from $ETC_ENV."
-grep -q '^CLAUDE_CODE_EFFORT_LEVEL="max"$' "$ETC_ENV" \
-    || fail "CLAUDE_CODE_EFFORT_LEVEL missing from $ETC_ENV."
-if [ "$expected_codex_provider" = "openai" ] && [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
-    grep -q '^AAB_CODEX_FIRST_PARTY_API_KEY=' "$ETC_ENV" \
-        || fail "AAB_CODEX_FIRST_PARTY_API_KEY missing from $ETC_ENV."
-    grep -q '^OPENAI_API_KEY=' "$ETC_ENV" \
-        || fail "OPENAI_API_KEY missing from $ETC_ENV."
-fi
-if [ "$expected_codex_provider" = "third-party" ]; then
-    grep -q '^AAB_CODEX_INFERENCE_PROVIDER="third-party"$' "$ETC_ENV" \
-        || fail "AAB_CODEX_INFERENCE_PROVIDER=third-party missing from $ETC_ENV."
-    grep -q '^AAB_CODEX_THIRD_PARTY_BASE_URL=' "$ETC_ENV" \
-        || fail "AAB_CODEX_THIRD_PARTY_BASE_URL missing from $ETC_ENV."
-    if [ -n "${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}" ]; then
-        grep -q '^AAB_CODEX_THIRD_PARTY_AUTH_TOKEN=' "$ETC_ENV" \
-            || fail "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN missing from $ETC_ENV."
-    fi
-fi
-if [ -n "${AAB_BREV_API_KEY:-}" ]; then
-    grep -q '^AAB_BREV_API_KEY=' "$ETC_ENV" \
-        || fail "AAB_BREV_API_KEY missing from $ETC_ENV."
-    grep -q '^AAB_BREV_ORG_ID=' "$ETC_ENV" \
-        || fail "AAB_BREV_ORG_ID missing from $ETC_ENV."
-fi
-pass "$ETC_ENV managed block present exactly once with provider / model state."
+! grep -q '^# >>> autonomous-agent-bootstrap >>>$' "$ETC_ENV" \
+    || fail "$ETC_ENV still contains an AAB managed block."
+! grep -q '^AAB_' "$ETC_ENV" || fail "$ETC_ENV should not contain AAB vars."
+! grep -q '^ANTHROPIC_' "$ETC_ENV" || fail "$ETC_ENV should not contain Anthropic runtime vars."
+! grep -q '^OPENAI_API_KEY=' "$ETC_ENV" || fail "$ETC_ENV should not contain OpenAI API keys."
+! grep -q '^GH_TOKEN=' "$ETC_ENV" || fail "$ETC_ENV should not contain GitHub tokens."
+pass "$ETC_ENV has no AAB provider or credential state."
 
 echo "All e2e assertions passed."
