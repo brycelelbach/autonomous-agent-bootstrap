@@ -1,222 +1,27 @@
 #!/usr/bin/env bash
 # Bootstrap fresh, non-interactive Claude Code and Codex installs on a Linux host.
 #
-# Does the following, idempotently:
-#   0. Installs any missing base dependencies (curl, python3, git, sudo,
-#      tar, gawk, ripgrep, ca-certificates) via apt-get, so the script runs on bare
-#      container images that ship only apt-get. Skipped silently if already
-#      present.
-#   1. Installs / upgrades Claude Code via the native installer.
-#   2. Installs / upgrades Codex via OpenAI's standalone installer, with
-#      its launch prompt disabled by running the installer without a
-#      controlling TTY.
-#   3. Installs / upgrades the Brev CLI via the official install-latest.sh.
-#  3b. If AAB_BREV_API_KEY and AAB_BREV_ORG_ID are set, logs Brev in via
-#      `brev login --api-key ... --org-id ...` so Brev commands can run
-#      without a browser login prompt.
-#   4. Installs / upgrades the gh CLI from the official apt repo
-#      (system-wide; needs sudo).
-#   5. Writes ~/.claude/settings.json with unattended-mode defaults
-#      (bypassPermissions, sandboxed, configured effort, opus-4-7).
-#   6. Writes ~/.codex/config.toml with unattended-mode defaults
-#      (approval_policy=never, sandbox_mode=danger-full-access, update checks
-#      disabled, xhigh effort, and trusted project roots).
-#  6b. If AAB_CODEX_FIRST_PARTY_API_KEY is set and Codex is using the OpenAI
-#      provider, pipes it into `codex login --with-api-key` so Codex uses
-#      first-party API-key auth without a device-code login prompt.
-#   7. Pre-populates ~/.claude.json with hasCompletedOnboarding=true so the
-#      first `claude` launch skips the theme / color-scheme wizard, and —
-#      if AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY is set — pre-approves that
-#      key so the CLI doesn't prompt for approval on first use either.
-#   8. Writes ~/.brev/onboarding_step.json so the first `brev` invocation
-#      skips the interactive tutorial.
-#   9. Configures git: user.name, user.email (from env vars), and registers
-#      gh as the github.com credential helper so `git clone` / `push` reuse
-#      the gh CLI's stored token.
-#  9b. If AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is set, decodes it to
-#      ~/.ssh/id_aab_auth and writes a managed block to ~/.ssh/config
-#      pointing github.com at that key.
-#  9c. If AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 is set, decodes it to
-#      ~/.ssh/id_aab_signing and configures git to sign commits / tags
-#      with it (gpg.format=ssh, user.signingkey, commit.gpgsign,
-#      tag.gpgsign). Does NOT touch ~/.ssh/config — signing role only.
-#  10. Registers agent plugin marketplaces listed in agent_plugins.txt
-#      (default: agitentic + autocuda) into both Claude Code and Codex.
-#      Claude Code also gets ~/.claude/settings.json extraKnownMarketplaces
-#      / enabledPlugins entries so it picks them up with no prompt.
-# 10b. Installs a Codex launcher wrapper that injects yolo mode and a
-#      dynamic trust override for the current directory before delegating to
-#      the real Codex binary.
-#  11. Appends PATH / alias / env exports to ~/.bashrc (managed block) so
-#      interactive shells pick up ~/.local/bin, run `claude` with
-#      --dangerously-skip-permissions, run `codex` through AAB's unattended
-#      launcher, and export credential
-#      env vars for future shells when they were set at bootstrap time.
-#  12. Mirrors the resolved credential / config env vars (provider tokens,
-#      model names, AAB_GH_TOKEN, AAB_CODEX_FIRST_PARTY_API_KEY, …) into
-#      a managed block in /etc/environment so non-interactive shells (ssh
-#      remote command, systemd services that EnvironmentFile=/etc/environment)
-#      see them too. Needs sudo; warns and skips if passwordless sudo isn't
-#      available.
+# The script installs Claude Code, Codex, Brev, gh, base packages, agent
+# plugins, git credentials, optional SSH keys, and unattended-mode config. It
+# writes AAB runtime configuration to ~/.aab/.env and installs wrapper families
+# that source that file:
 #
-# Optional env vars:
-#   AAB_CLAUDE_CODE_INFERENCE_PROVIDER
-#                       Which inference backend Claude Code should use —
-#                       'anthropic' (default, first-party Anthropic API) or
-#                       'third-party' (any Anthropic-compatible gateway).
-#                       Selects which branch of the if/else written to
-#                       ~/.bashrc is active at runtime. Can be flipped later
-#                       via the `claude_code_switch_inference_provider`
-#                       function also written to ~/.bashrc.
-#   AAB_CLAUDE_CODE_FIRST_PARTY_MODEL
-#                       First-party Anthropic model name (e.g. 'claude-opus-
-#                       4-7'). Baked into ~/.claude/settings.json's "model"
-#                       field and exported as ANTHROPIC_MODEL in the
-#                       anthropic branch. Defaults to claude-opus-4-7.
-#   AAB_CLAUDE_CODE_THIRD_PARTY_MODEL
-#                       Fully-qualified third-party gateway model ID. Exported
-#                       as ANTHROPIC_MODEL in the third-party branch. Defaults
-#                       to claude-opus-4-7 when unset.
-#   AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL
-#                       First-party Anthropic haiku-tier model name. Claude
-#                       Code uses this tier for background tasks (web search,
-#                       summarization, file naming). Exported as
-#                       ANTHROPIC_DEFAULT_HAIKU_MODEL in the anthropic branch.
-#                       Defaults to claude-haiku-4-5.
-#   AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL
-#                       Fully-qualified third-party gateway haiku-tier model
-#                       ID. Exported verbatim as ANTHROPIC_DEFAULT_HAIKU_MODEL
-#                       in the third-party branch. Defaults to claude-haiku-4-5.
-#   AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL
-#                       First-party Anthropic sonnet-tier model name, used
-#                       when /model selects the sonnet tier mid-session.
-#                       Exported as ANTHROPIC_DEFAULT_SONNET_MODEL in the
-#                       anthropic branch. Defaults to claude-sonnet-4-6.
-#   AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL
-#                       Fully-qualified third-party gateway sonnet-tier model
-#                       ID. Exported verbatim as
-#                       ANTHROPIC_DEFAULT_SONNET_MODEL in the third-party
-#                       branch. Defaults to claude-sonnet-4-6.
-#   AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL
-#                       First-party Anthropic opus-tier model name, used when
-#                       /model selects the opus tier mid-session. Exported as
-#                       ANTHROPIC_DEFAULT_OPUS_MODEL in the anthropic branch.
-#                       Defaults to claude-opus-4-7.
-#   AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL
-#                       Fully-qualified third-party gateway opus-tier model
-#                       ID. Exported verbatim as ANTHROPIC_DEFAULT_OPUS_MODEL
-#                       in the third-party branch. Defaults to claude-opus-4-7.
-#   AAB_CLAUDE_CODE_EFFORT
-#                       Claude Code effort level. Written to
-#                       ~/.claude/settings.json's "effortLevel" field,
-#                       exported as CLAUDE_CODE_EFFORT_LEVEL, and defaults
-#                       to max.
-#   AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY
-#                       Anthropic first-party API key. Last 20 characters are
-#                       pre-approved in ~/.claude.json's
-#                       customApiKeyResponses.approved so Claude Code won't
-#                       prompt, and the key is exported from the anthropic
-#                       branch of the ~/.bashrc managed block. Also exported
-#                       as ANTHROPIC_API_KEY for Claude Code itself.
-#   AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL
-#                       Base URL of the Anthropic-compatible third-party
-#                       gateway (points Claude Code at a non-Anthropic
-#                       endpoint). Exported from the third-party branch of
-#                       the ~/.bashrc managed block. Also exported as
-#                       ANTHROPIC_BASE_URL for Claude Code itself.
-#   AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN
-#                       Bearer token used to authenticate against the
-#                       third-party gateway. Exported from the third-party
-#                       branch of the ~/.bashrc managed block. Also exported
-#                       as ANTHROPIC_AUTH_TOKEN for Claude Code itself.
-#   AAB_GH_TOKEN        GitHub personal access token. Exported from the
-#                       ~/.bashrc managed block; gh reads it from the
-#                       environment directly as GH_TOKEN, and the github.com
-#                       credential helper we register below delegates to
-#                       `gh auth git-credential`, so git clone/push reuse it.
-#   AAB_BREV_API_KEY    Brev organization-scoped API key. Used with
-#                       AAB_BREV_ORG_ID to run `brev login --api-key
-#                       <key> --org-id <org>` without a browser login.
-#   AAB_BREV_ORG_ID     Brev organization ID paired with AAB_BREV_API_KEY.
-#   AAB_GIT_AUTHOR_NAME Display name attached to git commits. Written to
-#                       `git config --global user.name`.
-#   AAB_GIT_AUTHOR_EMAIL
-#                       Email address attached to git commits. Written to
-#                       `git config --global user.email`.
-#   AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-#                       Base64-encoded OpenSSH private key used as the
-#                       github.com authentication identity. Decoded to
-#                       ~/.ssh/id_aab_auth (mode 0600); its public half
-#                       is written to ~/.ssh/id_aab_auth.pub (mode 0644);
-#                       a managed block in ~/.ssh/config points github.com
-#                       at it with IdentitiesOnly=yes. Does NOT configure
-#                       git signing.
-#   AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
-#                       Base64-encoded OpenSSH private key used ONLY as
-#                       the git commit / tag signing key. Decoded to
-#                       ~/.ssh/id_aab_signing (mode 0600); public half at
-#                       ~/.ssh/id_aab_signing.pub (mode 0644). git is
-#                       configured with gpg.format=ssh,
-#                       user.signingkey=~/.ssh/id_aab_signing.pub,
-#                       commit.gpgsign=true, tag.gpgsign=true. Does NOT
-#                       touch ~/.ssh/config.
-#   AAB_AGENT_PLUGINS_FILE
-#                       Path to a local agent_plugins.txt listing plugin
-#                       marketplaces to install for Claude Code and Codex.
-#                       Read directly when set and the file exists; overrides
-#                       AAB_AGENT_PLUGINS_URL.
-#   AAB_AGENT_PLUGINS_URL
-#                       URL to fetch agent_plugins.txt from when no local
-#                       file is set and ./agent_plugins.txt is absent.
-#                       Defaults to the canonical file on main of this repo.
-#   AAB_CODEX_FIRST_PARTY_MODEL
-#                       Codex first-party model name. Baked into
-#                       ~/.codex/config.toml's "model" field. Defaults to
-#                       gpt-5.5.
-#   AAB_CODEX_INFERENCE_PROVIDER
-#                       Codex inference provider: 'openai' (default, also
-#                       accepts 'first-party') or 'third-party'. When set to
-#                       'third-party', writes a custom model_providers entry
-#                       pointed at an OpenAI-compatible Responses API.
-#   AAB_CODEX_THIRD_PARTY_MODEL
-#                       Codex model ID for the third-party provider. Defaults to
-#                       openai/openai/gpt-5.5.
-#   AAB_CODEX_THIRD_PARTY_BASE_URL
-#                       OpenAI-compatible third-party base URL. Defaults to
-#                       https://inference-api.nvidia.com/v1.
-#   AAB_CODEX_THIRD_PARTY_AUTH_TOKEN
-#                       Auth token used by Codex for the selected third-party
-#                       provider. Exported from the ~/.bashrc managed block,
-#                       mirrored into /etc/environment, and referenced by
-#                       ~/.codex/config.toml with
-#                       env_key="AAB_CODEX_THIRD_PARTY_AUTH_TOKEN".
-#   AAB_CODEX_EFFORT
-#                       Codex reasoning effort. Baked into
-#                       ~/.codex/config.toml's model_reasoning_effort field.
-#                       Defaults to xhigh.
-#   AAB_CODEX_SERVICE_TIER
-#                       Codex service tier. Baked into
-#                       ~/.codex/config.toml's service_tier field. Defaults to
-#                       priority. Allowed values are priority, flex, default,
-#                       and fast as an alias for priority.
-#   AAB_CODEX_AGENT_MAX_THREADS
-#                       Maximum number of concurrently open Codex subagent
-#                       threads. Baked into ~/.codex/config.toml's
-#                       [agents].max_threads field. Defaults to 16.
-#   AAB_CODEX_FIRST_PARTY_API_KEY
-#                       OpenAI API key used by Codex when
-#                       AAB_CODEX_INFERENCE_PROVIDER=openai. Piped into
-#                       `codex login --with-api-key` when set, exported as both
-#                       AAB_CODEX_FIRST_PARTY_API_KEY and OPENAI_API_KEY from
-#                       the ~/.bashrc managed block, and mirrored into
-#                       /etc/environment.
+#   claude -> claude-first-party | claude-third-party-anthropic | claude-third-party-deepseek
+#   codex  -> codex-first-party  | codex-third-party-openai
+#
+# AAB_CLAUDE_CODE_INFERENCE_PROVIDER selects the claude symlink target:
+#   first-party, third-party-anthropic, or third-party-deepseek.
+#
+# AAB_CODEX_INFERENCE_PROVIDER selects the codex symlink target:
+#   first-party or third-party-openai.
+#
+# Provider credentials and model names are kept out of ~/.bashrc and
+# /etc/environment. The managed ~/.bashrc block only puts ~/.local/bin on PATH
+# and exports non-secret unattended-mode defaults.
+#
 # Can be run from a local checkout or piped via `curl ... | bash`. Safe to
-# re-run: existing settings.json, config.toml, and .claude.json are backed
-# up before overwrite, and the ~/.bashrc managed block is replaced
-# wholesale each run, so re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY,
-# AAB_CODEX_FIRST_PARTY_API_KEY, AAB_CODEX_THIRD_PARTY_AUTH_TOKEN, AAB_BREV_API_KEY,
-# or AAB_BREV_ORG_ID set will drop a previously-written export (this is
-# intentional — re-runs match the current env).
+# re-run: existing settings.json, config.toml, and .claude.json are backed up
+# before overwrite, and AAB-managed wrapper/config files are replaced wholesale.
 #
 # Optional config input — settings using the env-var contract above can
 # come in via either of two channels (in order of preference):
@@ -242,6 +47,8 @@ set -euo pipefail
 CLAUDE_DIR="${HOME}/.claude"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 CLAUDE_JSON="${HOME}/.claude.json"
+AAB_DIR="${HOME}/.aab"
+AAB_ENV_FILE="${AAB_DIR}/.env"
 CODEX_DIR="${HOME}/.codex"
 CODEX_CONFIG="${CODEX_DIR}/config.toml"
 BREV_DIR="${HOME}/.brev"
@@ -266,9 +73,10 @@ DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
 DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_EFFORT="max"
 DEFAULT_CODEX_MODEL="gpt-5.5"
-DEFAULT_CODEX_INFERENCE_PROVIDER="openai"
-DEFAULT_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5"
-DEFAULT_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1"
+DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER="first-party"
+DEFAULT_CODEX_INFERENCE_PROVIDER="first-party"
+DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL="openai/openai/gpt-5.5"
+DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://inference-api.nvidia.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
 DEFAULT_CODEX_SERVICE_TIER="priority"
 DEFAULT_CODEX_AGENT_MAX_THREADS="16"
@@ -276,20 +84,35 @@ DEFAULT_CODEX_AGENT_MAX_THREADS="16"
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
 
+normalize_claude_code_inference_provider() {
+    local provider="${1:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}"
+    case "$provider" in
+        first-party|third-party-anthropic|third-party-deepseek)
+            printf '%s' "$provider"
+            ;;
+        *)
+            warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-anthropic', or 'third-party-deepseek'; defaulting to '${DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}'."
+            printf '%s' "$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER"
+            ;;
+    esac
+}
+
 normalize_codex_inference_provider() {
     local provider="${1:-$DEFAULT_CODEX_INFERENCE_PROVIDER}"
     case "$provider" in
-        openai|first-party)
-            printf 'openai'
-            ;;
-        third-party)
-            printf 'third-party'
+        first-party|third-party-openai)
+            printf '%s' "$provider"
             ;;
         *)
-            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'openai', 'first-party', or 'third-party'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
+            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'first-party' or 'third-party-openai'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
             printf '%s' "$DEFAULT_CODEX_INFERENCE_PROVIDER"
             ;;
     esac
+}
+
+_write_shell_export() {
+    local name="$1" value="${2:-}"
+    printf 'export %s=%q\n' "$name" "$value"
 }
 
 need_sudo() {
@@ -533,7 +356,60 @@ JSON
 }
 
 # ---------------------------------------------------------------------------
-# 6. Write ~/.codex/config.toml.
+# 6. Write ~/.aab/.env.
+# ---------------------------------------------------------------------------
+write_aab_env_file() {
+    mkdir -p "${AAB_DIR}"
+    chmod 700 "${AAB_DIR}"
+
+    local claude_provider
+    claude_provider=$(normalize_claude_code_inference_provider "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}")
+    local codex_provider
+    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
+
+    local tmp
+    tmp=$(mktemp "${AAB_ENV_FILE}.tmp.XXXXXX")
+    {
+        printf '# Written by autonomous-agent-bootstrap. Re-run bootstrap.bash to update.\n'
+        _write_shell_export AAB_CLAUDE_CODE_INFERENCE_PROVIDER "$claude_provider"
+        _write_shell_export AAB_CLAUDE_CODE_EFFORT "${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
+        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
+        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL:-}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY:-}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL:-}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY:-}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+        _write_shell_export AAB_CODEX_INFERENCE_PROVIDER "$codex_provider"
+        _write_shell_export AAB_CODEX_FIRST_PARTY_API_KEY "${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
+        _write_shell_export AAB_CODEX_FIRST_PARTY_MODEL "${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL "${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL}"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY "${AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY:-}"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_MODEL "${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL}"
+        _write_shell_export AAB_CODEX_EFFORT "${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
+        _write_shell_export AAB_CODEX_SERVICE_TIER "${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
+        _write_shell_export AAB_CODEX_AGENT_MAX_THREADS "${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
+        _write_shell_export AAB_GH_TOKEN "${AAB_GH_TOKEN:-}"
+        _write_shell_export AAB_BREV_API_KEY "${AAB_BREV_API_KEY:-}"
+        _write_shell_export AAB_BREV_ORG_ID "${AAB_BREV_ORG_ID:-}"
+    } > "$tmp"
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$AAB_ENV_FILE"
+    log "Wrote ${AAB_ENV_FILE} (claude_provider=${claude_provider}, codex_provider=${codex_provider})."
+}
+
+# ---------------------------------------------------------------------------
+# 7. Write ~/.codex/config.toml.
 # ---------------------------------------------------------------------------
 _toml_escape() {
     local s="$1"
@@ -560,11 +436,11 @@ write_codex_config() {
     local codex_provider
     codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
     local first_party_model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
-    local third_party_model="${AAB_CODEX_THIRD_PARTY_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_MODEL}"
-    local third_party_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_BASE_URL}"
+    local third_party_openai_model="${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL}"
+    local third_party_openai_base_url="${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL}"
     local model="$first_party_model"
-    if [ "$codex_provider" = "third-party" ]; then
-        model="$third_party_model"
+    if [ "$codex_provider" = "third-party-openai" ]; then
+        model="$third_party_openai_model"
     fi
     local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
     local service_tier="${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
@@ -600,20 +476,20 @@ write_codex_config() {
         agent_max_threads="$DEFAULT_CODEX_AGENT_MAX_THREADS"
     fi
 
-    local model_escaped home_escaped cwd cwd_escaped third_party_base_url_escaped
+    local model_escaped home_escaped cwd cwd_escaped third_party_openai_base_url_escaped
     model_escaped=$(_toml_escape "$model")
     home_escaped=$(_toml_escape "$HOME")
     cwd="${PWD:-$HOME}"
     cwd_escaped=$(_toml_escape "$cwd")
-    third_party_base_url_escaped=$(_toml_escape "$third_party_base_url")
+    third_party_openai_base_url_escaped=$(_toml_escape "$third_party_openai_base_url")
 
     cat > "${CODEX_CONFIG}" <<TOML
 model = "${model_escaped}"
 TOML
 
-    if [ "$codex_provider" = "third-party" ]; then
+    if [ "$codex_provider" = "third-party-openai" ]; then
         cat >> "${CODEX_CONFIG}" <<TOML
-model_provider = "third-party"
+model_provider = "third-party-openai"
 TOML
     fi
 
@@ -633,13 +509,13 @@ inherit = "all"
 ignore_default_excludes = true
 TOML
 
-    if [ "$codex_provider" = "third-party" ]; then
+    if [ "$codex_provider" = "third-party-openai" ]; then
         cat >> "${CODEX_CONFIG}" <<TOML
 
-[model_providers."third-party"]
-name = "Third Party"
-base_url = "${third_party_base_url_escaped}"
-env_key = "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN"
+[model_providers."third-party-openai"]
+name = "Third Party OpenAI"
+base_url = "${third_party_openai_base_url_escaped}"
+env_key = "AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY"
 wire_api = "responses"
 request_max_retries = 4
 stream_max_retries = 5
@@ -689,13 +565,15 @@ configure_codex_auth() {
 
     local codex_provider
     codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
-    if [ "$codex_provider" != "openai" ]; then
+    if [ "$codex_provider" != "first-party" ]; then
         log "Skipping Codex first-party API-key login because AAB_CODEX_INFERENCE_PROVIDER=${codex_provider}."
         return
     fi
 
     local codex_bin=""
-    if command -v codex >/dev/null 2>&1; then
+    if [ -x "${HOME}/.local/bin/codex-aab-real" ]; then
+        codex_bin="${HOME}/.local/bin/codex-aab-real"
+    elif command -v codex >/dev/null 2>&1; then
         codex_bin=$(command -v codex)
     elif [ -x "${HOME}/.local/bin/codex" ]; then
         codex_bin="${HOME}/.local/bin/codex"
@@ -722,7 +600,7 @@ configure_codex_auth() {
 #     (last 20 chars of the key); if the runtime ANTHROPIC_API_KEY matches
 #     one, Claude starts without prompting for approval.
 # We merge into an existing .claude.json rather than overwriting so we
-# preserve auth tokens, userID, and any prior approvals.
+    # preserve auth tokens, userID, and any prior approvals.
 # ---------------------------------------------------------------------------
 skip_onboarding() {
     command -v python3 >/dev/null 2>&1 || { log "ERROR: python3 required to edit ~/.claude.json."; exit 1; }
@@ -1087,7 +965,9 @@ PY
     # user-configured plugins. Materialise the install here so the
     # bootstrap leaves the user with a fully-registered plugin set.
     local claude_bin=""
-    if command -v claude >/dev/null 2>&1; then
+    if [ -x "${HOME}/.local/bin/claude-aab-real" ]; then
+        claude_bin="${HOME}/.local/bin/claude-aab-real"
+    elif command -v claude >/dev/null 2>&1; then
         claude_bin=$(command -v claude)
     elif [ -x "${HOME}/.local/bin/claude" ]; then
         claude_bin="${HOME}/.local/bin/claude"
@@ -1163,7 +1043,9 @@ install_codex_plugins() {
     [ ${#tuples[@]} -eq 0 ] && return
 
     local codex_bin=""
-    if command -v codex >/dev/null 2>&1; then
+    if [ -x "${HOME}/.local/bin/codex-aab-real" ]; then
+        codex_bin="${HOME}/.local/bin/codex-aab-real"
+    elif command -v codex >/dev/null 2>&1; then
         codex_bin=$(command -v codex)
     elif [ -x "${HOME}/.local/bin/codex" ]; then
         codex_bin="${HOME}/.local/bin/codex"
@@ -1202,40 +1084,175 @@ install_codex_plugins() {
 }
 
 # ---------------------------------------------------------------------------
-# 10b. Install the Codex launcher wrapper.
-#
-# Codex project trust is keyed by exact paths. The wrapper keeps startup
-# unattended from any shell working directory by injecting an in-memory trust
-# override for the current directory and, when available, its Git root.
+# 10b. Install Claude and Codex launcher wrapper families.
 # ---------------------------------------------------------------------------
-install_codex_launcher() {
-    local codex_bin="${HOME}/.local/bin/codex"
-    local real_bin="${HOME}/.local/bin/codex-aab-real"
+_is_aab_launcher_symlink_target() {
+    case "$(basename "$1")" in
+        claude-first-party|claude-third-party-anthropic|claude-third-party-deepseek|codex-first-party|codex-third-party-openai)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
 
-    if [ ! -e "$codex_bin" ]; then
-        warn "codex binary not found at ${codex_bin}; cannot install unattended launcher."
+_prepare_launcher_real_binary() {
+    local agent_name="$1" agent_bin="$2" real_bin="$3" marker="$4"
+
+    if [ ! -e "$agent_bin" ]; then
+        warn "${agent_name} binary not found at ${agent_bin}; cannot install launcher wrappers."
         exit 1
     fi
 
-    if [ -L "$codex_bin" ]; then
+    if [ -L "$agent_bin" ]; then
         local target
-        target=$(readlink "$codex_bin")
+        target=$(readlink "$agent_bin")
+        if _is_aab_launcher_symlink_target "$target"; then
+            if [ ! -e "$real_bin" ]; then
+                warn "${agent_name} launcher is installed but ${real_bin} is missing."
+                exit 1
+            fi
+            return
+        fi
         ln -sfn "$target" "$real_bin"
-    elif ! grep -q 'Autonomous-agent-bootstrap Codex launcher' "$codex_bin" 2>/dev/null; then
-        mv "$codex_bin" "$real_bin"
+    elif ! grep -q "$marker" "$agent_bin" 2>/dev/null; then
+        mv "$agent_bin" "$real_bin"
     elif [ ! -e "$real_bin" ]; then
-        warn "Codex launcher is installed but ${real_bin} is missing."
+        warn "${agent_name} launcher is installed but ${real_bin} is missing."
         exit 1
     fi
+}
 
-    local tmp
-    tmp=$(mktemp "${codex_bin}.tmp.XXXXXX")
-    cat > "$tmp" <<'BASH'
-#!/usr/bin/env bash
-# Autonomous-agent-bootstrap Codex launcher.
+_write_claude_launcher() {
+    local provider="$1" launcher="$2" tmp
+    tmp=$(mktemp "${launcher}.tmp.XXXXXX")
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        printf '%s\n' '# Autonomous-agent-bootstrap Claude launcher.'
+        printf 'provider=%q\n' "$provider"
+        printf 'default_model=%q\n' "$DEFAULT_CLAUDE_CODE_MODEL"
+        printf 'default_haiku_model=%q\n' "$DEFAULT_CLAUDE_CODE_HAIKU_MODEL"
+        printf 'default_sonnet_model=%q\n' "$DEFAULT_CLAUDE_CODE_SONNET_MODEL"
+        printf 'default_opus_model=%q\n' "$DEFAULT_CLAUDE_CODE_OPUS_MODEL"
+        printf 'default_effort=%q\n' "$DEFAULT_CLAUDE_CODE_EFFORT"
+        cat <<'BASH'
+set -euo pipefail
+
+real_bin="${AAB_CLAUDE_REAL_BIN:-$HOME/.local/bin/claude-aab-real}"
+env_file="${AAB_ENV_FILE:-$HOME/.aab/.env}"
+if [ -f "$env_file" ]; then
+    set -a
+    . "$env_file"
+    set +a
+fi
+
+if [ ! -x "$real_bin" ]; then
+    printf '[bootstrap] WARN: Claude real binary not executable: %s\n' "$real_bin" >&2
+    exit 127
+fi
+
+export AAB_CLAUDE_CODE_INFERENCE_PROVIDER="$provider"
+export CLAUDE_CODE_SANDBOXED=1
+export DEBUG_SDK=1
+export CLAUDE_CODE_EFFORT_LEVEL="${AAB_CLAUDE_CODE_EFFORT:-$default_effort}"
+[ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
+[ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
+[ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
+
+unset ANTHROPIC_API_KEY
+unset ANTHROPIC_BASE_URL
+unset ANTHROPIC_AUTH_TOKEN
+unset ANTHROPIC_MODEL
+unset ANTHROPIC_DEFAULT_HAIKU_MODEL
+unset ANTHROPIC_DEFAULT_SONNET_MODEL
+unset ANTHROPIC_DEFAULT_OPUS_MODEL
+unset CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+
+case "$provider" in
+    first-party)
+        [ -n "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}" ] && export ANTHROPIC_API_KEY="$AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY"
+        export ANTHROPIC_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$default_model}"
+        export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$default_haiku_model}"
+        export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-$default_sonnet_model}"
+        export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-$default_opus_model}"
+        ;;
+    third-party-anthropic)
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL:-}" ] && export ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL"
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY:-}" ] && export ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY"
+        export ANTHROPIC_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL:-$default_model}"
+        export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL:-$default_haiku_model}"
+        export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL:-$default_sonnet_model}"
+        export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL:-$default_opus_model}"
+        export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+        ;;
+    third-party-deepseek)
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL:-}" ] && export ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL"
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY:-}" ] && export ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY"
+        export ANTHROPIC_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-$default_model}"
+        export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL:-$default_haiku_model}"
+        export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL:-$default_sonnet_model}"
+        export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL:-$default_opus_model}"
+        export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+        ;;
+esac
+
+has_skip=0
+for arg in "$@"; do
+    case "$arg" in
+        --dangerously-skip-permissions)
+            has_skip=1
+            ;;
+    esac
+done
+
+extra_args=()
+if [ "$has_skip" -eq 0 ]; then
+    extra_args=(--dangerously-skip-permissions)
+fi
+
+exec "$real_bin" "${extra_args[@]}" "$@"
+BASH
+    } > "$tmp"
+    chmod 755 "$tmp"
+    mv -f "$tmp" "$launcher"
+}
+
+install_claude_launcher() {
+    local claude_bin="${HOME}/.local/bin/claude"
+    local real_bin="${HOME}/.local/bin/claude-aab-real"
+    local selected_provider
+    selected_provider=$(normalize_claude_code_inference_provider "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}")
+
+    _prepare_launcher_real_binary "claude" "$claude_bin" "$real_bin" "Autonomous-agent-bootstrap Claude launcher"
+    _write_claude_launcher "first-party" "${HOME}/.local/bin/claude-first-party"
+    _write_claude_launcher "third-party-anthropic" "${HOME}/.local/bin/claude-third-party-anthropic"
+    _write_claude_launcher "third-party-deepseek" "${HOME}/.local/bin/claude-third-party-deepseek"
+    ln -sfn "claude-${selected_provider}" "$claude_bin"
+    log "Installed Claude launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
+}
+
+_write_codex_launcher() {
+    local provider="$1" launcher="$2" tmp
+    tmp=$(mktemp "${launcher}.tmp.XXXXXX")
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        printf '%s\n' '# Autonomous-agent-bootstrap Codex launcher.'
+        printf 'provider=%q\n' "$provider"
+        printf 'default_model=%q\n' "$DEFAULT_CODEX_MODEL"
+        printf 'default_third_party_openai_model=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL"
+        printf 'default_third_party_openai_base_url=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL"
+        cat <<'BASH'
 set -euo pipefail
 
 real_bin="${AAB_CODEX_REAL_BIN:-$HOME/.local/bin/codex-aab-real}"
+env_file="${AAB_ENV_FILE:-$HOME/.aab/.env}"
+if [ -f "$env_file" ]; then
+    set -a
+    . "$env_file"
+    set +a
+fi
+
 if [ ! -x "$real_bin" ]; then
     printf '[bootstrap] WARN: Codex real binary not executable: %s\n' "$real_bin" >&2
     exit 127
@@ -1256,6 +1273,31 @@ canonical_dir() {
         printf '%s' "$dir"
     fi
 }
+
+export AAB_CODEX_INFERENCE_PROVIDER="$provider"
+[ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
+[ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
+[ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
+
+model="${AAB_CODEX_FIRST_PARTY_MODEL:-$default_model}"
+config_args=()
+case "$provider" in
+    first-party)
+        [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ] && export OPENAI_API_KEY="$AAB_CODEX_FIRST_PARTY_API_KEY"
+        model="${AAB_CODEX_FIRST_PARTY_MODEL:-$default_model}"
+        model_escaped=$(toml_escape "$model")
+        config_args=(-c "model=\"${model_escaped}\"" -c 'model_provider="openai"')
+        ;;
+    third-party-openai)
+        unset OPENAI_API_KEY
+        model="${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$default_third_party_openai_model}"
+        base_url="${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$default_third_party_openai_base_url}"
+        model_escaped=$(toml_escape "$model")
+        base_url_escaped=$(toml_escape "$base_url")
+        provider_override="model_providers={\"third-party-openai\"={name=\"Third Party OpenAI\",base_url=\"${base_url_escaped}\",env_key=\"AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
+        config_args=(-c "model=\"${model_escaped}\"" -c 'model_provider="third-party-openai"' -c "$provider_override")
+        ;;
+esac
 
 cwd=$(canonical_dir "${PWD:-.}")
 git_root=""
@@ -1287,7 +1329,7 @@ for arg in "$@"; do
     esac
 done
 
-extra_args=(-c "$trust_override")
+extra_args=("${config_args[@]}" -c "$trust_override")
 if [ "$has_hook_bypass" -eq 0 ]; then
     extra_args=(--dangerously-bypass-hook-trust "${extra_args[@]}")
 fi
@@ -1297,19 +1339,30 @@ fi
 
 exec "$real_bin" "${extra_args[@]}" "$@"
 BASH
+    } > "$tmp"
     chmod 755 "$tmp"
-    mv -f "$tmp" "$codex_bin"
-    log "Installed unattended Codex launcher at ${codex_bin}."
+    mv -f "$tmp" "$launcher"
+}
+
+install_codex_launcher() {
+    local codex_bin="${HOME}/.local/bin/codex"
+    local real_bin="${HOME}/.local/bin/codex-aab-real"
+    local selected_provider
+    selected_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
+
+    _prepare_launcher_real_binary "codex" "$codex_bin" "$real_bin" "Autonomous-agent-bootstrap Codex launcher"
+    _write_codex_launcher "first-party" "${HOME}/.local/bin/codex-first-party"
+    _write_codex_launcher "third-party-openai" "${HOME}/.local/bin/codex-third-party-openai"
+    ln -sfn "codex-${selected_provider}" "$codex_bin"
+    log "Installed Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
 }
 
 # ---------------------------------------------------------------------------
 # 11. Rewrite the unattended-mode block in ~/.bashrc.
 #
 # The block is identified by the BEGIN/END markers. On re-run we strip the
-# old block and append a fresh one, so the output always matches the
-# current env — re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY,
-# AAB_CODEX_FIRST_PARTY_API_KEY, or AAB_CODEX_THIRD_PARTY_AUTH_TOKEN set will drop a
-# previously-written export, which is what the header comment promises.
+# old block and append a fresh one. Credentials and provider model settings
+# are written to ~/.aab/.env instead of ~/.bashrc.
 # ---------------------------------------------------------------------------
 update_bashrc() {
     touch "${BASHRC}"
@@ -1325,39 +1378,13 @@ update_bashrc() {
         log "Replaced existing autonomous-agent-bootstrap block in ${BASHRC}."
     fi
 
-    local provider="${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-anthropic}"
-    if [ "$provider" != "anthropic" ] && [ "$provider" != "third-party" ]; then
-        warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'anthropic' or 'third-party'; defaulting to 'anthropic'."
-        provider="anthropic"
-    fi
-    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-    local haiku_model="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-    local sonnet_model="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-    local opus_model="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-    local third_party_model="${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-    local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-    local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-    local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
     local effort="${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
-    local first_party_api_key="${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
-    local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
-    local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
-    local github_token="${AAB_GH_TOKEN:-}"
-    local codex_provider
-    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
-    local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
-    local codex_third_party_model="${AAB_CODEX_THIRD_PARTY_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_MODEL}"
-    local codex_third_party_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_BASE_URL}"
-    local codex_third_party_auth_token="${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}"
-    local brev_api_key="${AAB_BREV_API_KEY:-}"
-    local brev_org_id="${AAB_BREV_ORG_ID:-}"
 
     {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
         printf '%s\n' \
-            '# Sources env file created by the Claude Code native installer, ensures' \
-            "# ~/.local/bin is on PATH, and makes interactive 'claude' / 'codex'" \
-            '# invocations skip permission prompts so agents can run unattended.' \
+            '# Sources env file created by the Claude Code native installer and' \
+            '# ensures AAB-managed launcher wrappers are first on PATH.' \
             '# DEBUG_SDK=1 turns on Claude Code debug logging, written to' \
             '# ~/.claude/debug/<uuid>.txt with latest symlinked to the current' \
             '# run and verbose tags enabled by the DEBUG_SDK gate.' \
@@ -1366,240 +1393,36 @@ update_bashrc() {
             'fi' \
             'export PATH="$HOME/.local/bin:$PATH"' \
             'export CLAUDE_CODE_SANDBOXED=1' \
-            'export DEBUG_SDK=1' \
-            "alias claude='claude --dangerously-skip-permissions'" \
-            "alias codex='codex --dangerously-bypass-approvals-and-sandbox'"
+            'export DEBUG_SDK=1'
         printf 'export CLAUDE_CODE_EFFORT_LEVEL="%s"\n' "$effort"
-        if [ -n "$github_token" ]; then
-            printf 'export AAB_GH_TOKEN="%s"\n' "$github_token"
-            printf 'export GH_TOKEN="%s"\n' "$github_token"
-        fi
-        printf 'export AAB_CODEX_INFERENCE_PROVIDER="%s"\n' "$codex_provider"
-        if [ "$codex_provider" = "openai" ] && [ -n "$codex_first_party_api_key" ]; then
-            printf 'export AAB_CODEX_FIRST_PARTY_API_KEY="%s"\n' "$codex_first_party_api_key"
-            printf 'export OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
-        fi
-        if [ "$codex_provider" = "third-party" ]; then
-            printf 'export AAB_CODEX_THIRD_PARTY_MODEL="%s"\n' "$codex_third_party_model"
-            printf 'export AAB_CODEX_THIRD_PARTY_BASE_URL="%s"\n' "$codex_third_party_base_url"
-            if [ -n "$codex_third_party_auth_token" ]; then
-                printf 'export AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="%s"\n' "$codex_third_party_auth_token"
-            fi
-        fi
-        if [ -n "$brev_api_key" ]; then
-            printf 'export AAB_BREV_API_KEY="%s"\n' "$brev_api_key"
-        fi
-        if [ -n "$brev_org_id" ]; then
-            printf 'export AAB_BREV_ORG_ID="%s"\n' "$brev_org_id"
-        fi
-
-        # Inner managed block — rewritten in place by
-        # claude_code_switch_inference_provider below.
-        printf '\n# >>> autonomous-agent-bootstrap AAB_CLAUDE_CODE_INFERENCE_PROVIDER >>>\n'
-        printf 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="%s"\n' "$provider"
-        printf '# <<< autonomous-agent-bootstrap AAB_CLAUDE_CODE_INFERENCE_PROVIDER <<<\n\n'
-
-        printf 'if [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER}" = "anthropic" ]; then\n'
-        printf '    unset AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL\n'
-        printf '    unset AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN\n'
-        printf '    unset ANTHROPIC_BASE_URL\n'
-        printf '    unset ANTHROPIC_AUTH_TOKEN\n'
-        printf '    unset CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS\n'
-        if [ -n "$first_party_api_key" ]; then
-            printf '    export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="%s"\n' "$first_party_api_key"
-            printf '    export ANTHROPIC_API_KEY="%s"\n' "$first_party_api_key"
-        fi
-        printf '    export ANTHROPIC_MODEL="%s"\n' "$model"
-        printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n' "$haiku_model"
-        printf '    export ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "$sonnet_model"
-        printf '    export ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n' "$opus_model"
-        printf 'else\n'
-        printf '    unset AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY\n'
-        printf '    unset ANTHROPIC_API_KEY\n'
-        if [ -n "$third_party_base_url" ]; then
-            printf '    export AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="%s"\n' "$third_party_base_url"
-            printf '    export ANTHROPIC_BASE_URL="%s"\n' "$third_party_base_url"
-        fi
-        if [ -n "$third_party_auth_token" ]; then
-            printf '    export AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="%s"\n' "$third_party_auth_token"
-            printf '    export ANTHROPIC_AUTH_TOKEN="%s"\n' "$third_party_auth_token"
-        fi
-        printf '    export ANTHROPIC_MODEL="%s"\n' "$third_party_model"
-        printf '    export ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n' "$third_party_haiku_model"
-        printf '    export ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "$third_party_sonnet_model"
-        printf '    export ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n' "$third_party_opus_model"
-        printf '    export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1\n'
-        printf 'fi\n\n'
-
-        printf '%s\n' \
-            'claude_code_switch_inference_provider() {' \
-            '    local new_provider="$1"' \
-            '    if [ "$new_provider" != "anthropic" ] && [ "$new_provider" != "third-party" ]; then' \
-            '        echo "usage: claude_code_switch_inference_provider anthropic|third-party" >&2' \
-            '        return 1' \
-            '    fi' \
-            '    local bashrc="${HOME}/.bashrc"' \
-            '    local begin="# >>> autonomous-agent-bootstrap AAB_CLAUDE_CODE_INFERENCE_PROVIDER >>>"' \
-            '    local end="# <<< autonomous-agent-bootstrap AAB_CLAUDE_CODE_INFERENCE_PROVIDER <<<"' \
-            '    if ! grep -qF "$begin" "$bashrc"; then' \
-            '        echo "claude_code_switch_inference_provider: marker not found in $bashrc" >&2' \
-            '        return 1' \
-            '    fi' \
-            '    local tmp' \
-            '    tmp=$(mktemp) || return 1' \
-            '    awk -v begin="$begin" -v end="$end" -v provider="$new_provider" '\''' \
-            '        $0 == begin { in_block=1; print; print "AAB_CLAUDE_CODE_INFERENCE_PROVIDER=\"" provider "\""; next }' \
-            '        $0 == end   { in_block=0; print; next }' \
-            '        in_block    { next }' \
-            '                    { print }' \
-            '    '\'' "$bashrc" > "$tmp" || { rm -f "$tmp"; return 1; }' \
-            '    mv "$tmp" "$bashrc"' \
-            '    # shellcheck disable=SC1090' \
-            '    . "$bashrc"' \
-            '}'
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${BASHRC}"
-    log "Wrote autonomous-agent-bootstrap block to ${BASHRC} (provider=${provider}, model=${model}, haiku=${haiku_model}, sonnet=${sonnet_model}, opus=${opus_model}, effort=${effort})."
+    log "Wrote autonomous-agent-bootstrap block to ${BASHRC} (effort=${effort})."
 }
 
 # ---------------------------------------------------------------------------
-# 12. Mirror the credential / config env vars into /etc/environment.
-#
-# ~/.bashrc only loads for interactive bash shells; `ssh user@host cmd`
-# launches a non-interactive non-login shell that skips it entirely, and
-# systemd services start with whatever env their unit file declares — so
-# anything that needs ANTHROPIC_API_KEY, AAB_CODEX_FIRST_PARTY_API_KEY,
-# OPENAI_API_KEY, AAB_CODEX_THIRD_PARTY_AUTH_TOKEN, GH_TOKEN, ANTHROPIC_MODEL, etc. from one
-# of those contexts has nothing to read.
-#
-# /etc/environment is the cross-shell mechanism on Linux: PAM's pam_env
-# module loads it during session setup, including for ssh non-interactive
-# remote-command sessions, console logins, and `su -`. It's a flat
-# `KEY=VALUE` file (no shell expansion), exactly what's needed for the
-# resolved-at-bootstrap-time provider config we already build for
-# ~/.bashrc. systemd services that want the same values can reference
-# the same file with `EnvironmentFile=/etc/environment`.
-#
-# Re-runs replace the managed block in place. Writing /etc/environment
-# needs root; `update_etc_environment` follows the same warn-and-skip
-# pattern as `ensure_gh` when passwordless sudo isn't available — the
-# bootstrap finishes, ~/.bashrc still gets written, but non-interactive
-# shells won't see the env vars until sudo is wired up and the bootstrap
-# is re-run.
-#
-# The provider runtime-switch function in ~/.bashrc still only updates
-# bashrc (interactive only). To make a switch visible to non-interactive
-# shells, re-run bootstrap.bash with the new provider — that rewrites
-# both the bashrc block and the /etc/environment block.
+# 12. Remove stale /etc/environment managed blocks from older installs.
 # ---------------------------------------------------------------------------
 update_etc_environment() {
+    [ -f "$ETC_ENV" ] || return 0
+    grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV" || return 0
+
     if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
-        warn "Updating $ETC_ENV needs sudo and passwordless sudo is not available; skipping. Non-interactive shells (ssh remote command, systemd services) will not see AAB's env vars."
+        warn "Updating $ETC_ENV needs sudo and passwordless sudo is not available; stale AAB env vars may remain there."
         return
     fi
 
-    local provider="${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-anthropic}"
-    if [ "$provider" != "anthropic" ] && [ "$provider" != "third-party" ]; then
-        provider="anthropic"
-    fi
-    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-    local haiku_model="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-    local sonnet_model="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-    local opus_model="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-    local third_party_model="${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-    local third_party_haiku_model="${AAB_CLAUDE_CODE_THIRD_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-    local third_party_sonnet_model="${AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-    local third_party_opus_model="${AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-    local effort="${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
-    local first_party_api_key="${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
-    local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
-    local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
-    local github_token="${AAB_GH_TOKEN:-}"
-    local codex_provider
-    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
-    local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
-    local codex_third_party_model="${AAB_CODEX_THIRD_PARTY_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_MODEL}"
-    local codex_third_party_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_BASE_URL}"
-    local codex_third_party_auth_token="${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}"
-    local brev_api_key="${AAB_BREV_API_KEY:-}"
-    local brev_org_id="${AAB_BREV_ORG_ID:-}"
-
     local tmp
     tmp=$(mktemp)
-    {
-        # Carry over everything outside the previous managed block, if any.
-        if [ -f "$ETC_ENV" ]; then
-            awk -v begin="${ETC_ENV_MARKER_BEGIN}" -v end="${ETC_ENV_MARKER_END}" '
-                $0 == begin { skip=1; next }
-                $0 == end   { skip=0; next }
-                !skip { print }
-            ' "$ETC_ENV"
-        fi
+    awk -v begin="${ETC_ENV_MARKER_BEGIN}" -v end="${ETC_ENV_MARKER_END}" '
+        $0 == begin { skip=1; next }
+        $0 == end   { skip=0; next }
+        !skip { print }
+    ' "$ETC_ENV" > "$tmp"
 
-        # Drop any trailing blank lines from the carry-over so re-runs do not
-        # accumulate them; the explicit '\n' before BEGIN gives one separator.
-        printf '\n%s\n' "${ETC_ENV_MARKER_BEGIN}"
-        printf 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER="%s"\n' "$provider"
-        printf 'CLAUDE_CODE_SANDBOXED="1"\n'
-        printf 'CLAUDE_CODE_EFFORT_LEVEL="%s"\n' "$effort"
-        printf 'DEBUG_SDK="1"\n'
-        if [ -n "$github_token" ]; then
-            printf 'AAB_GH_TOKEN="%s"\n' "$github_token"
-            printf 'GH_TOKEN="%s"\n' "$github_token"
-        fi
-        printf 'AAB_CODEX_INFERENCE_PROVIDER="%s"\n' "$codex_provider"
-        if [ "$codex_provider" = "openai" ] && [ -n "$codex_first_party_api_key" ]; then
-            printf 'AAB_CODEX_FIRST_PARTY_API_KEY="%s"\n' "$codex_first_party_api_key"
-            printf 'OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
-        fi
-        if [ "$codex_provider" = "third-party" ]; then
-            printf 'AAB_CODEX_THIRD_PARTY_MODEL="%s"\n' "$codex_third_party_model"
-            printf 'AAB_CODEX_THIRD_PARTY_BASE_URL="%s"\n' "$codex_third_party_base_url"
-            if [ -n "$codex_third_party_auth_token" ]; then
-                printf 'AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="%s"\n' "$codex_third_party_auth_token"
-            fi
-        fi
-        if [ -n "$brev_api_key" ]; then
-            printf 'AAB_BREV_API_KEY="%s"\n' "$brev_api_key"
-        fi
-        if [ -n "$brev_org_id" ]; then
-            printf 'AAB_BREV_ORG_ID="%s"\n' "$brev_org_id"
-        fi
-        if [ "$provider" = "anthropic" ]; then
-            if [ -n "$first_party_api_key" ]; then
-                printf 'AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="%s"\n' "$first_party_api_key"
-                printf 'ANTHROPIC_API_KEY="%s"\n' "$first_party_api_key"
-            fi
-            printf 'ANTHROPIC_MODEL="%s"\n' "$model"
-            printf 'ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n'  "$haiku_model"
-            printf 'ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "$sonnet_model"
-            printf 'ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n'   "$opus_model"
-        else
-            if [ -n "$third_party_base_url" ]; then
-                printf 'AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL="%s"\n' "$third_party_base_url"
-                printf 'ANTHROPIC_BASE_URL="%s"\n' "$third_party_base_url"
-            fi
-            if [ -n "$third_party_auth_token" ]; then
-                printf 'AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN="%s"\n' "$third_party_auth_token"
-                printf 'ANTHROPIC_AUTH_TOKEN="%s"\n' "$third_party_auth_token"
-            fi
-            printf 'ANTHROPIC_MODEL="%s"\n'                "$third_party_model"
-            printf 'ANTHROPIC_DEFAULT_HAIKU_MODEL="%s"\n'  "$third_party_haiku_model"
-            printf 'ANTHROPIC_DEFAULT_SONNET_MODEL="%s"\n' "$third_party_sonnet_model"
-            printf 'ANTHROPIC_DEFAULT_OPUS_MODEL="%s"\n'   "$third_party_opus_model"
-            printf 'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS="1"\n'
-        fi
-        printf '%s\n' "${ETC_ENV_MARKER_END}"
-    } > "$tmp"
-
-    # `install` is atomic and sets mode in one syscall, so a partial write
-    # or a stale 0600 from mktemp does not show up in /etc/environment
-    # mid-rewrite. Owner stays root: when SUDO=sudo (the default for non-
-    # root callers) the install runs under sudo's elevated EUID and writes
-    # the file as root by default; -o/-g flags would just duplicate that.
     $SUDO install -m 0644 "$tmp" "$ETC_ENV"
     rm -f "$tmp"
-    log "Wrote autonomous-agent-bootstrap block to $ETC_ENV (provider=$provider)."
+    log "Removed autonomous-agent-bootstrap block from $ETC_ENV."
 }
 
 # ---------------------------------------------------------------------------
@@ -1679,6 +1502,7 @@ main() {
     configure_brev_auth
     ensure_gh
     write_settings
+    write_aab_env_file
     write_codex_config
     configure_codex_auth
     skip_onboarding
@@ -1687,6 +1511,7 @@ main() {
     install_auth_ssh_key
     install_signing_ssh_key
     install_agent_plugins
+    install_claude_launcher
     install_codex_launcher
     update_bashrc
     update_etc_environment

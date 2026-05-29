@@ -59,8 +59,8 @@ run_e2e() {
     : "${AAB_GIT_AUTHOR_EMAIL:=ci@example.com}"
     : "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:=claude-opus-4-7}"
     : "${AAB_CLAUDE_CODE_EFFORT:=max}"
-    : "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:=anthropic}"
-    : "${AAB_CODEX_INFERENCE_PROVIDER:=openai}"
+    : "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:=first-party}"
+    : "${AAB_CODEX_INFERENCE_PROVIDER:=first-party}"
     : "${AAB_CODEX_FIRST_PARTY_MODEL:=gpt-5.5}"
     : "${AAB_CODEX_EFFORT:=xhigh}"
     : "${AAB_CODEX_FIRST_PARTY_API_KEY:=codex-e2e-test-key}"
@@ -77,26 +77,6 @@ run_e2e() {
     bash bootstrap.bash
     bash tests/e2e-assertions.bash
 
-    # Exercise the provider-switch function. The default Ubuntu ~/.bashrc
-    # returns early for non-interactive shells, so extract just the
-    # managed block and source that to get at the function.
-    local block
-    block=$(mktemp)
-    awk '/^# >>> autonomous-agent-bootstrap >>>$/,/^# <<< autonomous-agent-bootstrap <<<$/' \
-        "$HOME/.bashrc" > "$block"
-    # No '-u' here: claude_code_switch_inference_provider re-sources
-    # ~/.bashrc at the end, and the default Ubuntu root bashrc references
-    # $PS1 unconditionally — which is unset in this non-interactive shell.
-    bash -c "
-        set -eo pipefail
-        # shellcheck disable=SC1090
-        . '$block'
-        claude_code_switch_inference_provider third-party
-        grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER=\"third-party\"' \"\$HOME/.bashrc\"
-        claude_code_switch_inference_provider anthropic
-        grep -q 'AAB_CLAUDE_CODE_INFERENCE_PROVIDER=\"anthropic\"' \"\$HOME/.bashrc\"
-    "
-    rm -f "$block"
     echo "=== e2e passed ==="
 }
 
@@ -142,13 +122,20 @@ run_smoke() {
     if [ -n "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}" ]; then
         claude_env+=(ANTHROPIC_API_KEY="$AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY")
     fi
-    if [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-}" = "third-party" ]; then
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}" ] \
-            && claude_env+=(ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL")
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}" ] \
-            && claude_env+=(ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN")
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_MODEL:-}" ] \
-            && claude_env+=(ANTHROPIC_MODEL="$AAB_CLAUDE_CODE_THIRD_PARTY_MODEL")
+    if [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-first-party}" = "third-party-anthropic" ]; then
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL:-}" ] \
+            && claude_env+=(ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL")
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY:-}" ] \
+            && claude_env+=(ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY")
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL:-}" ] \
+            && claude_env+=(ANTHROPIC_MODEL="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL")
+    elif [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-first-party}" = "third-party-deepseek" ]; then
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL:-}" ] \
+            && claude_env+=(ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL")
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY:-}" ] \
+            && claude_env+=(ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY")
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-}" ] \
+            && claude_env+=(ANTHROPIC_MODEL="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL")
     fi
 
     if ! claude_output=$(timeout 180s "${claude_env[@]}" claude --dangerously-skip-permissions -p "$prompt" 2>&1); then
@@ -164,13 +151,13 @@ run_smoke() {
     echo "Claude smoke passed."
 
     local -a codex_env=(env)
-    if [ "${AAB_CODEX_INFERENCE_PROVIDER:-openai}" = "third-party" ]; then
-        local codex_third_party_auth_token="${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}"
+    if [ "${AAB_CODEX_INFERENCE_PROVIDER:-first-party}" = "third-party-openai" ]; then
+        local codex_third_party_auth_token="${AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY:-}"
         if [ -z "$codex_third_party_auth_token" ]; then
-            echo "test.bash: --smoke with AAB_CODEX_INFERENCE_PROVIDER=third-party requires AAB_CODEX_THIRD_PARTY_AUTH_TOKEN." >&2
+            echo "test.bash: --smoke with AAB_CODEX_INFERENCE_PROVIDER=third-party-openai requires AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY." >&2
             return 1
         fi
-        codex_env+=(AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="$codex_third_party_auth_token")
+        codex_env+=(AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY="$codex_third_party_auth_token")
     else
         local codex_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-${OPENAI_API_KEY:-}}"
         if [ -n "$codex_api_key" ]; then
