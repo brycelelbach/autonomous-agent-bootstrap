@@ -44,10 +44,10 @@ expected_codex_service_tier="${AAB_CODEX_SERVICE_TIER:-priority}"
 expected_codex_provider="${AAB_CODEX_INFERENCE_PROVIDER:-openai}"
 case "$expected_codex_provider" in
     openai|first-party) expected_codex_provider="openai" ;;
-    nvidia) ;;
+    third-party) ;;
     *) expected_codex_provider="openai" ;;
 esac
-if [ "$expected_codex_provider" = "nvidia" ]; then
+if [ "$expected_codex_provider" = "third-party" ]; then
     expected_codex_model="${AAB_CODEX_THIRD_PARTY_MODEL:-openai/openai/gpt-5.5}"
     expected_codex_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-https://inference-api.nvidia.com/v1}"
 else
@@ -60,15 +60,15 @@ case "$expected_codex_service_tier" in
 esac
 grep -q "^model = \"${expected_codex_model}\"$" "$CODEX_CONFIG" \
     || fail "Codex model is not ${expected_codex_model}."
-if [ "$expected_codex_provider" = "nvidia" ]; then
-    grep -q '^model_provider = "nvidia"$' "$CODEX_CONFIG" \
-        || fail "Codex model_provider is not nvidia."
-    grep -q '^\[model_providers.nvidia\]$' "$CODEX_CONFIG" \
-        || fail "Codex NVIDIA provider table missing."
+if [ "$expected_codex_provider" = "third-party" ]; then
+    grep -q '^model_provider = "third-party"$' "$CODEX_CONFIG" \
+        || fail "Codex model_provider is not third-party."
+    grep -q '^\[model_providers."third-party"\]$' "$CODEX_CONFIG" \
+        || fail "Codex third-party provider table missing."
     grep -q "^base_url = \"${expected_codex_base_url}\"$" "$CODEX_CONFIG" \
-        || fail "Codex NVIDIA provider base URL is not ${expected_codex_base_url}."
+        || fail "Codex third-party provider base URL is not ${expected_codex_base_url}."
     grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN"$' "$CODEX_CONFIG" \
-        || fail "Codex NVIDIA provider env key is not AAB_CODEX_THIRD_PARTY_AUTH_TOKEN."
+        || fail "Codex third-party provider env key is not AAB_CODEX_THIRD_PARTY_AUTH_TOKEN."
 fi
 grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
     || fail "Codex approval_policy is not never."
@@ -133,16 +133,16 @@ if [ "$expected_codex_provider" = "openai" ] && [ -n "${AAB_CODEX_FIRST_PARTY_AP
         || fail "OPENAI_API_KEY export derived from AAB_CODEX_FIRST_PARTY_API_KEY not written."
     pass "Codex first-party API key exports written."
 fi
-if [ "$expected_codex_provider" = "nvidia" ]; then
-    grep -q '^export AAB_CODEX_INFERENCE_PROVIDER="nvidia"$' "$BASHRC" \
-        || fail "AAB_CODEX_INFERENCE_PROVIDER=nvidia export not written."
+if [ "$expected_codex_provider" = "third-party" ]; then
+    grep -q '^export AAB_CODEX_INFERENCE_PROVIDER="third-party"$' "$BASHRC" \
+        || fail "AAB_CODEX_INFERENCE_PROVIDER=third-party export not written."
     grep -q '^export AAB_CODEX_THIRD_PARTY_BASE_URL=' "$BASHRC" \
         || fail "AAB_CODEX_THIRD_PARTY_BASE_URL export not written."
     if [ -n "${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}" ]; then
         grep -q '^export AAB_CODEX_THIRD_PARTY_AUTH_TOKEN=' "$BASHRC" \
             || fail "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN export not written."
     fi
-    pass "Codex NVIDIA provider exports written."
+    pass "Codex third-party provider exports written."
 fi
 if [ -n "${AAB_BREV_API_KEY:-}" ]; then
     grep -q '^export AAB_BREV_API_KEY=' "$BASHRC" \
@@ -279,9 +279,9 @@ if [ "$expected_codex_provider" = "openai" ] && [ -n "${AAB_CODEX_FIRST_PARTY_AP
     grep -q '^OPENAI_API_KEY=' "$ETC_ENV" \
         || fail "OPENAI_API_KEY missing from $ETC_ENV."
 fi
-if [ "$expected_codex_provider" = "nvidia" ]; then
-    grep -q '^AAB_CODEX_INFERENCE_PROVIDER="nvidia"$' "$ETC_ENV" \
-        || fail "AAB_CODEX_INFERENCE_PROVIDER=nvidia missing from $ETC_ENV."
+if [ "$expected_codex_provider" = "third-party" ]; then
+    grep -q '^AAB_CODEX_INFERENCE_PROVIDER="third-party"$' "$ETC_ENV" \
+        || fail "AAB_CODEX_INFERENCE_PROVIDER=third-party missing from $ETC_ENV."
     grep -q '^AAB_CODEX_THIRD_PARTY_BASE_URL=' "$ETC_ENV" \
         || fail "AAB_CODEX_THIRD_PARTY_BASE_URL missing from $ETC_ENV."
     if [ -n "${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}" ]; then
