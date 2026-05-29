@@ -60,14 +60,14 @@ case "$expected_codex_service_tier" in
     fast) expected_codex_service_tier="priority" ;;
     *) expected_codex_service_tier="priority" ;;
 esac
-grep -q "^model = \"${expected_codex_model}\"$" "$CODEX_CONFIG" \
+grep -Fxq "model = \"${expected_codex_model}\"" "$CODEX_CONFIG" \
     || fail "Codex model is not ${expected_codex_model}."
 if [ "$expected_codex_provider" = "third-party-openai" ]; then
     grep -q '^model_provider = "third-party-openai"$' "$CODEX_CONFIG" \
         || fail "Codex model_provider is not third-party-openai."
     grep -q '^\[model_providers."third-party-openai"\]$' "$CODEX_CONFIG" \
         || fail "Codex third-party-openai provider table missing."
-    grep -q "^base_url = \"${expected_codex_base_url}\"$" "$CODEX_CONFIG" \
+    grep -Fxq "base_url = \"${expected_codex_base_url}\"" "$CODEX_CONFIG" \
         || fail "Codex third-party-openai provider base URL is not ${expected_codex_base_url}."
     grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY"$' "$CODEX_CONFIG" \
         || fail "Codex third-party-openai provider env key is not AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY."
@@ -87,9 +87,9 @@ grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
     || fail "Codex approval_policy is not never."
 grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG" \
     || fail "Codex sandbox_mode is not danger-full-access."
-grep -q "^model_reasoning_effort = \"${expected_codex_effort}\"$" "$CODEX_CONFIG" \
+grep -Fxq "model_reasoning_effort = \"${expected_codex_effort}\"" "$CODEX_CONFIG" \
     || fail "Codex reasoning effort is not ${expected_codex_effort}."
-grep -q "^service_tier = \"${expected_codex_service_tier}\"$" "$CODEX_CONFIG" \
+grep -Fxq "service_tier = \"${expected_codex_service_tier}\"" "$CODEX_CONFIG" \
     || fail "Codex service tier is not ${expected_codex_service_tier}."
 grep -q '^check_for_update_on_startup = false$' "$CODEX_CONFIG" \
     || fail "Codex startup update check is not disabled."
@@ -99,7 +99,7 @@ grep -q '^inherit = "all"$' "$CODEX_CONFIG" \
     || fail "Codex shell env inheritance is not all."
 grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG" \
     || fail "Codex shell env token inheritance is not enabled."
-grep -q "^max_threads = ${expected_codex_agent_max_threads}$" "$CODEX_CONFIG" \
+grep -Fxq "max_threads = ${expected_codex_agent_max_threads}" "$CODEX_CONFIG" \
     || fail "Codex agent max_threads is not ${expected_codex_agent_max_threads}."
 grep -qF "[projects.\"$HOME\"]" "$CODEX_CONFIG" \
     || fail "Codex HOME project trust entry missing."
@@ -248,8 +248,12 @@ command -v gh     >/dev/null 2>&1 || fail "gh not on PATH after bootstrap."
 pass "gh binary installed."
 
 # 11. git identity was configured.
-[ "$(git config --global user.name)"  = "CI Bot" ]         || fail "git user.name not set."
-[ "$(git config --global user.email)" = "ci@example.com" ] || fail "git user.email not set."
+expected_git_author_name="${AAB_GIT_AUTHOR_NAME:-CI Bot}"
+expected_git_author_email="${AAB_GIT_AUTHOR_EMAIL:-ci@example.com}"
+[ "$(git config --global user.name)"  = "$expected_git_author_name" ] \
+    || fail "git user.name not set."
+[ "$(git config --global user.email)" = "$expected_git_author_email" ] \
+    || fail "git user.email not set."
 pass "git identity configured."
 
 # 12. gh credential helper is registered for github.com.
