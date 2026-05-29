@@ -3,7 +3,7 @@
 #
 # Does the following, idempotently:
 #   0. Installs any missing base dependencies (curl, python3, git, sudo,
-#      tar, gawk, ca-certificates) via apt-get, so the script runs on bare
+#      tar, gawk, ripgrep, ca-certificates) via apt-get, so the script runs on bare
 #      container images that ship only apt-get. Skipped silently if already
 #      present.
 #   1. Installs / upgrades Claude Code via the native installer.
@@ -293,7 +293,7 @@ need_sudo() {
 SUDO=$(need_sudo)
 
 # ---------------------------------------------------------------------------
-# 0. Install base dependencies (curl / python3 / git / tar / gawk /
+# 0. Install base dependencies (curl / python3 / git / tar / gawk / ripgrep /
 # ca-certificates) via apt-get. Bare container images (e.g. ubuntu:22.04)
 # ship with apt-get but nothing else, so we can't assume curl or python3
 # exist.
@@ -307,6 +307,7 @@ install_base_deps() {
     command -v git     >/dev/null 2>&1 || needed+=(git)
     command -v tar     >/dev/null 2>&1 || needed+=(tar)
     command -v gawk    >/dev/null 2>&1 || needed+=(gawk)
+    command -v rg      >/dev/null 2>&1 || needed+=(ripgrep)
     # The Brev installer (install-latest.sh) invokes `sudo` unconditionally;
     # bare container images ship without sudo, so we install it even when
     # running as root. Sudo as uid 0 is a no-op passthrough.

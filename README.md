@@ -39,7 +39,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 **To run the bootstrap:**
 
 - Ubuntu/Debian host with `bash` and `apt-get`
-- A bare `ubuntu:22.04` container image is a valid starting point — everything else (`curl`, `python3`, `git`, `tar`, `gawk`, `sudo`, `ca-certificates`, and `gh`) is installed by the script itself on first run
+- A bare `ubuntu:22.04` container image is a valid starting point — everything else (`curl`, `python3`, `git`, `tar`, `gawk`, `ripgrep`, `sudo`, `ca-certificates`, and `gh`) is installed by the script itself on first run
 - Passwordless `sudo` (or running as root) — required so the script can install those packages; it warns and skips otherwise
 
 **To run the tests** (see [Running the tests](#running-the-tests)):

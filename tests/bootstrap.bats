@@ -710,17 +710,59 @@ SH
 }
 
 @test "install_base_deps is a no-op when all required commands are present" {
-    # Runs on a host (or CI runner) where curl / python3 / git / tar / gawk /
-    # sudo and the CA bundle are preinstalled — the dev-box / runner default.
-    for cmd in curl python3 git tar gawk sudo; do
-        command -v "$cmd" >/dev/null || skip "precondition: $cmd must exist on the test host"
+    local fake_bin="$TEST_HOME/fake-base-deps-present-bin"
+    mkdir -p "$fake_bin"
+    for cmd in curl python3 git tar gawk rg sudo apt-get; do
+        cat > "$fake_bin/$cmd" <<'SH'
+#!/bin/sh
+printf '%s\n' "$0 $*" >> "$TEST_HOME/base-deps-present-invocations"
+exit 0
+SH
+        chmod +x "$fake_bin/$cmd"
     done
     [ -f /etc/ssl/certs/ca-certificates.crt ] || skip "precondition: ca-certificates bundle must exist"
 
-    run install_base_deps
+    SUDO="" PATH="$fake_bin" run install_base_deps
     [ "$status" -eq 0 ]
     # Silent: no "Installing base deps:" log line, and no apt-get invocation.
     [[ "$output" != *"Installing base deps:"* ]]
+    [ ! -f "$TEST_HOME/base-deps-present-invocations" ]
+}
+
+@test "install_base_deps installs ripgrep when rg is missing" {
+    local fake_bin="$TEST_HOME/fake-base-deps-bin"
+    mkdir -p "$fake_bin"
+
+    for cmd in curl python3 git tar gawk sudo; do
+        cat > "$fake_bin/$cmd" <<'SH'
+#!/bin/sh
+exit 0
+SH
+        chmod +x "$fake_bin/$cmd"
+    done
+    cat > "$fake_bin/env" <<'SH'
+#!/bin/sh
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        *=*) shift ;;
+        *) break ;;
+    esac
+done
+exec "$@"
+SH
+    chmod +x "$fake_bin/env"
+    cat > "$fake_bin/apt-get" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$TEST_HOME/apt-get-invocations"
+SH
+    chmod +x "$fake_bin/apt-get"
+
+    SUDO="" PATH="$fake_bin" run install_base_deps
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Installing base deps: ripgrep."* ]]
+    grep -Fxq 'update -y' "$TEST_HOME/apt-get-invocations"
+    grep -Fxq 'install -y --no-install-recommends ripgrep' "$TEST_HOME/apt-get-invocations"
 }
 
 @test "install_base_deps warns and skips when apt-get is unavailable" {
