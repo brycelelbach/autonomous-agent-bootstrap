@@ -165,12 +165,12 @@ run_smoke() {
 
     local -a codex_env=(env)
     if [ "${AAB_CODEX_INFERENCE_PROVIDER:-openai}" = "nvidia" ]; then
-        local nvidia_api_key="${AAB_CODEX_NVIDIA_API_KEY:-${NVIDIA_API_KEY:-}}"
-        if [ -z "$nvidia_api_key" ]; then
-            echo "test.bash: --smoke with AAB_CODEX_INFERENCE_PROVIDER=nvidia requires AAB_CODEX_NVIDIA_API_KEY or NVIDIA_API_KEY." >&2
+        local codex_third_party_auth_token="${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}"
+        if [ -z "$codex_third_party_auth_token" ]; then
+            echo "test.bash: --smoke with AAB_CODEX_INFERENCE_PROVIDER=nvidia requires AAB_CODEX_THIRD_PARTY_AUTH_TOKEN." >&2
             return 1
         fi
-        codex_env+=(NVIDIA_API_KEY="$nvidia_api_key")
+        codex_env+=(AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="$codex_third_party_auth_token")
     else
         local codex_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-${OPENAI_API_KEY:-}}"
         if [ -n "$codex_api_key" ]; then

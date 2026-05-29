@@ -178,18 +178,18 @@
 #                       accepts 'first-party') or 'nvidia'. When set to
 #                       'nvidia', writes a custom model_providers.nvidia entry
 #                       pointed at NVIDIA's OpenAI-compatible Responses API.
-#   AAB_CODEX_NVIDIA_MODEL
+#   AAB_CODEX_THIRD_PARTY_MODEL
 #                       Codex model ID for NVIDIA. Defaults to
 #                       openai/openai/gpt-5.5.
-#   AAB_CODEX_NVIDIA_BASE_URL
+#   AAB_CODEX_THIRD_PARTY_BASE_URL
 #                       NVIDIA OpenAI-compatible base URL. Defaults to
 #                       https://inference-api.nvidia.com/v1.
-#   AAB_CODEX_NVIDIA_API_KEY
-#                       NVIDIA API key used by Codex. Exported as both
-#                       AAB_CODEX_NVIDIA_API_KEY and NVIDIA_API_KEY from the
-#                       ~/.bashrc managed block and mirrored into
-#                       /etc/environment. ~/.codex/config.toml references it
-#                       with env_key="NVIDIA_API_KEY".
+#   AAB_CODEX_THIRD_PARTY_AUTH_TOKEN
+#                       Auth token used by Codex for the selected third-party
+#                       provider. Exported from the ~/.bashrc managed block,
+#                       mirrored into /etc/environment, and referenced by
+#                       ~/.codex/config.toml with
+#                       env_key="AAB_CODEX_THIRD_PARTY_AUTH_TOKEN".
 #   AAB_CODEX_EFFORT
 #                       Codex reasoning effort. Baked into
 #                       ~/.codex/config.toml's model_reasoning_effort field.
@@ -210,7 +210,7 @@
 # re-run: existing settings.json, config.toml, and .claude.json are backed
 # up before overwrite, and the ~/.bashrc managed block is replaced
 # wholesale each run, so re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY,
-# AAB_CODEX_FIRST_PARTY_API_KEY, AAB_CODEX_NVIDIA_API_KEY, AAB_BREV_API_KEY,
+# AAB_CODEX_FIRST_PARTY_API_KEY, AAB_CODEX_THIRD_PARTY_AUTH_TOKEN, AAB_BREV_API_KEY,
 # or AAB_BREV_ORG_ID set will drop a previously-written export (this is
 # intentional — re-runs match the current env).
 #
@@ -263,8 +263,8 @@ DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_EFFORT="max"
 DEFAULT_CODEX_MODEL="gpt-5.5"
 DEFAULT_CODEX_INFERENCE_PROVIDER="openai"
-DEFAULT_CODEX_NVIDIA_MODEL="openai/openai/gpt-5.5"
-DEFAULT_CODEX_NVIDIA_BASE_URL="https://inference-api.nvidia.com/v1"
+DEFAULT_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5"
+DEFAULT_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
 DEFAULT_CODEX_SERVICE_TIER="priority"
 
@@ -555,11 +555,11 @@ write_codex_config() {
     local codex_provider
     codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
     local first_party_model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
-    local nvidia_model="${AAB_CODEX_NVIDIA_MODEL:-$DEFAULT_CODEX_NVIDIA_MODEL}"
-    local nvidia_base_url="${AAB_CODEX_NVIDIA_BASE_URL:-$DEFAULT_CODEX_NVIDIA_BASE_URL}"
+    local third_party_model="${AAB_CODEX_THIRD_PARTY_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_MODEL}"
+    local third_party_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_BASE_URL}"
     local model="$first_party_model"
     if [ "$codex_provider" = "nvidia" ]; then
-        model="$nvidia_model"
+        model="$third_party_model"
     fi
     local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
     local service_tier="${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
@@ -581,12 +581,12 @@ write_codex_config() {
             ;;
     esac
 
-    local model_escaped home_escaped cwd cwd_escaped nvidia_base_url_escaped
+    local model_escaped home_escaped cwd cwd_escaped third_party_base_url_escaped
     model_escaped=$(_toml_escape "$model")
     home_escaped=$(_toml_escape "$HOME")
     cwd="${PWD:-$HOME}"
     cwd_escaped=$(_toml_escape "$cwd")
-    nvidia_base_url_escaped=$(_toml_escape "$nvidia_base_url")
+    third_party_base_url_escaped=$(_toml_escape "$third_party_base_url")
 
     cat > "${CODEX_CONFIG}" <<TOML
 model = "${model_escaped}"
@@ -619,8 +619,8 @@ TOML
 
 [model_providers.nvidia]
 name = "NVIDIA"
-base_url = "${nvidia_base_url_escaped}"
-env_key = "NVIDIA_API_KEY"
+base_url = "${third_party_base_url_escaped}"
+env_key = "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN"
 wire_api = "responses"
 request_max_retries = 4
 stream_max_retries = 5
@@ -1286,7 +1286,7 @@ BASH
 # The block is identified by the BEGIN/END markers. On re-run we strip the
 # old block and append a fresh one, so the output always matches the
 # current env — re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY,
-# AAB_CODEX_FIRST_PARTY_API_KEY, or AAB_CODEX_NVIDIA_API_KEY set will drop a
+# AAB_CODEX_FIRST_PARTY_API_KEY, or AAB_CODEX_THIRD_PARTY_AUTH_TOKEN set will drop a
 # previously-written export, which is what the header comment promises.
 # ---------------------------------------------------------------------------
 update_bashrc() {
@@ -1324,9 +1324,9 @@ update_bashrc() {
     local codex_provider
     codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
     local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
-    local codex_nvidia_model="${AAB_CODEX_NVIDIA_MODEL:-$DEFAULT_CODEX_NVIDIA_MODEL}"
-    local codex_nvidia_base_url="${AAB_CODEX_NVIDIA_BASE_URL:-$DEFAULT_CODEX_NVIDIA_BASE_URL}"
-    local codex_nvidia_api_key="${AAB_CODEX_NVIDIA_API_KEY:-}"
+    local codex_third_party_model="${AAB_CODEX_THIRD_PARTY_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_MODEL}"
+    local codex_third_party_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_BASE_URL}"
+    local codex_third_party_auth_token="${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}"
     local brev_api_key="${AAB_BREV_API_KEY:-}"
     local brev_org_id="${AAB_BREV_ORG_ID:-}"
 
@@ -1358,11 +1358,10 @@ update_bashrc() {
             printf 'export OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
         fi
         if [ "$codex_provider" = "nvidia" ]; then
-            printf 'export AAB_CODEX_NVIDIA_MODEL="%s"\n' "$codex_nvidia_model"
-            printf 'export AAB_CODEX_NVIDIA_BASE_URL="%s"\n' "$codex_nvidia_base_url"
-            if [ -n "$codex_nvidia_api_key" ]; then
-                printf 'export AAB_CODEX_NVIDIA_API_KEY="%s"\n' "$codex_nvidia_api_key"
-                printf 'export NVIDIA_API_KEY="%s"\n' "$codex_nvidia_api_key"
+            printf 'export AAB_CODEX_THIRD_PARTY_MODEL="%s"\n' "$codex_third_party_model"
+            printf 'export AAB_CODEX_THIRD_PARTY_BASE_URL="%s"\n' "$codex_third_party_base_url"
+            if [ -n "$codex_third_party_auth_token" ]; then
+                printf 'export AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="%s"\n' "$codex_third_party_auth_token"
             fi
         fi
         if [ -n "$brev_api_key" ]; then
@@ -1448,7 +1447,7 @@ update_bashrc() {
 # launches a non-interactive non-login shell that skips it entirely, and
 # systemd services start with whatever env their unit file declares — so
 # anything that needs ANTHROPIC_API_KEY, AAB_CODEX_FIRST_PARTY_API_KEY,
-# OPENAI_API_KEY, NVIDIA_API_KEY, GH_TOKEN, ANTHROPIC_MODEL, etc. from one
+# OPENAI_API_KEY, AAB_CODEX_THIRD_PARTY_AUTH_TOKEN, GH_TOKEN, ANTHROPIC_MODEL, etc. from one
 # of those contexts has nothing to read.
 #
 # /etc/environment is the cross-shell mechanism on Linux: PAM's pam_env
@@ -1497,9 +1496,9 @@ update_etc_environment() {
     local codex_provider
     codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
     local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
-    local codex_nvidia_model="${AAB_CODEX_NVIDIA_MODEL:-$DEFAULT_CODEX_NVIDIA_MODEL}"
-    local codex_nvidia_base_url="${AAB_CODEX_NVIDIA_BASE_URL:-$DEFAULT_CODEX_NVIDIA_BASE_URL}"
-    local codex_nvidia_api_key="${AAB_CODEX_NVIDIA_API_KEY:-}"
+    local codex_third_party_model="${AAB_CODEX_THIRD_PARTY_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_MODEL}"
+    local codex_third_party_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_BASE_URL}"
+    local codex_third_party_auth_token="${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}"
     local brev_api_key="${AAB_BREV_API_KEY:-}"
     local brev_org_id="${AAB_BREV_ORG_ID:-}"
 
@@ -1532,11 +1531,10 @@ update_etc_environment() {
             printf 'OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
         fi
         if [ "$codex_provider" = "nvidia" ]; then
-            printf 'AAB_CODEX_NVIDIA_MODEL="%s"\n' "$codex_nvidia_model"
-            printf 'AAB_CODEX_NVIDIA_BASE_URL="%s"\n' "$codex_nvidia_base_url"
-            if [ -n "$codex_nvidia_api_key" ]; then
-                printf 'AAB_CODEX_NVIDIA_API_KEY="%s"\n' "$codex_nvidia_api_key"
-                printf 'NVIDIA_API_KEY="%s"\n' "$codex_nvidia_api_key"
+            printf 'AAB_CODEX_THIRD_PARTY_MODEL="%s"\n' "$codex_third_party_model"
+            printf 'AAB_CODEX_THIRD_PARTY_BASE_URL="%s"\n' "$codex_third_party_base_url"
+            if [ -n "$codex_third_party_auth_token" ]; then
+                printf 'AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="%s"\n' "$codex_third_party_auth_token"
             fi
         fi
         if [ -n "$brev_api_key" ]; then
