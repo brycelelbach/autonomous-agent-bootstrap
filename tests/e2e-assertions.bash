@@ -41,11 +41,35 @@ pass "settings.json written with unattended-mode defaults."
 [ -f "$CODEX_CONFIG" ] || fail "Codex config.toml not written."
 expected_codex_effort="${AAB_CODEX_EFFORT:-xhigh}"
 expected_codex_service_tier="${AAB_CODEX_SERVICE_TIER:-priority}"
+expected_codex_provider="${AAB_CODEX_INFERENCE_PROVIDER:-openai}"
+case "$expected_codex_provider" in
+    openai|first-party) expected_codex_provider="openai" ;;
+    nvidia) ;;
+    *) expected_codex_provider="openai" ;;
+esac
+if [ "$expected_codex_provider" = "nvidia" ]; then
+    expected_codex_model="${AAB_CODEX_NVIDIA_MODEL:-openai/openai/gpt-5.5}"
+    expected_codex_base_url="${AAB_CODEX_NVIDIA_BASE_URL:-https://inference-api.nvidia.com/v1}"
+else
+    expected_codex_model="${AAB_CODEX_FIRST_PARTY_MODEL:-gpt-5.5}"
+fi
 case "$expected_codex_service_tier" in
     priority|flex|default) ;;
     fast) expected_codex_service_tier="priority" ;;
     *) expected_codex_service_tier="priority" ;;
 esac
+grep -q "^model = \"${expected_codex_model}\"$" "$CODEX_CONFIG" \
+    || fail "Codex model is not ${expected_codex_model}."
+if [ "$expected_codex_provider" = "nvidia" ]; then
+    grep -q '^model_provider = "nvidia"$' "$CODEX_CONFIG" \
+        || fail "Codex model_provider is not nvidia."
+    grep -q '^\[model_providers.nvidia\]$' "$CODEX_CONFIG" \
+        || fail "Codex NVIDIA provider table missing."
+    grep -q "^base_url = \"${expected_codex_base_url}\"$" "$CODEX_CONFIG" \
+        || fail "Codex NVIDIA provider base URL is not ${expected_codex_base_url}."
+    grep -q '^env_key = "NVIDIA_API_KEY"$' "$CODEX_CONFIG" \
+        || fail "Codex NVIDIA provider env key is not NVIDIA_API_KEY."
+fi
 grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
     || fail "Codex approval_policy is not never."
 grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG" \
@@ -102,12 +126,25 @@ grep -q "alias codex='codex --dangerously-bypass-approvals-and-sandbox'" "$BASHR
 pass "Codex yolo alias written."
 
 # 7b. Codex first-party API key exports are present when configured.
-if [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
+if [ "$expected_codex_provider" = "openai" ] && [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
     grep -q '^export AAB_CODEX_FIRST_PARTY_API_KEY=' "$BASHRC" \
         || fail "AAB_CODEX_FIRST_PARTY_API_KEY export not written."
     grep -q '^export OPENAI_API_KEY=' "$BASHRC" \
         || fail "OPENAI_API_KEY export derived from AAB_CODEX_FIRST_PARTY_API_KEY not written."
     pass "Codex first-party API key exports written."
+fi
+if [ "$expected_codex_provider" = "nvidia" ]; then
+    grep -q '^export AAB_CODEX_INFERENCE_PROVIDER="nvidia"$' "$BASHRC" \
+        || fail "AAB_CODEX_INFERENCE_PROVIDER=nvidia export not written."
+    grep -q '^export AAB_CODEX_NVIDIA_BASE_URL=' "$BASHRC" \
+        || fail "AAB_CODEX_NVIDIA_BASE_URL export not written."
+    if [ -n "${AAB_CODEX_NVIDIA_API_KEY:-}" ]; then
+        grep -q '^export AAB_CODEX_NVIDIA_API_KEY=' "$BASHRC" \
+            || fail "AAB_CODEX_NVIDIA_API_KEY export not written."
+        grep -q '^export NVIDIA_API_KEY=' "$BASHRC" \
+            || fail "NVIDIA_API_KEY export not written."
+    fi
+    pass "Codex NVIDIA provider exports written."
 fi
 if [ -n "${AAB_BREV_API_KEY:-}" ]; then
     grep -q '^export AAB_BREV_API_KEY=' "$BASHRC" \
@@ -173,7 +210,7 @@ case "$codex_plugins" in
     *) fail "Codex agitentic plugin not installed." ;;
 esac
 pass "Codex agent plugins installed."
-if [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
+if [ "$expected_codex_provider" = "openai" ] && [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
     AAB_EXPECTED_CODEX_API_KEY="$AAB_CODEX_FIRST_PARTY_API_KEY" \
         python3 - "$CODEX_AUTH" <<'PY'
@@ -238,11 +275,23 @@ grep -q '^ANTHROPIC_MODEL=' "$ETC_ENV" \
     || fail "ANTHROPIC_MODEL missing from $ETC_ENV."
 grep -q '^CLAUDE_CODE_EFFORT_LEVEL="max"$' "$ETC_ENV" \
     || fail "CLAUDE_CODE_EFFORT_LEVEL missing from $ETC_ENV."
-if [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
+if [ "$expected_codex_provider" = "openai" ] && [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
     grep -q '^AAB_CODEX_FIRST_PARTY_API_KEY=' "$ETC_ENV" \
         || fail "AAB_CODEX_FIRST_PARTY_API_KEY missing from $ETC_ENV."
     grep -q '^OPENAI_API_KEY=' "$ETC_ENV" \
         || fail "OPENAI_API_KEY missing from $ETC_ENV."
+fi
+if [ "$expected_codex_provider" = "nvidia" ]; then
+    grep -q '^AAB_CODEX_INFERENCE_PROVIDER="nvidia"$' "$ETC_ENV" \
+        || fail "AAB_CODEX_INFERENCE_PROVIDER=nvidia missing from $ETC_ENV."
+    grep -q '^AAB_CODEX_NVIDIA_BASE_URL=' "$ETC_ENV" \
+        || fail "AAB_CODEX_NVIDIA_BASE_URL missing from $ETC_ENV."
+    if [ -n "${AAB_CODEX_NVIDIA_API_KEY:-}" ]; then
+        grep -q '^AAB_CODEX_NVIDIA_API_KEY=' "$ETC_ENV" \
+            || fail "AAB_CODEX_NVIDIA_API_KEY missing from $ETC_ENV."
+        grep -q '^NVIDIA_API_KEY=' "$ETC_ENV" \
+            || fail "NVIDIA_API_KEY missing from $ETC_ENV."
+    fi
 fi
 if [ -n "${AAB_BREV_API_KEY:-}" ]; then
     grep -q '^AAB_BREV_API_KEY=' "$ETC_ENV" \

@@ -60,13 +60,14 @@ run_e2e() {
     : "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:=claude-opus-4-7}"
     : "${AAB_CLAUDE_CODE_EFFORT:=max}"
     : "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:=anthropic}"
+    : "${AAB_CODEX_INFERENCE_PROVIDER:=openai}"
     : "${AAB_CODEX_FIRST_PARTY_MODEL:=gpt-5.5}"
     : "${AAB_CODEX_EFFORT:=xhigh}"
     : "${AAB_CODEX_FIRST_PARTY_API_KEY:=codex-e2e-test-key}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
            AAB_CLAUDE_CODE_FIRST_PARTY_MODEL AAB_CLAUDE_CODE_EFFORT \
            AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
-           AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT \
+           AAB_CODEX_INFERENCE_PROVIDER AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT \
            AAB_CODEX_FIRST_PARTY_API_KEY
 
     bash bootstrap.bash
@@ -123,6 +124,7 @@ run_docker_e2e() {
 redact_secrets() {
     sed -E \
         -e 's/sk-[A-Za-z0-9_-]+/sk-REDACTED/g' \
+        -e 's/nvapi-[A-Za-z0-9_-]+/nvapi-REDACTED/g' \
         -e 's/(ghp_|github_pat_)[A-Za-z0-9_]+/GITHUB_TOKEN_REDACTED/g'
 }
 
@@ -162,13 +164,22 @@ run_smoke() {
     echo "Claude smoke passed."
 
     local -a codex_env=(env)
-    local codex_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-${OPENAI_API_KEY:-}}"
-    if [ -n "$codex_api_key" ]; then
-        if [ "$codex_api_key" = "codex-e2e-test-key" ]; then
-            echo "test.bash: --smoke requires a real Codex API key, not the synthetic e2e key." >&2
+    if [ "${AAB_CODEX_INFERENCE_PROVIDER:-openai}" = "nvidia" ]; then
+        local nvidia_api_key="${AAB_CODEX_NVIDIA_API_KEY:-${NVIDIA_API_KEY:-}}"
+        if [ -z "$nvidia_api_key" ]; then
+            echo "test.bash: --smoke with AAB_CODEX_INFERENCE_PROVIDER=nvidia requires AAB_CODEX_NVIDIA_API_KEY or NVIDIA_API_KEY." >&2
             return 1
         fi
-        codex_env+=(OPENAI_API_KEY="$codex_api_key")
+        codex_env+=(NVIDIA_API_KEY="$nvidia_api_key")
+    else
+        local codex_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-${OPENAI_API_KEY:-}}"
+        if [ -n "$codex_api_key" ]; then
+            if [ "$codex_api_key" = "codex-e2e-test-key" ]; then
+                echo "test.bash: --smoke requires a real Codex API key, not the synthetic e2e key." >&2
+                return 1
+            fi
+            codex_env+=(OPENAI_API_KEY="$codex_api_key")
+        fi
     fi
 
     if ! codex_output=$(timeout 180s "${codex_env[@]}" codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$prompt" 2>&1); then
