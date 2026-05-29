@@ -48,8 +48,8 @@ case "$expected_codex_provider" in
     *) expected_codex_provider="openai" ;;
 esac
 if [ "$expected_codex_provider" = "nvidia" ]; then
-    expected_codex_model="${AAB_CODEX_NVIDIA_MODEL:-openai/openai/gpt-5.5}"
-    expected_codex_base_url="${AAB_CODEX_NVIDIA_BASE_URL:-https://inference-api.nvidia.com/v1}"
+    expected_codex_model="${AAB_CODEX_THIRD_PARTY_MODEL:-openai/openai/gpt-5.5}"
+    expected_codex_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-https://inference-api.nvidia.com/v1}"
 else
     expected_codex_model="${AAB_CODEX_FIRST_PARTY_MODEL:-gpt-5.5}"
 fi
@@ -67,8 +67,8 @@ if [ "$expected_codex_provider" = "nvidia" ]; then
         || fail "Codex NVIDIA provider table missing."
     grep -q "^base_url = \"${expected_codex_base_url}\"$" "$CODEX_CONFIG" \
         || fail "Codex NVIDIA provider base URL is not ${expected_codex_base_url}."
-    grep -q '^env_key = "NVIDIA_API_KEY"$' "$CODEX_CONFIG" \
-        || fail "Codex NVIDIA provider env key is not NVIDIA_API_KEY."
+    grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN"$' "$CODEX_CONFIG" \
+        || fail "Codex NVIDIA provider env key is not AAB_CODEX_THIRD_PARTY_AUTH_TOKEN."
 fi
 grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
     || fail "Codex approval_policy is not never."
@@ -136,13 +136,11 @@ fi
 if [ "$expected_codex_provider" = "nvidia" ]; then
     grep -q '^export AAB_CODEX_INFERENCE_PROVIDER="nvidia"$' "$BASHRC" \
         || fail "AAB_CODEX_INFERENCE_PROVIDER=nvidia export not written."
-    grep -q '^export AAB_CODEX_NVIDIA_BASE_URL=' "$BASHRC" \
-        || fail "AAB_CODEX_NVIDIA_BASE_URL export not written."
-    if [ -n "${AAB_CODEX_NVIDIA_API_KEY:-}" ]; then
-        grep -q '^export AAB_CODEX_NVIDIA_API_KEY=' "$BASHRC" \
-            || fail "AAB_CODEX_NVIDIA_API_KEY export not written."
-        grep -q '^export NVIDIA_API_KEY=' "$BASHRC" \
-            || fail "NVIDIA_API_KEY export not written."
+    grep -q '^export AAB_CODEX_THIRD_PARTY_BASE_URL=' "$BASHRC" \
+        || fail "AAB_CODEX_THIRD_PARTY_BASE_URL export not written."
+    if [ -n "${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}" ]; then
+        grep -q '^export AAB_CODEX_THIRD_PARTY_AUTH_TOKEN=' "$BASHRC" \
+            || fail "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN export not written."
     fi
     pass "Codex NVIDIA provider exports written."
 fi
@@ -284,13 +282,11 @@ fi
 if [ "$expected_codex_provider" = "nvidia" ]; then
     grep -q '^AAB_CODEX_INFERENCE_PROVIDER="nvidia"$' "$ETC_ENV" \
         || fail "AAB_CODEX_INFERENCE_PROVIDER=nvidia missing from $ETC_ENV."
-    grep -q '^AAB_CODEX_NVIDIA_BASE_URL=' "$ETC_ENV" \
-        || fail "AAB_CODEX_NVIDIA_BASE_URL missing from $ETC_ENV."
-    if [ -n "${AAB_CODEX_NVIDIA_API_KEY:-}" ]; then
-        grep -q '^AAB_CODEX_NVIDIA_API_KEY=' "$ETC_ENV" \
-            || fail "AAB_CODEX_NVIDIA_API_KEY missing from $ETC_ENV."
-        grep -q '^NVIDIA_API_KEY=' "$ETC_ENV" \
-            || fail "NVIDIA_API_KEY missing from $ETC_ENV."
+    grep -q '^AAB_CODEX_THIRD_PARTY_BASE_URL=' "$ETC_ENV" \
+        || fail "AAB_CODEX_THIRD_PARTY_BASE_URL missing from $ETC_ENV."
+    if [ -n "${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}" ]; then
+        grep -q '^AAB_CODEX_THIRD_PARTY_AUTH_TOKEN=' "$ETC_ENV" \
+            || fail "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN missing from $ETC_ENV."
     fi
 fi
 if [ -n "${AAB_BREV_API_KEY:-}" ]; then
