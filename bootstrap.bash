@@ -175,14 +175,14 @@
 #                       gpt-5.5.
 #   AAB_CODEX_INFERENCE_PROVIDER
 #                       Codex inference provider: 'openai' (default, also
-#                       accepts 'first-party') or 'nvidia'. When set to
-#                       'nvidia', writes a custom model_providers.nvidia entry
-#                       pointed at NVIDIA's OpenAI-compatible Responses API.
+#                       accepts 'first-party') or 'third-party'. When set to
+#                       'third-party', writes a custom model_providers entry
+#                       pointed at an OpenAI-compatible Responses API.
 #   AAB_CODEX_THIRD_PARTY_MODEL
-#                       Codex model ID for NVIDIA. Defaults to
+#                       Codex model ID for the third-party provider. Defaults to
 #                       openai/openai/gpt-5.5.
 #   AAB_CODEX_THIRD_PARTY_BASE_URL
-#                       NVIDIA OpenAI-compatible base URL. Defaults to
+#                       OpenAI-compatible third-party base URL. Defaults to
 #                       https://inference-api.nvidia.com/v1.
 #   AAB_CODEX_THIRD_PARTY_AUTH_TOKEN
 #                       Auth token used by Codex for the selected third-party
@@ -277,11 +277,11 @@ normalize_codex_inference_provider() {
         openai|first-party)
             printf 'openai'
             ;;
-        nvidia)
-            printf 'nvidia'
+        third-party)
+            printf 'third-party'
             ;;
         *)
-            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'openai', 'first-party', or 'nvidia'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
+            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'openai', 'first-party', or 'third-party'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
             printf '%s' "$DEFAULT_CODEX_INFERENCE_PROVIDER"
             ;;
     esac
@@ -558,7 +558,7 @@ write_codex_config() {
     local third_party_model="${AAB_CODEX_THIRD_PARTY_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_MODEL}"
     local third_party_base_url="${AAB_CODEX_THIRD_PARTY_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_BASE_URL}"
     local model="$first_party_model"
-    if [ "$codex_provider" = "nvidia" ]; then
+    if [ "$codex_provider" = "third-party" ]; then
         model="$third_party_model"
     fi
     local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
@@ -592,9 +592,9 @@ write_codex_config() {
 model = "${model_escaped}"
 TOML
 
-    if [ "$codex_provider" = "nvidia" ]; then
+    if [ "$codex_provider" = "third-party" ]; then
         cat >> "${CODEX_CONFIG}" <<TOML
-model_provider = "nvidia"
+model_provider = "third-party"
 TOML
     fi
 
@@ -614,11 +614,11 @@ inherit = "all"
 ignore_default_excludes = true
 TOML
 
-    if [ "$codex_provider" = "nvidia" ]; then
+    if [ "$codex_provider" = "third-party" ]; then
         cat >> "${CODEX_CONFIG}" <<TOML
 
-[model_providers.nvidia]
-name = "NVIDIA"
+[model_providers."third-party"]
+name = "Third Party"
 base_url = "${third_party_base_url_escaped}"
 env_key = "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN"
 wire_api = "responses"
@@ -1357,7 +1357,7 @@ update_bashrc() {
             printf 'export AAB_CODEX_FIRST_PARTY_API_KEY="%s"\n' "$codex_first_party_api_key"
             printf 'export OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
         fi
-        if [ "$codex_provider" = "nvidia" ]; then
+        if [ "$codex_provider" = "third-party" ]; then
             printf 'export AAB_CODEX_THIRD_PARTY_MODEL="%s"\n' "$codex_third_party_model"
             printf 'export AAB_CODEX_THIRD_PARTY_BASE_URL="%s"\n' "$codex_third_party_base_url"
             if [ -n "$codex_third_party_auth_token" ]; then
@@ -1530,7 +1530,7 @@ update_etc_environment() {
             printf 'AAB_CODEX_FIRST_PARTY_API_KEY="%s"\n' "$codex_first_party_api_key"
             printf 'OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
         fi
-        if [ "$codex_provider" = "nvidia" ]; then
+        if [ "$codex_provider" = "third-party" ]; then
             printf 'AAB_CODEX_THIRD_PARTY_MODEL="%s"\n' "$codex_third_party_model"
             printf 'AAB_CODEX_THIRD_PARTY_BASE_URL="%s"\n' "$codex_third_party_base_url"
             if [ -n "$codex_third_party_auth_token" ]; then

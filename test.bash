@@ -164,10 +164,10 @@ run_smoke() {
     echo "Claude smoke passed."
 
     local -a codex_env=(env)
-    if [ "${AAB_CODEX_INFERENCE_PROVIDER:-openai}" = "nvidia" ]; then
+    if [ "${AAB_CODEX_INFERENCE_PROVIDER:-openai}" = "third-party" ]; then
         local codex_third_party_auth_token="${AAB_CODEX_THIRD_PARTY_AUTH_TOKEN:-}"
         if [ -z "$codex_third_party_auth_token" ]; then
-            echo "test.bash: --smoke with AAB_CODEX_INFERENCE_PROVIDER=nvidia requires AAB_CODEX_THIRD_PARTY_AUTH_TOKEN." >&2
+            echo "test.bash: --smoke with AAB_CODEX_INFERENCE_PROVIDER=third-party requires AAB_CODEX_THIRD_PARTY_AUTH_TOKEN." >&2
             return 1
         fi
         codex_env+=(AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="$codex_third_party_auth_token")

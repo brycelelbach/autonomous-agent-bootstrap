@@ -169,16 +169,16 @@ PY
     grep -q '^service_tier = "flex"$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config can target NVIDIA OpenAI-compatible Responses endpoint" {
-    AAB_CODEX_INFERENCE_PROVIDER="nvidia" \
+@test "write_codex_config can target a third-party OpenAI-compatible Responses endpoint" {
+    AAB_CODEX_INFERENCE_PROVIDER="third-party" \
         AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5" \
         AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1" \
         write_codex_config
 
     grep -q '^model = "openai/openai/gpt-5.5"$' "$CODEX_CONFIG"
-    grep -q '^model_provider = "nvidia"$' "$CODEX_CONFIG"
-    grep -q '^\[model_providers.nvidia\]$' "$CODEX_CONFIG"
-    grep -q '^name = "NVIDIA"$' "$CODEX_CONFIG"
+    grep -q '^model_provider = "third-party"$' "$CODEX_CONFIG"
+    grep -q '^\[model_providers."third-party"\]$' "$CODEX_CONFIG"
+    grep -q '^name = "Third Party"$' "$CODEX_CONFIG"
     grep -q '^base_url = "https://inference-api.nvidia.com/v1"$' "$CODEX_CONFIG"
     grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_AUTH_TOKEN"$' "$CODEX_CONFIG"
     grep -q '^wire_api = "responses"$' "$CODEX_CONFIG"
@@ -411,9 +411,9 @@ PY
     [[ "$output" != *"codex-first-party-test-key"* ]]
 }
 
-@test "configure_codex_auth skips OpenAI login when Codex provider is NVIDIA" {
+@test "configure_codex_auth skips OpenAI login when Codex provider is third-party" {
     setup_fake_codex
-    AAB_CODEX_INFERENCE_PROVIDER="nvidia" \
+    AAB_CODEX_INFERENCE_PROVIDER="third-party" \
         AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" \
         run configure_codex_auth
     [ "$status" -eq 0 ]
@@ -564,13 +564,13 @@ PY
     grep -q 'export OPENAI_API_KEY="codex-first-party-test-key"' "$BASHRC"
 }
 
-@test "update_bashrc exports NVIDIA Codex provider settings when selected" {
-    AAB_CODEX_INFERENCE_PROVIDER="nvidia" \
+@test "update_bashrc exports Codex third-party provider settings when selected" {
+    AAB_CODEX_INFERENCE_PROVIDER="third-party" \
         AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5" \
         AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1" \
         AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="nvapi-test-key" \
         update_bashrc
-    grep -q 'export AAB_CODEX_INFERENCE_PROVIDER="nvidia"' "$BASHRC"
+    grep -q 'export AAB_CODEX_INFERENCE_PROVIDER="third-party"' "$BASHRC"
     grep -q 'export AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5"' "$BASHRC"
     grep -q 'export AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1"' "$BASHRC"
     grep -q 'export AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="nvapi-test-key"' "$BASHRC"
@@ -1305,16 +1305,16 @@ _etc_env_sandbox() {
     ! grep -q '^ANTHROPIC_API_KEY=' "$ETC_ENV"
 }
 
-@test "update_etc_environment writes NVIDIA Codex provider block" {
+@test "update_etc_environment writes Codex third-party provider block" {
     _etc_env_sandbox
-    AAB_CODEX_INFERENCE_PROVIDER="nvidia" \
+    AAB_CODEX_INFERENCE_PROVIDER="third-party" \
         AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5" \
         AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1" \
         AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="nvapi-test-key" \
         AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" \
         update_etc_environment
 
-    grep -q '^AAB_CODEX_INFERENCE_PROVIDER="nvidia"$' "$ETC_ENV"
+    grep -q '^AAB_CODEX_INFERENCE_PROVIDER="third-party"$' "$ETC_ENV"
     grep -q '^AAB_CODEX_THIRD_PARTY_MODEL="openai/openai/gpt-5.5"$' "$ETC_ENV"
     grep -q '^AAB_CODEX_THIRD_PARTY_BASE_URL="https://inference-api.nvidia.com/v1"$' "$ETC_ENV"
     grep -q '^AAB_CODEX_THIRD_PARTY_AUTH_TOKEN="nvapi-test-key"$' "$ETC_ENV"
