@@ -21,9 +21,9 @@
 #   6. Writes ~/.codex/config.toml with unattended-mode defaults
 #      (approval_policy=never, sandbox_mode=danger-full-access, update checks
 #      disabled, xhigh effort, and trusted project roots).
-#  6b. If AAB_CODEX_FIRST_PARTY_API_KEY is set, pipes it into
-#      `codex login --with-api-key` so Codex uses first-party API-key auth
-#      without a device-code login prompt.
+#  6b. If AAB_CODEX_FIRST_PARTY_API_KEY is set and Codex is using the OpenAI
+#      provider, pipes it into `codex login --with-api-key` so Codex uses
+#      first-party API-key auth without a device-code login prompt.
 #   7. Pre-populates ~/.claude.json with hasCompletedOnboarding=true so the
 #      first `claude` launch skips the theme / color-scheme wizard, and —
 #      if AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY is set — pre-approves that
@@ -173,6 +173,23 @@
 #                       Codex first-party model name. Baked into
 #                       ~/.codex/config.toml's "model" field. Defaults to
 #                       gpt-5.5.
+#   AAB_CODEX_INFERENCE_PROVIDER
+#                       Codex inference provider: 'openai' (default, also
+#                       accepts 'first-party') or 'nvidia'. When set to
+#                       'nvidia', writes a custom model_providers.nvidia entry
+#                       pointed at NVIDIA's OpenAI-compatible Responses API.
+#   AAB_CODEX_NVIDIA_MODEL
+#                       Codex model ID for NVIDIA. Defaults to
+#                       openai/openai/gpt-5.5.
+#   AAB_CODEX_NVIDIA_BASE_URL
+#                       NVIDIA OpenAI-compatible base URL. Defaults to
+#                       https://inference-api.nvidia.com/v1.
+#   AAB_CODEX_NVIDIA_API_KEY
+#                       NVIDIA API key used by Codex. Exported as both
+#                       AAB_CODEX_NVIDIA_API_KEY and NVIDIA_API_KEY from the
+#                       ~/.bashrc managed block and mirrored into
+#                       /etc/environment. ~/.codex/config.toml references it
+#                       with env_key="NVIDIA_API_KEY".
 #   AAB_CODEX_EFFORT
 #                       Codex reasoning effort. Baked into
 #                       ~/.codex/config.toml's model_reasoning_effort field.
@@ -183,18 +200,19 @@
 #                       priority. Allowed values are priority, flex, default,
 #                       and fast as an alias for priority.
 #   AAB_CODEX_FIRST_PARTY_API_KEY
-#                       OpenAI API key used by Codex. Piped into
-#                       `codex login --with-api-key` when set, exported as
-#                       both AAB_CODEX_FIRST_PARTY_API_KEY and OPENAI_API_KEY
-#                       from the ~/.bashrc managed block, and mirrored into
+#                       OpenAI API key used by Codex when
+#                       AAB_CODEX_INFERENCE_PROVIDER=openai. Piped into
+#                       `codex login --with-api-key` when set, exported as both
+#                       AAB_CODEX_FIRST_PARTY_API_KEY and OPENAI_API_KEY from
+#                       the ~/.bashrc managed block, and mirrored into
 #                       /etc/environment.
 # Can be run from a local checkout or piped via `curl ... | bash`. Safe to
 # re-run: existing settings.json, config.toml, and .claude.json are backed
 # up before overwrite, and the ~/.bashrc managed block is replaced
 # wholesale each run, so re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY,
-# AAB_CODEX_FIRST_PARTY_API_KEY, AAB_BREV_API_KEY, or AAB_BREV_ORG_ID set will
-# drop a previously-written export (this is intentional — re-runs match the
-# current env).
+# AAB_CODEX_FIRST_PARTY_API_KEY, AAB_CODEX_NVIDIA_API_KEY, AAB_BREV_API_KEY,
+# or AAB_BREV_ORG_ID set will drop a previously-written export (this is
+# intentional — re-runs match the current env).
 #
 # Optional config input — settings using the env-var contract above can
 # come in via either of two channels (in order of preference):
@@ -244,11 +262,30 @@ DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
 DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_EFFORT="max"
 DEFAULT_CODEX_MODEL="gpt-5.5"
+DEFAULT_CODEX_INFERENCE_PROVIDER="openai"
+DEFAULT_CODEX_NVIDIA_MODEL="openai/openai/gpt-5.5"
+DEFAULT_CODEX_NVIDIA_BASE_URL="https://inference-api.nvidia.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
 DEFAULT_CODEX_SERVICE_TIER="priority"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
+
+normalize_codex_inference_provider() {
+    local provider="${1:-$DEFAULT_CODEX_INFERENCE_PROVIDER}"
+    case "$provider" in
+        openai|first-party)
+            printf 'openai'
+            ;;
+        nvidia)
+            printf 'nvidia'
+            ;;
+        *)
+            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'openai', 'first-party', or 'nvidia'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
+            printf '%s' "$DEFAULT_CODEX_INFERENCE_PROVIDER"
+            ;;
+    esac
+}
 
 need_sudo() {
     if [ "$(id -u)" -eq 0 ]; then echo ""; else echo "sudo"; fi
@@ -514,7 +551,15 @@ write_codex_config() {
         ' "${CODEX_CONFIG}")
     fi
 
-    local model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
+    local codex_provider
+    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
+    local first_party_model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
+    local nvidia_model="${AAB_CODEX_NVIDIA_MODEL:-$DEFAULT_CODEX_NVIDIA_MODEL}"
+    local nvidia_base_url="${AAB_CODEX_NVIDIA_BASE_URL:-$DEFAULT_CODEX_NVIDIA_BASE_URL}"
+    local model="$first_party_model"
+    if [ "$codex_provider" = "nvidia" ]; then
+        model="$nvidia_model"
+    fi
     local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
     local service_tier="${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
     case "$effort" in
@@ -535,14 +580,24 @@ write_codex_config() {
             ;;
     esac
 
-    local model_escaped home_escaped cwd cwd_escaped
+    local model_escaped home_escaped cwd cwd_escaped nvidia_base_url_escaped
     model_escaped=$(_toml_escape "$model")
     home_escaped=$(_toml_escape "$HOME")
     cwd="${PWD:-$HOME}"
     cwd_escaped=$(_toml_escape "$cwd")
+    nvidia_base_url_escaped=$(_toml_escape "$nvidia_base_url")
 
     cat > "${CODEX_CONFIG}" <<TOML
 model = "${model_escaped}"
+TOML
+
+    if [ "$codex_provider" = "nvidia" ]; then
+        cat >> "${CODEX_CONFIG}" <<TOML
+model_provider = "nvidia"
+TOML
+    fi
+
+    cat >> "${CODEX_CONFIG}" <<TOML
 model_reasoning_effort = "${effort}"
 service_tier = "${service_tier}"
 approval_policy = "never"
@@ -556,6 +611,23 @@ hide_full_access_warning = true
 [shell_environment_policy]
 inherit = "all"
 ignore_default_excludes = true
+TOML
+
+    if [ "$codex_provider" = "nvidia" ]; then
+        cat >> "${CODEX_CONFIG}" <<TOML
+
+[model_providers.nvidia]
+name = "NVIDIA"
+base_url = "${nvidia_base_url_escaped}"
+env_key = "NVIDIA_API_KEY"
+wire_api = "responses"
+request_max_retries = 4
+stream_max_retries = 5
+stream_idle_timeout_ms = 300000
+TOML
+    fi
+
+    cat >> "${CODEX_CONFIG}" <<TOML
 
 [projects."${home_escaped}"]
 trust_level = "trusted"
@@ -576,7 +648,7 @@ ${preserved_plugin_config}
 TOML
     fi
 
-    log "Wrote ${CODEX_CONFIG} (model=${model}, effort=${effort}, service_tier=${service_tier}, approval=never, sandbox=danger-full-access)."
+    log "Wrote ${CODEX_CONFIG} (provider=${codex_provider}, model=${model}, effort=${effort}, service_tier=${service_tier}, approval=never, sandbox=danger-full-access)."
 }
 
 # ---------------------------------------------------------------------------
@@ -591,6 +663,13 @@ TOML
 configure_codex_auth() {
     local api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
     [ -z "$api_key" ] && return
+
+    local codex_provider
+    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
+    if [ "$codex_provider" != "openai" ]; then
+        log "Skipping Codex first-party API-key login because AAB_CODEX_INFERENCE_PROVIDER=${codex_provider}."
+        return
+    fi
 
     local codex_bin=""
     if command -v codex >/dev/null 2>&1; then
@@ -1205,9 +1284,9 @@ BASH
 #
 # The block is identified by the BEGIN/END markers. On re-run we strip the
 # old block and append a fresh one, so the output always matches the
-# current env — re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY or
-# AAB_CODEX_FIRST_PARTY_API_KEY set will drop a previously-written export,
-# which is what the header comment promises.
+# current env — re-running without AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY,
+# AAB_CODEX_FIRST_PARTY_API_KEY, or AAB_CODEX_NVIDIA_API_KEY set will drop a
+# previously-written export, which is what the header comment promises.
 # ---------------------------------------------------------------------------
 update_bashrc() {
     touch "${BASHRC}"
@@ -1241,7 +1320,12 @@ update_bashrc() {
     local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
     local github_token="${AAB_GH_TOKEN:-}"
+    local codex_provider
+    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
     local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
+    local codex_nvidia_model="${AAB_CODEX_NVIDIA_MODEL:-$DEFAULT_CODEX_NVIDIA_MODEL}"
+    local codex_nvidia_base_url="${AAB_CODEX_NVIDIA_BASE_URL:-$DEFAULT_CODEX_NVIDIA_BASE_URL}"
+    local codex_nvidia_api_key="${AAB_CODEX_NVIDIA_API_KEY:-}"
     local brev_api_key="${AAB_BREV_API_KEY:-}"
     local brev_org_id="${AAB_BREV_ORG_ID:-}"
 
@@ -1267,9 +1351,18 @@ update_bashrc() {
             printf 'export AAB_GH_TOKEN="%s"\n' "$github_token"
             printf 'export GH_TOKEN="%s"\n' "$github_token"
         fi
-        if [ -n "$codex_first_party_api_key" ]; then
+        printf 'export AAB_CODEX_INFERENCE_PROVIDER="%s"\n' "$codex_provider"
+        if [ "$codex_provider" = "openai" ] && [ -n "$codex_first_party_api_key" ]; then
             printf 'export AAB_CODEX_FIRST_PARTY_API_KEY="%s"\n' "$codex_first_party_api_key"
             printf 'export OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
+        fi
+        if [ "$codex_provider" = "nvidia" ]; then
+            printf 'export AAB_CODEX_NVIDIA_MODEL="%s"\n' "$codex_nvidia_model"
+            printf 'export AAB_CODEX_NVIDIA_BASE_URL="%s"\n' "$codex_nvidia_base_url"
+            if [ -n "$codex_nvidia_api_key" ]; then
+                printf 'export AAB_CODEX_NVIDIA_API_KEY="%s"\n' "$codex_nvidia_api_key"
+                printf 'export NVIDIA_API_KEY="%s"\n' "$codex_nvidia_api_key"
+            fi
         fi
         if [ -n "$brev_api_key" ]; then
             printf 'export AAB_BREV_API_KEY="%s"\n' "$brev_api_key"
@@ -1354,8 +1447,8 @@ update_bashrc() {
 # launches a non-interactive non-login shell that skips it entirely, and
 # systemd services start with whatever env their unit file declares — so
 # anything that needs ANTHROPIC_API_KEY, AAB_CODEX_FIRST_PARTY_API_KEY,
-# OPENAI_API_KEY, GH_TOKEN, ANTHROPIC_MODEL, etc. from one of those contexts
-# has nothing to read.
+# OPENAI_API_KEY, NVIDIA_API_KEY, GH_TOKEN, ANTHROPIC_MODEL, etc. from one
+# of those contexts has nothing to read.
 #
 # /etc/environment is the cross-shell mechanism on Linux: PAM's pam_env
 # module loads it during session setup, including for ssh non-interactive
@@ -1400,7 +1493,12 @@ update_etc_environment() {
     local third_party_base_url="${AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL:-}"
     local third_party_auth_token="${AAB_CLAUDE_CODE_THIRD_PARTY_AUTH_TOKEN:-}"
     local github_token="${AAB_GH_TOKEN:-}"
+    local codex_provider
+    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
     local codex_first_party_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
+    local codex_nvidia_model="${AAB_CODEX_NVIDIA_MODEL:-$DEFAULT_CODEX_NVIDIA_MODEL}"
+    local codex_nvidia_base_url="${AAB_CODEX_NVIDIA_BASE_URL:-$DEFAULT_CODEX_NVIDIA_BASE_URL}"
+    local codex_nvidia_api_key="${AAB_CODEX_NVIDIA_API_KEY:-}"
     local brev_api_key="${AAB_BREV_API_KEY:-}"
     local brev_org_id="${AAB_BREV_ORG_ID:-}"
 
@@ -1427,9 +1525,18 @@ update_etc_environment() {
             printf 'AAB_GH_TOKEN="%s"\n' "$github_token"
             printf 'GH_TOKEN="%s"\n' "$github_token"
         fi
-        if [ -n "$codex_first_party_api_key" ]; then
+        printf 'AAB_CODEX_INFERENCE_PROVIDER="%s"\n' "$codex_provider"
+        if [ "$codex_provider" = "openai" ] && [ -n "$codex_first_party_api_key" ]; then
             printf 'AAB_CODEX_FIRST_PARTY_API_KEY="%s"\n' "$codex_first_party_api_key"
             printf 'OPENAI_API_KEY="%s"\n' "$codex_first_party_api_key"
+        fi
+        if [ "$codex_provider" = "nvidia" ]; then
+            printf 'AAB_CODEX_NVIDIA_MODEL="%s"\n' "$codex_nvidia_model"
+            printf 'AAB_CODEX_NVIDIA_BASE_URL="%s"\n' "$codex_nvidia_base_url"
+            if [ -n "$codex_nvidia_api_key" ]; then
+                printf 'AAB_CODEX_NVIDIA_API_KEY="%s"\n' "$codex_nvidia_api_key"
+                printf 'NVIDIA_API_KEY="%s"\n' "$codex_nvidia_api_key"
+            fi
         fi
         if [ -n "$brev_api_key" ]; then
             printf 'AAB_BREV_API_KEY="%s"\n' "$brev_api_key"

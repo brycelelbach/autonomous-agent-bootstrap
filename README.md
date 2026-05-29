@@ -15,9 +15,10 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 2. **[Codex CLI](https://developers.openai.com/codex/cli)** — installed via OpenAI's standalone installer, then configured for unattended use:
    - `approval_policy = "never"` and `sandbox_mode = "danger-full-access"` in `~/.codex/config.toml`
    - `notice.hide_full_access_warning = true`
-   - `shell_environment_policy.inherit = "all"` and `ignore_default_excludes = true` so spawned commands can see credential env vars such as `GH_TOKEN` and `OPENAI_API_KEY`
-   - Model selected via `AAB_CODEX_FIRST_PARTY_MODEL` (defaults to `gpt-5.5`), reasoning effort via `AAB_CODEX_EFFORT` (defaults to `xhigh`), service tier via `AAB_CODEX_SERVICE_TIER` (defaults to `priority`)
-   - `AAB_CODEX_FIRST_PARTY_API_KEY` logged in via `codex login --with-api-key` when provided, then exported as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`
+   - `shell_environment_policy.inherit = "all"` and `ignore_default_excludes = true` so spawned commands can see credential env vars such as `GH_TOKEN`, `OPENAI_API_KEY`, and `NVIDIA_API_KEY`
+   - Model selected via `AAB_CODEX_FIRST_PARTY_MODEL` (defaults to `gpt-5.5`) for OpenAI or `AAB_CODEX_NVIDIA_MODEL` (defaults to `openai/openai/gpt-5.5`) when `AAB_CODEX_INFERENCE_PROVIDER=nvidia`, reasoning effort via `AAB_CODEX_EFFORT` (defaults to `xhigh`), service tier via `AAB_CODEX_SERVICE_TIER` (defaults to `priority`)
+   - `AAB_CODEX_FIRST_PARTY_API_KEY` logged in via `codex login --with-api-key` when the Codex provider is OpenAI, then exported as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`
+   - `AAB_CODEX_NVIDIA_API_KEY` exported as both `AAB_CODEX_NVIDIA_API_KEY` and `NVIDIA_API_KEY` when `AAB_CODEX_INFERENCE_PROVIDER=nvidia`, with `~/.codex/config.toml` pointed at the NVIDIA OpenAI-compatible Responses endpoint
    - `codex` aliased to `codex --dangerously-bypass-approvals-and-sandbox` in interactive shells
    - The bootstrap user's `$HOME` and the bootstrap launch directory are marked trusted so project-local Codex config can load without a trust prompt
 3. **[Brev CLI](https://github.com/brevdev/brev-cli)** — installed via the official installer, then logged in with organization-scoped API-key auth when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are provided:
@@ -124,6 +125,15 @@ curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-boots
 source ~/.bashrc
 claude -p "Say hello from Claude Code"
 codex exec "Say hello from Codex"
+```
+
+To run Codex through NVIDIA's OpenAI-compatible endpoint instead of OpenAI, add these Codex-specific variables to any recipe:
+
+```bash
+export AAB_CODEX_INFERENCE_PROVIDER="nvidia"
+export AAB_CODEX_NVIDIA_MODEL="openai/openai/gpt-5.5"
+export AAB_CODEX_NVIDIA_BASE_URL="https://inference-api.nvidia.com/v1"
+export AAB_CODEX_NVIDIA_API_KEY="..."
 ```
 
 If you didn't pass `AAB_GH_TOKEN`, sign in to gh (`gh auth login`) before using GitHub.
@@ -233,11 +243,15 @@ All optional. Anything unset is simply skipped.
 | `AAB_CLAUDE_CODE_THIRD_PARTY_SONNET_MODEL` | Fully-qualified third-party gateway sonnet-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_SONNET_MODEL` in the third-party branch. Defaults to `claude-sonnet-4-6`. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_OPUS_MODEL` | Fully-qualified third-party gateway opus-tier model ID. Exported verbatim as `ANTHROPIC_DEFAULT_OPUS_MODEL` in the third-party branch. Defaults to `claude-opus-4-7`. |
 | `AAB_CLAUDE_CODE_EFFORT` | Claude Code effort level. Written to `~/.claude/settings.json`'s `"effortLevel"` field and exported as `CLAUDE_CODE_EFFORT_LEVEL`. Defaults to `max`. |
+| `AAB_CODEX_INFERENCE_PROVIDER` | Codex inference provider: `openai` (default, also accepts `first-party`) or `nvidia`. When set to `nvidia`, `~/.codex/config.toml` uses a custom `model_providers.nvidia` entry pointed at NVIDIA's OpenAI-compatible Responses API. |
 | `AAB_CODEX_FIRST_PARTY_MODEL` | Codex first-party model name. Baked into `~/.codex/config.toml`'s `model` field. Defaults to `gpt-5.5`. |
+| `AAB_CODEX_NVIDIA_MODEL` | Codex NVIDIA model ID when `AAB_CODEX_INFERENCE_PROVIDER=nvidia`. Defaults to `openai/openai/gpt-5.5`. The NVIDIA catalog also exposes `azure/openai/gpt-5.5` as an alternate GPT-5.5 route. |
+| `AAB_CODEX_NVIDIA_BASE_URL` | NVIDIA OpenAI-compatible base URL for Codex when `AAB_CODEX_INFERENCE_PROVIDER=nvidia`. Defaults to `https://inference-api.nvidia.com/v1`. |
+| `AAB_CODEX_NVIDIA_API_KEY` | NVIDIA API key for Codex. Exported from the managed `~/.bashrc` block as both `AAB_CODEX_NVIDIA_API_KEY` and `NVIDIA_API_KEY`, mirrored into `/etc/environment`, and referenced by `~/.codex/config.toml` via `env_key = "NVIDIA_API_KEY"`. |
 | `AAB_CODEX_EFFORT` | Codex reasoning effort (`minimal`, `low`, `medium`, `high`, or `xhigh`). Baked into `~/.codex/config.toml`'s `model_reasoning_effort` field. Defaults to `xhigh`; invalid values fall back to `xhigh`. |
 | `AAB_CODEX_SERVICE_TIER` | Codex service tier (`priority`, `flex`, `default`, or `fast` as an alias for `priority`). Baked into `~/.codex/config.toml`'s `service_tier` field. Defaults to `priority`; invalid values fall back to `priority`. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` | Anthropic first-party API key. Last 20 characters are written to `~/.claude.json` under `customApiKeyResponses.approved` so Claude Code doesn't prompt for approval. Also exported as `ANTHROPIC_API_KEY` from the anthropic branch of the `~/.bashrc` managed block. |
-| `AAB_CODEX_FIRST_PARTY_API_KEY` | OpenAI API key used by Codex. Piped into `codex login --with-api-key` when set, exported from the `~/.bashrc` managed block as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`, and mirrored into `/etc/environment` so Codex can use API-key auth without a first-run sign-in prompt. |
+| `AAB_CODEX_FIRST_PARTY_API_KEY` | OpenAI API key used by Codex when `AAB_CODEX_INFERENCE_PROVIDER=openai`. Piped into `codex login --with-api-key` when set, exported from the `~/.bashrc` managed block as both `AAB_CODEX_FIRST_PARTY_API_KEY` and `OPENAI_API_KEY`, and mirrored into `/etc/environment` so Codex can use API-key auth without a first-run sign-in prompt. |
 | `AAB_BREV_API_KEY` | Brev organization-scoped API key. Used with `AAB_BREV_ORG_ID` to run `brev login --api-key ... --org-id ...`, exported from the `~/.bashrc` managed block, and mirrored into `/etc/environment`. |
 | `AAB_BREV_ORG_ID` | Brev organization ID paired with `AAB_BREV_API_KEY`. Both values must be set to configure Brev API-key auth. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_BASE_URL` | Base URL for the Anthropic-compatible third-party gateway. Also exported as `ANTHROPIC_BASE_URL` from the third-party branch. |
@@ -339,7 +353,7 @@ You can upload the same public key under both types if you want a single blob to
 | `~/.claude/settings.json` | Overwritten with unattended-mode defaults, then merged with `extraKnownMarketplaces` / `enabledPlugins` entries for each plugin in `agent_plugins.txt`. Existing file backed up to `settings.json.bak.<timestamp>` before the rewrite. |
 | `~/.claude/plugins/{marketplaces,cache}` | Written by `claude plugin marketplace add` and `claude plugin install --scope user` for each resolved plugin in `agent_plugins.txt`. |
 | `~/.codex/config.toml` | Overwritten with unattended Codex defaults while preserving existing Codex plugin marketplace/plugin tables: `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, `service_tier = "priority"` by default, `web_search = "live"`, `check_for_update_on_startup = false`, credential-preserving shell env inheritance, and trusted entries for `$HOME` plus the bootstrap launch directory. Existing file backed up to `config.toml.bak.<timestamp>` before the rewrite. |
-| `~/.codex/auth.json` | Written by `codex login --with-api-key` when `AAB_CODEX_FIRST_PARTY_API_KEY` is set, selecting Codex API-key auth for first launch. |
+| `~/.codex/auth.json` | Written by `codex login --with-api-key` when `AAB_CODEX_FIRST_PARTY_API_KEY` is set and `AAB_CODEX_INFERENCE_PROVIDER=openai`, selecting Codex API-key auth for first launch. NVIDIA-backed Codex uses `NVIDIA_API_KEY` from the environment instead. |
 | `~/.codex/.tmp/marketplaces/*`, `~/.codex/plugins/cache/*` | Written by `codex plugin marketplace add` and `codex plugin add` for each resolved plugin in `agent_plugins.txt`. |
 | `~/.brev/credentials.json` | Written by `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set, selecting Brev API-key auth for future commands. |
 | `~/.brev/onboarding_step.json` | Written with the Brev tutorial steps marked complete. Existing file backed up to `onboarding_step.json.bak.<timestamp>` before the rewrite. |
@@ -356,13 +370,13 @@ You can upload the same public key under both types if you want a single blob to
 
 Safe to re-run. Each run matches the current environment:
 
-- The `~/.bashrc` managed block is replaced, not appended — so re-running **without** `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` / `AAB_CODEX_FIRST_PARTY_API_KEY` / `AAB_BREV_API_KEY` / `AAB_BREV_ORG_ID` / `AAB_GH_TOKEN` set drops a previously-written export. If you want an export to persist across re-runs, keep the env var set when you re-run.
+- The `~/.bashrc` managed block is replaced, not appended — so re-running **without** `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` / `AAB_CODEX_FIRST_PARTY_API_KEY` / `AAB_CODEX_NVIDIA_API_KEY` / `AAB_BREV_API_KEY` / `AAB_BREV_ORG_ID` / `AAB_GH_TOKEN` set drops a previously-written export. If you want an export to persist across re-runs, keep the env var set when you re-run.
 - `settings.json`, `config.toml`, and `.claude.json` are backed up (timestamped `.bak`) before being rewritten.
 - `gh`, `claude`, and `codex` are skipped or updated by their installers if already installed.
 - Brev API-key login is re-run when both `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 - `git config --global` is only touched for variables that are set.
 - The `~/.ssh/config` managed block is replaced in place on re-run; pre-existing entries outside the block are preserved. Re-running without `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` set leaves `~/.ssh/config` untouched — the block is **not** removed automatically. To turn signing off, use `git config --global --unset commit.gpgsign` (and similar) after dropping `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64`.
-- The `/etc/environment` managed block is replaced in place on re-run, mirroring the same resolved-at-bootstrap-time provider / model / token state that goes into `~/.bashrc`. The runtime `claude_code_switch_inference_provider` shell function only updates `~/.bashrc` (interactive sessions); to make a switch visible to non-interactive shells (ssh remote command, systemd `EnvironmentFile=`), re-run the bootstrap with the new provider.
+- The `/etc/environment` managed block is replaced in place on re-run, mirroring the same resolved-at-bootstrap-time provider / model / token state that goes into `~/.bashrc`, including `NVIDIA_API_KEY` when `AAB_CODEX_INFERENCE_PROVIDER=nvidia`. The runtime `claude_code_switch_inference_provider` shell function only updates `~/.bashrc` (interactive sessions); to make a switch visible to non-interactive shells (ssh remote command, systemd `EnvironmentFile=`), re-run the bootstrap with the new provider.
 
 ## Running the tests
 
@@ -381,7 +395,7 @@ All tests are driven by a single entry point, [`./test.bash`](./test.bash). `.gi
 
 **`--e2e` is destructive.** It invokes `bootstrap.bash` for real against the current `$HOME`: overwrites `~/.claude/settings.json`, overwrites `~/.codex/config.toml`, writes a synthetic `~/.codex/auth.json`, writes Brev API-key credentials when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set, rewrites the `~/.bashrc` managed block, modifies global git config, and installs `claude` / `codex` / `brev` / `gh`. Only run it on a disposable VM or container (which is how CI exercises it). **`--docker` is the safe alternative** — it does the same run inside a throwaway `ubuntu:22.04` container, and also serves as the stronger check that `bootstrap.bash` works against a bare image with nothing pre-installed.
 
-**`--smoke` spends real inference.** It runs `claude --dangerously-skip-permissions -p` and `codex exec` with a short prompt. When `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY`, `AAB_CLAUDE_CODE_THIRD_PARTY_*`, or `AAB_CODEX_FIRST_PARTY_API_KEY` are present in the local environment, the smoke test maps them to the runtime variables those CLIs read for that invocation.
+**`--smoke` spends real inference.** It runs `claude --dangerously-skip-permissions -p` and `codex exec` with a short prompt. When `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY`, `AAB_CLAUDE_CODE_THIRD_PARTY_*`, `AAB_CODEX_FIRST_PARTY_API_KEY`, or `AAB_CODEX_NVIDIA_API_KEY` are present in the local environment, the smoke test maps them to the runtime variables those CLIs read for that invocation.
 
 Install the test prerequisites on Ubuntu/Debian with:
 
