@@ -6,13 +6,14 @@
 # writes AAB runtime configuration to ~/.aab/.env and installs wrapper families
 # that source that file:
 #
-#   claude -> claude-first-party | claude-third-party-anthropic | claude-third-party-deepseek | claude-third-party-nemotron
-#   codex  -> codex-first-party  | codex-third-party-openai
+#   claude plus claude-first-party, claude-third-party-anthropic,
+#   claude-third-party-deepseek, and claude-third-party-nemotron
+#   codex plus codex-first-party and codex-third-party-openai
 #
-# AAB_CLAUDE_CODE_INFERENCE_PROVIDER selects the claude symlink target:
+# AAB_CLAUDE_CODE_INFERENCE_PROVIDER selects the unqualified claude launcher:
 #   first-party, third-party-anthropic, third-party-deepseek, or third-party-nemotron.
 #
-# AAB_CODEX_INFERENCE_PROVIDER selects the codex symlink target:
+# AAB_CODEX_INFERENCE_PROVIDER selects the unqualified codex launcher:
 #   first-party or third-party-openai.
 #
 # Provider credentials and model names are kept out of ~/.bashrc and
@@ -1542,9 +1543,10 @@ install_claude_launcher() {
 
     # Put the selected `claude` entrypoint in a dedicated directory kept ahead of
     # ~/.local/bin on PATH (see update_bashrc / update_profile), so the native
-    # auto-updater's ~/.local/bin/claude can't shadow the provider wrapper.
+    # auto-updater's ~/.local/bin/claude can't shadow the wrapper. The entrypoint
+    # is a regular launcher file rather than a symlink to a provider wrapper.
     mkdir -p "$launcher_dir"
-    ln -sfn "${HOME}/.local/bin/claude-${selected_provider}" "${launcher_dir}/claude"
+    _write_claude_launcher "$selected_provider" "${launcher_dir}/claude"
     log "Installed Claude launcher wrappers (selected=${selected_provider}); entrypoint at ${launcher_dir}/claude."
 }
 
@@ -1669,7 +1671,7 @@ install_codex_launcher() {
     _prepare_launcher_real_binary "codex" "$codex_bin" "$real_bin" "Autonomous-agent-bootstrap Codex launcher"
     _write_codex_launcher "first-party" "${HOME}/.local/bin/codex-first-party"
     _write_codex_launcher "third-party-openai" "${HOME}/.local/bin/codex-third-party-openai"
-    ln -sfn "codex-${selected_provider}" "$codex_bin"
+    _write_codex_launcher "$selected_provider" "$codex_bin"
     log "Installed Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
 }
 
@@ -1868,7 +1870,7 @@ main() {
     update_bashrc
     update_profile
     update_etc_environment
-    log "Done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
+    log "Done. Open a new shell (or 'source ~/.bashrc') so PATH updates take effect."
 }
 
 # `:-$0` covers the `curl ... | bash` case, where BASH_SOURCE is empty and
