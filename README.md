@@ -7,9 +7,9 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 1. **Claude Code** via the official native installer, configured for unattended use with `bypassPermissions`, sandbox mode, debug logging, skipped onboarding, and pre-approved first-party API-key fingerprints when provided.
 2. **Codex CLI** via OpenAI's standalone installer, configured with `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, trusted project roots, live web search, shell env inheritance, service tier, reasoning effort, and `[agents].max_threads`.
 3. **AAB env file** at `~/.aab/.env` for provider selection, model names, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
-4. **Wrapper families** in `~/.local/bin`, with the selected `claude` entrypoint in `~/.local/aab-bin` (kept ahead of `~/.local/bin` on PATH so the native auto-updater, which owns `~/.local/bin/claude`, cannot shadow the wrapper):
-   - `~/.local/aab-bin/claude` -> `claude-first-party`, `claude-third-party-anthropic`, `claude-third-party-deepseek`, or `claude-third-party-nemotron`
-   - `codex` -> `codex-first-party` or `codex-third-party-openai`
+4. **Wrapper families** in `~/.local/bin`, with the selected `claude` entrypoint installed as a regular launcher file in `~/.local/aab-bin` (kept ahead of `~/.local/bin` on PATH so the native auto-updater, which owns `~/.local/bin/claude`, cannot shadow the wrapper):
+   - `~/.local/aab-bin/claude` plus explicit `claude-first-party`, `claude-third-party-anthropic`, `claude-third-party-deepseek`, and `claude-third-party-nemotron` launchers
+   - `codex` plus explicit `codex-first-party` and `codex-third-party-openai` launchers
 5. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 6. **gh CLI**, installed from the official `cli.github.com` apt repo.
 7. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
@@ -57,19 +57,19 @@ You can also pass the same keys as exported environment variables or pipe config
 
 ## Provider Selection
 
-`AAB_CLAUDE_CODE_INFERENCE_PROVIDER` controls which wrapper `claude` points at:
+`AAB_CLAUDE_CODE_INFERENCE_PROVIDER` controls which wrapper behavior the unqualified `claude` launcher uses:
 
 - `first-party`
 - `third-party-anthropic`
 - `third-party-deepseek`
 - `third-party-nemotron`
 
-`AAB_CODEX_INFERENCE_PROVIDER` controls which wrapper `codex` points at:
+`AAB_CODEX_INFERENCE_PROVIDER` controls which wrapper behavior the unqualified `codex` launcher uses:
 
 - `first-party`
 - `third-party-openai`
 
-The explicit wrappers are always installed, so you can run `claude-third-party-deepseek` or `codex-third-party-openai` directly regardless of the default symlink. To change the unqualified `claude` or `codex` command, update your config and re-run the bootstrap.
+The explicit wrappers are always installed, so you can run `claude-third-party-deepseek` or `codex-third-party-openai` directly regardless of the default launcher. To change the unqualified `claude` or `codex` command, update your config and re-run the bootstrap. AAB writes the unqualified commands as regular executable wrapper files, not shell aliases, so `type claude` should resolve to `~/.local/aab-bin/claude` and `type codex` to `~/.local/bin/codex`.
 
 ### Third-Party Claude Examples
 
@@ -118,7 +118,7 @@ All variables are optional unless you select a provider that needs its credentia
 
 | Variable | Effect |
 | --- | --- |
-| `AAB_CLAUDE_CODE_INFERENCE_PROVIDER` | `first-party`, `third-party-anthropic`, `third-party-deepseek`, or `third-party-nemotron`. Selects the `claude` symlink target. Defaults to `first-party`. |
+| `AAB_CLAUDE_CODE_INFERENCE_PROVIDER` | `first-party`, `third-party-anthropic`, `third-party-deepseek`, or `third-party-nemotron`. Selects the unqualified `claude` launcher behavior. Defaults to `first-party`. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` | Anthropic first-party API key. Stored in `~/.aab/.env`; mapped to `ANTHROPIC_API_KEY` by `claude-first-party`. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_MODEL` | Claude first-party model. Defaults to `claude-opus-4-7`. |
 | `AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL` | First-party haiku-tier model. Defaults to `claude-haiku-4-5`. |
@@ -143,7 +143,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL` | Nemotron sonnet-tier model. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL` | Nemotron opus-tier model. |
 | `AAB_CLAUDE_CODE_EFFORT` | Claude Code effort level. Defaults to `max`. |
-| `AAB_CODEX_INFERENCE_PROVIDER` | `first-party` or `third-party-openai`. Selects the `codex` symlink target. Defaults to `first-party`. |
+| `AAB_CODEX_INFERENCE_PROVIDER` | `first-party` or `third-party-openai`. Selects the unqualified `codex` launcher behavior. Defaults to `first-party`. |
 | `AAB_CODEX_FIRST_PARTY_API_KEY` | OpenAI API key for first-party Codex. Stored in `~/.aab/.env`, mapped to `OPENAI_API_KEY` by `codex-first-party`, and used for `codex login --with-api-key`. |
 | `AAB_CODEX_FIRST_PARTY_MODEL` | Codex first-party model. Defaults to `gpt-5.5`. |
 | `AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL` | OpenAI-compatible third-party base URL for Codex. Defaults to `https://inference-api.nvidia.com/v1`. |
@@ -167,14 +167,14 @@ All variables are optional unless you select a provider that needs its credentia
 | Path | How |
 | --- | --- |
 | `~/.aab/.env` | Rewritten with provider config, model names, and credentials. Mode `0600`; parent directory mode `0700`. |
-| `~/.local/aab-bin/claude` | Symlink to the selected Claude wrapper; on PATH ahead of `~/.local/bin`. |
+| `~/.local/aab-bin/claude` | Claude launcher file for the selected provider; on PATH ahead of `~/.local/bin`. |
 | `~/.local/bin/claude` | Left as the native installer's binary so the auto-updater can repoint it. |
 | `~/.local/bin/claude-first-party` | Claude wrapper for first-party Anthropic. |
 | `~/.local/bin/claude-third-party-anthropic` | Claude wrapper for Anthropic-compatible third-party gateways. |
 | `~/.local/bin/claude-third-party-deepseek` | Claude wrapper for DeepSeek gateways. |
 | `~/.local/bin/claude-third-party-nemotron` | Claude wrapper for Nemotron gateways. |
 | `~/.local/bin/claude-aab-real` | Symlink to `~/.local/bin/claude`, so wrappers exec whatever the updater installs. |
-| `~/.local/bin/codex` | Symlink to the selected Codex wrapper. |
+| `~/.local/bin/codex` | Codex launcher file with the selected provider behavior. |
 | `~/.local/bin/codex-first-party` | Codex wrapper for first-party OpenAI. |
 | `~/.local/bin/codex-third-party-openai` | Codex wrapper for OpenAI-compatible third-party gateways. |
 | `~/.local/bin/codex-aab-real` | Link or moved copy of the real Codex binary. |

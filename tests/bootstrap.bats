@@ -446,7 +446,8 @@ SH
         write_aab_env_file
     AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" install_codex_launcher
 
-    [ "$(readlink "$HOME/.local/bin/codex")" = "codex-third-party-openai" ]
+    [ ! -L "$HOME/.local/bin/codex" ]
+    grep -q '^provider=third-party-openai$' "$HOME/.local/bin/codex"
     "$HOME/.local/bin/codex" exec hello
 
     [ "$(cat "$TEST_HOME/codex-launcher-provider")" = "third-party-openai" ]
@@ -480,9 +481,11 @@ SH
         write_aab_env_file
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" install_claude_launcher
 
-    # The selected entrypoint lives in ~/.local/aab-bin; ~/.local/bin/claude is
-    # left as the native binary for the auto-updater, and the wrappers exec it.
-    [ "$(readlink "$HOME/.local/aab-bin/claude")" = "$HOME/.local/bin/claude-third-party-deepseek" ]
+    # The selected entrypoint lives in ~/.local/aab-bin as a regular launcher
+    # file (not a symlink to a provider wrapper); ~/.local/bin/claude is left as
+    # the native binary for the auto-updater, and the wrappers exec it.
+    [ ! -L "$HOME/.local/aab-bin/claude" ]
+    grep -q '^provider=third-party-deepseek$' "$HOME/.local/aab-bin/claude"
     [ "$(readlink "$HOME/.local/bin/claude")" = "$TEST_HOME/real-claude" ]
     [ "$(readlink "$HOME/.local/bin/claude-aab-real")" = "$HOME/.local/bin/claude" ]
     "$HOME/.local/aab-bin/claude" -p hello
@@ -523,9 +526,11 @@ SH
         write_aab_env_file
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-nemotron" install_claude_launcher
 
-    # The selected entrypoint lives in ~/.local/aab-bin; ~/.local/bin/claude is
-    # left as the native binary for the auto-updater, and the wrappers exec it.
-    [ "$(readlink "$HOME/.local/aab-bin/claude")" = "$HOME/.local/bin/claude-third-party-nemotron" ]
+    # The selected entrypoint lives in ~/.local/aab-bin as a regular launcher
+    # file (not a symlink to a provider wrapper); ~/.local/bin/claude is left as
+    # the native binary for the auto-updater, and the wrappers exec it.
+    [ ! -L "$HOME/.local/aab-bin/claude" ]
+    grep -q '^provider=third-party-nemotron$' "$HOME/.local/aab-bin/claude"
     [ "$(readlink "$HOME/.local/bin/claude")" = "$TEST_HOME/real-claude" ]
     [ "$(readlink "$HOME/.local/bin/claude-aab-real")" = "$HOME/.local/bin/claude" ]
     "$HOME/.local/aab-bin/claude" -p hello

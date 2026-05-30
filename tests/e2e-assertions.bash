@@ -205,9 +205,13 @@ pass "Login profile keeps the launcher dir ahead of ~/.local/bin."
 #     ~/.local/bin/claude stays the native binary for the auto-updater.
 export PATH="$HOME/.local/aab-bin:$HOME/.local/bin:$PATH"
 command -v claude >/dev/null 2>&1 || fail "claude not on PATH after bootstrap."
-[ -L "$HOME/.local/aab-bin/claude" ] || fail "Launcher entrypoint ~/.local/aab-bin/claude is not a symlink."
-[ "$(readlink "$HOME/.local/aab-bin/claude")" = "$HOME/.local/bin/claude-${expected_claude_provider}" ] \
-    || fail "Launcher entrypoint does not target claude-${expected_claude_provider}."
+# The launcher entrypoint is a regular AAB launcher file, not a symlink to a
+# provider wrapper.
+[ ! -L "$HOME/.local/aab-bin/claude" ] || fail "Launcher entrypoint ~/.local/aab-bin/claude should be an AAB launcher file, not a symlink."
+grep -q '^# Autonomous-agent-bootstrap Claude launcher\.$' "$HOME/.local/aab-bin/claude" \
+    || fail "Launcher entrypoint ~/.local/aab-bin/claude is not an AAB launcher."
+grep -q "^provider=${expected_claude_provider}$" "$HOME/.local/aab-bin/claude" \
+    || fail "Launcher entrypoint does not select ${expected_claude_provider}."
 # ~/.local/bin/claude is the native binary, not one of our wrappers, so the
 # updater can repoint it freely; the wrappers exec it via claude-aab-real.
 [ -x "$HOME/.local/bin/claude" ] || fail "Native claude binary missing from ~/.local/bin."
@@ -236,9 +240,11 @@ case "$claude_plugins" in
 esac
 pass "Claude Code agent plugins installed."
 command -v codex  >/dev/null 2>&1 || fail "codex not on PATH after bootstrap."
-[ -L "$HOME/.local/bin/codex" ] || fail "codex is not an AAB provider symlink."
-[ "$(readlink "$HOME/.local/bin/codex")" = "codex-${expected_codex_provider}" ] \
-    || fail "codex symlink does not target codex-${expected_codex_provider}."
+[ ! -L "$HOME/.local/bin/codex" ] || fail "codex should be an AAB launcher file, not a symlink."
+grep -q '^# Autonomous-agent-bootstrap Codex launcher\.$' "$HOME/.local/bin/codex" \
+    || fail "codex is not an AAB launcher."
+grep -q "^provider=${expected_codex_provider}$" "$HOME/.local/bin/codex" \
+    || fail "codex launcher does not select ${expected_codex_provider}."
 [ -x "$HOME/.local/bin/codex-first-party" ] || fail "codex-first-party wrapper missing."
 [ -x "$HOME/.local/bin/codex-third-party-openai" ] || fail "codex-third-party-openai wrapper missing."
 [ -x "$HOME/.local/bin/codex-aab-real" ] \
