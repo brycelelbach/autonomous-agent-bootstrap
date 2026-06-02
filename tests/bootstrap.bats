@@ -40,6 +40,9 @@ setup() {
           AAB_CODEX_FIRST_PARTY_API_KEY \
           AAB_CODEX_THIRD_PARTY_OPENAI_MODEL AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
+          AAB_HERMES_BASE_URL AAB_HERMES_API_KEY AAB_HERMES_MODEL \
+          AAB_HERMES_API_MODE AAB_HERMES_EFFORT \
+          AAB_HERMES_SHELL_TIMEOUT AAB_HERMES_CHILD_TIMEOUT AAB_HERMES_MAX_CONCURRENCY \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
@@ -210,6 +213,128 @@ PY
     ! grep -q '^export ANTHROPIC_API_KEY=' "$AAB_ENV_FILE"
     ! grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE"
     ! grep -q '^export GH_TOKEN=' "$AAB_ENV_FILE"
+}
+
+@test "write_aab_env_file writes Hermes gateway config and defaults" {
+    AAB_HERMES_BASE_URL="https://gateway.example.com/v1" \
+        AAB_HERMES_API_KEY="hermes-gateway-test-key" \
+        AAB_HERMES_MODEL="vendor/model-x" \
+        write_aab_env_file
+
+    # shellcheck disable=SC1090
+    . "$AAB_ENV_FILE"
+    [ "$AAB_HERMES_BASE_URL" = "https://gateway.example.com/v1" ]
+    [ "$AAB_HERMES_API_KEY" = "hermes-gateway-test-key" ]
+    [ "$AAB_HERMES_MODEL" = "vendor/model-x" ]
+    # Unset inputs fall back to the built-in defaults.
+    [ "$AAB_HERMES_API_MODE" = "chat_completions" ]
+    [ "$AAB_HERMES_EFFORT" = "xhigh" ]
+}
+
+@test "write_hermes_config writes a permission-free gateway config by default" {
+    write_hermes_config
+    [ -f "$HERMES_CONFIG" ]
+    [ "$(stat -c '%a' "$HERMES_CONFIG")" = "600" ]
+    grep -q '^  provider: "aab-gateway"$' "$HERMES_CONFIG"
+    grep -q '^  default: "nvidia/nvidia/nemotron-3-ultra"$' "$HERMES_CONFIG"
+    grep -q '^    base_url: "https://inference-api.nvidia.com/v1"$' "$HERMES_CONFIG"
+    grep -q '^    key_env: "AAB_HERMES_API_KEY"$' "$HERMES_CONFIG"
+    grep -q '^    api_mode: "chat_completions"$' "$HERMES_CONFIG"
+    grep -q '^  reasoning_effort: "xhigh"$' "$HERMES_CONFIG"
+    grep -q '^  show_reasoning: true$' "$HERMES_CONFIG"
+    grep -q '^  mode: "off"$' "$HERMES_CONFIG"
+    grep -q '^  cron_mode: "approve"$' "$HERMES_CONFIG"
+    grep -q '^  destructive_slash_confirm: false$' "$HERMES_CONFIG"
+    grep -q '^hooks_auto_accept: true$' "$HERMES_CONFIG"
+    grep -q '^  subagent_auto_approve: true$' "$HERMES_CONFIG"
+    # Run-duration limits removed for unattended multi-day operation.
+    grep -q '^  max_turns: 999999$' "$HERMES_CONFIG"
+    grep -q '^  gateway_timeout: 0$' "$HERMES_CONFIG"
+    grep -q '^  gateway_auto_continue_freshness: 0$' "$HERMES_CONFIG"
+    grep -q '^  max_iterations: 999999$' "$HERMES_CONFIG"
+    grep -q '^  warnings_enabled: false$' "$HERMES_CONFIG"
+    grep -q '^  hard_stop_enabled: false$' "$HERMES_CONFIG"
+    # Per-operation timeouts raised, and concurrency matched to Codex's cap.
+    grep -q '^  timeout: 600$' "$HERMES_CONFIG"
+    grep -q '^  child_timeout_seconds: 86400$' "$HERMES_CONFIG"
+    grep -q "^  max_concurrent_children: ${DEFAULT_CODEX_AGENT_MAX_THREADS}\$" "$HERMES_CONFIG"
+    # The gateway secret is referenced by env, never inlined into the config.
+    ! grep -q 'api_key:' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config honors concurrency and timeout overrides" {
+    AAB_HERMES_MAX_CONCURRENCY="8" \
+        AAB_HERMES_SHELL_TIMEOUT="900" \
+        AAB_HERMES_CHILD_TIMEOUT="43200" \
+        write_hermes_config
+    grep -q '^  max_concurrent_children: 8$' "$HERMES_CONFIG"
+    grep -q '^  timeout: 900$' "$HERMES_CONFIG"
+    grep -q '^  child_timeout_seconds: 43200$' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config defaults Hermes concurrency to the Codex thread cap" {
+    write_hermes_config
+    # Hermes max concurrency tracks AAB_CODEX_AGENT_MAX_THREADS' default (16).
+    grep -q '^  max_concurrent_children: 16$' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config honors base URL, model, api-mode, and effort overrides" {
+    AAB_HERMES_BASE_URL="https://gw.example.com/v1" \
+        AAB_HERMES_MODEL="vendor/custom-model" \
+        AAB_HERMES_API_MODE="anthropic_messages" \
+        AAB_HERMES_EFFORT="high" \
+        write_hermes_config
+    grep -q '^  default: "vendor/custom-model"$' "$HERMES_CONFIG"
+    grep -q '^  base_url: "https://gw.example.com/v1"$' "$HERMES_CONFIG"
+    grep -q '^    api_mode: "anthropic_messages"$' "$HERMES_CONFIG"
+    grep -q '^  reasoning_effort: "high"$' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config defaults an invalid api mode back to chat_completions" {
+    AAB_HERMES_API_MODE="grpc" run write_hermes_config
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"AAB_HERMES_API_MODE='grpc'"* ]]
+    grep -q '^    api_mode: "chat_completions"$' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config defaults an invalid effort back to xhigh" {
+    AAB_HERMES_EFFORT="maximum" run write_hermes_config
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"AAB_HERMES_EFFORT='maximum'"* ]]
+    grep -q '^  reasoning_effort: "xhigh"$' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config backs up pre-existing config.yaml" {
+    mkdir -p "$HERMES_DIR"
+    echo 'model: {}' > "$HERMES_CONFIG"
+    write_hermes_config
+    local backup_count
+    backup_count=$(find "$HERMES_DIR" -maxdepth 1 -name 'config.yaml.bak.*' | wc -l)
+    [ "$backup_count" -ge 1 ]
+}
+
+@test "install_hermes_launcher wraps hermes with permission-free env and no injected flag" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$TEST_HOME/real-hermes" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TEST_HOME/hermes-launcher-args"
+printf '%s\n' "yolo=\${HERMES_YOLO_MODE:-} hooks=\${HERMES_ACCEPT_HOOKS:-} provider=\${AAB_HERMES_INFERENCE_PROVIDER:-}" > "$TEST_HOME/hermes-launcher-env"
+SH
+    chmod +x "$TEST_HOME/real-hermes"
+    ln -s "$TEST_HOME/real-hermes" "$HOME/.local/bin/hermes"
+
+    install_hermes_launcher
+
+    [ -x "$HOME/.local/bin/hermes" ]
+    [ -L "$HOME/.local/bin/hermes-aab-real" ]
+    [ "$(readlink "$HOME/.local/bin/hermes")" = "hermes-gateway" ]
+    [ -x "$HOME/.local/bin/hermes-gateway" ]
+
+    "$HOME/.local/bin/hermes" doctor
+    # The wrapper passes args through verbatim — it must NOT inject a flag.
+    grep -Fxq -- 'doctor' "$TEST_HOME/hermes-launcher-args"
+    [ "$(wc -l < "$TEST_HOME/hermes-launcher-args")" -eq 1 ]
+    grep -Fxq 'yolo=1 hooks=1 provider=gateway' "$TEST_HOME/hermes-launcher-env"
 }
 
 @test "write_codex_config writes unattended yolo-mode defaults" {
@@ -859,7 +984,7 @@ SH
 @test "install_base_deps is a no-op when all required commands are present" {
     local fake_bin="$TEST_HOME/fake-base-deps-present-bin"
     mkdir -p "$fake_bin"
-    for cmd in curl python3 git tar gawk rg pandoc sudo apt-get; do
+    for cmd in curl python3 git tar xz gawk rg pandoc sudo apt-get; do
         cat > "$fake_bin/$cmd" <<'SH'
 #!/bin/sh
 printf '%s\n' "$0 $*" >> "$TEST_HOME/base-deps-present-invocations"
@@ -880,7 +1005,7 @@ SH
     local fake_bin="$TEST_HOME/fake-base-deps-bin"
     mkdir -p "$fake_bin"
 
-    for cmd in curl python3 git tar gawk pandoc sudo; do
+    for cmd in curl python3 git tar xz gawk pandoc sudo; do
         cat > "$fake_bin/$cmd" <<'SH'
 #!/bin/sh
 exit 0
@@ -916,7 +1041,7 @@ SH
     local fake_bin="$TEST_HOME/fake-base-deps-pandoc-bin"
     mkdir -p "$fake_bin"
 
-    for cmd in curl python3 git tar gawk rg sudo; do
+    for cmd in curl python3 git tar xz gawk rg sudo; do
         cat > "$fake_bin/$cmd" <<'SH'
 #!/bin/sh
 exit 0
@@ -946,6 +1071,41 @@ SH
     [[ "$output" == *"Installing base deps: pandoc."* ]]
     grep -Fxq 'update -y' "$TEST_HOME/apt-get-invocations"
     grep -Fxq 'install -y --no-install-recommends pandoc' "$TEST_HOME/apt-get-invocations"
+}
+
+@test "install_base_deps installs xz-utils when xz is missing (Hermes Node runtime)" {
+    local fake_bin="$TEST_HOME/fake-base-deps-xz-bin"
+    mkdir -p "$fake_bin"
+
+    for cmd in curl python3 git tar gawk rg pandoc sudo; do
+        cat > "$fake_bin/$cmd" <<'SH'
+#!/bin/sh
+exit 0
+SH
+        chmod +x "$fake_bin/$cmd"
+    done
+    cat > "$fake_bin/env" <<'SH'
+#!/bin/sh
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        *=*) shift ;;
+        *) break ;;
+    esac
+done
+exec "$@"
+SH
+    chmod +x "$fake_bin/env"
+    cat > "$fake_bin/apt-get" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$TEST_HOME/apt-get-xz-invocations"
+SH
+    chmod +x "$fake_bin/apt-get"
+
+    SUDO="" PATH="$fake_bin" run install_base_deps
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Installing base deps: xz-utils."* ]]
+    grep -Fxq 'install -y --no-install-recommends xz-utils' "$TEST_HOME/apt-get-xz-invocations"
 }
 
 @test "install_base_deps warns and skips when apt-get is unavailable" {

@@ -6,22 +6,24 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 1. **Claude Code** via the official native installer, configured for unattended use with `bypassPermissions`, sandbox mode, debug logging, skipped onboarding, pre-approved first-party API-key fingerprints when provided, `CLAUDE_CODE_ATTRIBUTION_HEADER=0` so the per-request attribution block does not invalidate the prompt cache on third-party gateways, and OpenTelemetry usage logging to the console (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_LOGS_EXPORTER=console`) with prompt, tool, and raw-body content logging left disabled.
 2. **Codex CLI** via OpenAI's standalone installer, configured with `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, trusted project roots, live web search, shell env inheritance, service tier, reasoning effort, and `[agents].max_threads`.
-3. **AAB env file** at `~/.aab/.env` for provider selection, model names, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
-4. **Wrapper families** in `~/.local/bin`, with the selected `claude` entrypoint installed as a regular launcher file in `~/.local/aab-bin` (kept ahead of `~/.local/bin` on PATH so the native auto-updater, which owns `~/.local/bin/claude`, cannot shadow the wrapper):
+3. **Hermes** via NousResearch's installer, configured for one arbitrary OpenAI-compatible inference gateway and a permission-free, no-run-limit setup: approvals off, hooks auto-accepted, subagents auto-approved, `xhigh` effort, reasoning always shown, and the turn/iteration/timeout caps removed so it can run unattended for days.
+4. **AAB env file** at `~/.aab/.env` for provider selection, model names, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
+5. **Wrapper families** in `~/.local/bin`, with the selected `claude` entrypoint installed as a regular launcher file in `~/.local/aab-bin` (kept ahead of `~/.local/bin` on PATH so the native auto-updater, which owns `~/.local/bin/claude`, cannot shadow the wrapper):
    - `~/.local/aab-bin/claude` plus explicit `claude-first-party`, `claude-third-party-anthropic`, `claude-third-party-deepseek`, and `claude-third-party-nemotron` launchers
    - `codex` plus explicit `codex-first-party` and `codex-third-party-openai` launchers
-5. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
-6. **gh CLI**, installed from the official `cli.github.com` apt repo.
-7. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
-8. **Global git-identity enforcement** — an agent rule in every harness's global instruction file plus a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
-9. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into both Claude Code and Codex.
-10. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
+   - `hermes` plus the `hermes-gateway` launcher
+6. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
+7. **gh CLI**, installed from the official `cli.github.com` apt repo.
+8. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
+9. **Global git-identity enforcement** — an agent rule in every harness's global instruction file plus a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
+10. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code, Codex, and Hermes.
+11. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
 
 ## Requirements
 
 - Ubuntu/Debian host with `bash` and `apt-get`
 - Passwordless `sudo`, or run as root
-- A bare `ubuntu:22.04` image is valid; the bootstrap installs `curl`, `python3`, `git`, `tar`, `gawk`, `ripgrep`, `pandoc`, `sudo`, `ca-certificates`, and `gh`
+- A bare `ubuntu:22.04` image is valid; the bootstrap installs `curl`, `python3`, `git`, `tar`, `xz-utils`, `gawk`, `ripgrep`, `pandoc`, `sudo`, `ca-certificates`, and `gh`
 
 ## Quick Start
 
@@ -70,7 +72,9 @@ You can also pass the same keys as exported environment variables or pipe config
 - `first-party`
 - `third-party-openai`
 
-The explicit wrappers are always installed, so you can run `claude-third-party-deepseek` or `codex-third-party-openai` directly regardless of the default launcher. To change the unqualified `claude` or `codex` command, update your config and re-run the bootstrap. AAB writes the unqualified commands as regular executable wrapper files, not shell aliases, so `type claude` should resolve to `~/.local/aab-bin/claude` and `type codex` to `~/.local/bin/codex`.
+Hermes always targets one arbitrary OpenAI-compatible inference gateway, so it has a single `gateway` wrapper rather than a provider selector — point it at any endpoint with `AAB_HERMES_BASE_URL` / `AAB_HERMES_API_KEY` / `AAB_HERMES_MODEL`.
+
+The explicit wrappers are always installed, so you can run `claude-third-party-deepseek`, `codex-third-party-openai`, or `hermes-gateway` directly regardless of the default launcher. To change the unqualified `claude` or `codex` command, update your config and re-run the bootstrap. AAB writes the unqualified commands as regular executable wrapper files, not shell aliases, so `type claude` should resolve to `~/.local/aab-bin/claude` and `type codex` to `~/.local/bin/codex`.
 
 ### Third-Party Claude Examples
 
@@ -113,6 +117,16 @@ AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY=...
 AAB_CODEX_THIRD_PARTY_OPENAI_MODEL=openai/openai/gpt-5.5
 ```
 
+### Hermes Gateway Example
+
+```bash
+AAB_HERMES_BASE_URL=https://inference-api.nvidia.com/v1
+AAB_HERMES_API_KEY=...
+AAB_HERMES_MODEL=nvidia/nvidia/nemotron-3-ultra
+AAB_HERMES_API_MODE=chat_completions     # or anthropic_messages for an Anthropic-compatible gateway
+AAB_HERMES_EFFORT=xhigh
+```
+
 ## Environment Variables
 
 All variables are optional unless you select a provider that needs its credential.
@@ -153,6 +167,14 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_CODEX_EFFORT` | Codex reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh`. Defaults to `xhigh`. |
 | `AAB_CODEX_SERVICE_TIER` | Codex service tier: `priority`, `flex`, `default`, or `fast` as an alias for `priority`. Defaults to `priority`. |
 | `AAB_CODEX_AGENT_MAX_THREADS` | Maximum number of concurrently open Codex subagent threads. Defaults to `16`. |
+| `AAB_HERMES_BASE_URL` | OpenAI-compatible gateway base URL for Hermes. Defaults to `https://inference-api.nvidia.com/v1` (include the `/v1`; Hermes does not append it). |
+| `AAB_HERMES_API_KEY` | Hermes gateway API key. Stored in `~/.aab/.env`; referenced from `~/.hermes/config.yaml` via `key_env` (never inlined into the config). |
+| `AAB_HERMES_MODEL` | Hermes gateway model. Defaults to `nvidia/nvidia/nemotron-3-ultra`. |
+| `AAB_HERMES_API_MODE` | Hermes gateway wire protocol: `chat_completions` or `anthropic_messages`. Defaults to `chat_completions`. |
+| `AAB_HERMES_EFFORT` | Hermes reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Defaults to `xhigh`. |
+| `AAB_HERMES_SHELL_TIMEOUT` | Hermes shell-command timeout in seconds. Defaults to `600` (10 minutes). |
+| `AAB_HERMES_CHILD_TIMEOUT` | Hermes per-subagent stuck-detector timeout in seconds (floored at 30s). Defaults to `86400`. |
+| `AAB_HERMES_MAX_CONCURRENCY` | Maximum concurrent Hermes delegated subagents. Defaults to `16` (matches `AAB_CODEX_AGENT_MAX_THREADS`). |
 | `AAB_BREV_API_KEY` | Brev organization-scoped API key. Used with `AAB_BREV_ORG_ID`. |
 | `AAB_BREV_ORG_ID` | Brev organization ID paired with `AAB_BREV_API_KEY`. |
 | `AAB_GH_TOKEN` | GitHub token. Stored in `~/.aab/.env`; wrappers map it to `GH_TOKEN` for agent subprocesses. |
@@ -179,10 +201,15 @@ All variables are optional unless you select a provider that needs its credentia
 | `~/.local/bin/codex-first-party` | Codex wrapper for first-party OpenAI. |
 | `~/.local/bin/codex-third-party-openai` | Codex wrapper for OpenAI-compatible third-party gateways. |
 | `~/.local/bin/codex-aab-real` | Link or moved copy of the real Codex binary. |
+| `~/.local/bin/hermes` | Symlink to the Hermes gateway wrapper. |
+| `~/.local/bin/hermes-gateway` | Hermes wrapper for the OpenAI-compatible inference gateway. |
+| `~/.local/bin/hermes-aab-real` | Link or moved copy of the real Hermes binary. |
 | `~/.claude/settings.json` | Rewritten with unattended Claude defaults and plugin entries; existing file is backed up. |
 | `~/.claude.json` | Merged with onboarding and optional API-key approval state; existing file is backed up. |
 | `~/.codex/config.toml` | Rewritten with unattended Codex defaults and selected provider config while preserving Codex plugin tables; existing file is backed up. |
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when first-party Codex API-key auth is configured. |
+| `~/.hermes/config.yaml` | Rewritten with the gateway provider, permission-free defaults, and the no-run-limit settings; existing file is backed up. |
+| `~/.hermes/plugins/` | AAB marketplace plugins materialized here for Hermes (with a synthesized `plugin.yaml`) and enabled. |
 | `~/.bashrc` | Managed block for PATH and non-secret unattended-mode exports only. |
 | `~/.profile` | Managed block that keeps `~/.local/aab-bin` ahead of `~/.local/bin` for login shells. |
 | `/etc/environment` | Existing AAB managed blocks are removed so credentials do not remain there. |
