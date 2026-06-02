@@ -73,8 +73,9 @@ run_e2e() {
     : "${AAB_CODEX_FIRST_PARTY_MODEL:=gpt-5.5}"
     : "${AAB_CODEX_EFFORT:=xhigh}"
     : "${AAB_CODEX_FIRST_PARTY_API_KEY:=codex-e2e-test-key}"
-    : "${AAB_HERMES_MODEL:=nvidia/nvidia/nemotron-3-ultra}"
-    : "${AAB_HERMES_BASE_URL:=https://inference-api.nvidia.com/v1}"
+    : "${AAB_HERMES_MODEL:=gateway/test-model}"
+    # No /v1 here on purpose — exercises write_hermes_config's /v1 normalization.
+    : "${AAB_HERMES_BASE_URL:=https://gateway.example.com}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
            AAB_CLAUDE_CODE_FIRST_PARTY_MODEL AAB_CLAUDE_CODE_EFFORT \
            AAB_CLAUDE_CODE_INFERENCE_PROVIDER \

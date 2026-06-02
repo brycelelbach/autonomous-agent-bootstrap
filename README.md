@@ -120,9 +120,9 @@ AAB_CODEX_THIRD_PARTY_OPENAI_MODEL=openai/openai/gpt-5.5
 ### Hermes Gateway Example
 
 ```bash
-AAB_HERMES_BASE_URL=https://inference-api.nvidia.com/v1
+AAB_HERMES_BASE_URL=https://your-gateway.example.com   # /v1 is appended if absent
 AAB_HERMES_API_KEY=...
-AAB_HERMES_MODEL=nvidia/nvidia/nemotron-3-ultra
+AAB_HERMES_MODEL=vendor/your-model
 AAB_HERMES_API_MODE=chat_completions     # or anthropic_messages for an Anthropic-compatible gateway
 AAB_HERMES_EFFORT=xhigh
 ```
@@ -167,9 +167,9 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_CODEX_EFFORT` | Codex reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh`. Defaults to `xhigh`. |
 | `AAB_CODEX_SERVICE_TIER` | Codex service tier: `priority`, `flex`, `default`, or `fast` as an alias for `priority`. Defaults to `priority`. |
 | `AAB_CODEX_AGENT_MAX_THREADS` | Maximum number of concurrently open Codex subagent threads. Defaults to `16`. |
-| `AAB_HERMES_BASE_URL` | OpenAI-compatible gateway base URL for Hermes. Defaults to `https://inference-api.nvidia.com/v1` (include the `/v1`; Hermes does not append it). |
+| `AAB_HERMES_BASE_URL` | OpenAI-compatible gateway base URL for Hermes. No default — point it at your own gateway. A `/v1` suffix is appended automatically when absent. |
 | `AAB_HERMES_API_KEY` | Hermes gateway API key. Stored in `~/.aab/.env`; referenced from `~/.hermes/config.yaml` via `key_env` (never inlined into the config). |
-| `AAB_HERMES_MODEL` | Hermes gateway model. Defaults to `nvidia/nvidia/nemotron-3-ultra`. |
+| `AAB_HERMES_MODEL` | Hermes gateway model. No default — set it to your gateway's model id. |
 | `AAB_HERMES_API_MODE` | Hermes gateway wire protocol: `chat_completions` or `anthropic_messages`. Defaults to `chat_completions`. |
 | `AAB_HERMES_EFFORT` | Hermes reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Defaults to `xhigh`. |
 | `AAB_HERMES_SHELL_TIMEOUT` | Hermes shell-command timeout in seconds. Defaults to `600` (10 minutes). |
