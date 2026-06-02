@@ -343,6 +343,11 @@ write_settings() {
       "Edit(${HOME}/.claude.json)",
       "Write(${HOME}/.claude.json)",
       "Read(${HOME}/.claude.json)"
+    ],
+    "deny": [
+      "AskUserQuestion",
+      "EnterPlanMode",
+      "ExitPlanMode"
     ]
   },
   "skipDangerousModePermissionPrompt": true,
