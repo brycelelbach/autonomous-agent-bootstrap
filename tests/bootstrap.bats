@@ -21,6 +21,10 @@ setup() {
           AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL \
           AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL \
           AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL \
           AAB_CLAUDE_CODE_EFFORT \
           AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
           AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY \
@@ -28,6 +32,8 @@ setup() {
           AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY \
           AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL \
           AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY \
+          AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL \
+          AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY \
           AAB_CODEX_INFERENCE_PROVIDER \
           AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT AAB_CODEX_SERVICE_TIER \
           AAB_CODEX_AGENT_MAX_THREADS \
@@ -171,6 +177,7 @@ PY
     [ "$AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL" = "https://openai-compatible.example.com/v1" ]
     [ "$AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY" = "codex-third-party-test-key" ]
     [ "$AAB_GH_TOKEN" = "ghp_test_token" ]
+    [ "$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL" = "$DEFAULT_CLAUDE_CODE_MODEL" ]
 }
 
 @test "write_aab_env_file does not write runtime API-key aliases" {
@@ -476,6 +483,40 @@ SH
     grep -Fxq 'base_url=https://deepseek.example.com/v1' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'auth_token=deepseek-test-key' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'model=deepseek-reasoner' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
+}
+
+@test "install_claude_launcher selects nemotron wrapper and maps env from .env" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$TEST_HOME/real-claude" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TEST_HOME/claude-launcher-args"
+{
+    printf 'provider=%s\n' "\${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-}"
+    printf 'base_url=%s\n' "\${ANTHROPIC_BASE_URL:-}"
+    printf 'auth_token=%s\n' "\${ANTHROPIC_AUTH_TOKEN:-}"
+    printf 'model=%s\n' "\${ANTHROPIC_MODEL:-}"
+    printf 'debug=%s\n' "\${DEBUG_SDK:-}"
+} > "$TEST_HOME/claude-launcher-env"
+SH
+    chmod +x "$TEST_HOME/real-claude"
+    ln -s "$TEST_HOME/real-claude" "$HOME/.local/bin/claude"
+
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-nemotron" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL="https://nemotron.example.com/v1" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY="nemotron-test-key" \
+        AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL="nvidia/nvidia/nemotron-3-ultra" \
+        write_aab_env_file
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-nemotron" install_claude_launcher
+
+    [ "$(readlink "$HOME/.local/bin/claude")" = "claude-third-party-nemotron" ]
+    "$HOME/.local/bin/claude" -p hello
+
+    grep -Fxq -- '--dangerously-skip-permissions' "$TEST_HOME/claude-launcher-args"
+    grep -Fxq 'provider=third-party-nemotron' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'base_url=https://nemotron.example.com/v1' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'auth_token=nemotron-test-key' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'model=nvidia/nvidia/nemotron-3-ultra' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
 }
 

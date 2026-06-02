@@ -135,7 +135,7 @@ pass "bashrc managed block present exactly once."
 [ "$(stat -c '%a' "$AAB_ENV_FILE")" = "600" ] || fail "$AAB_ENV_FILE mode is not 600."
 expected_claude_provider="${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-first-party}"
 case "$expected_claude_provider" in
-    first-party|third-party-anthropic|third-party-deepseek) ;;
+    first-party|third-party-anthropic|third-party-deepseek|third-party-nemotron) ;;
     *) expected_claude_provider="first-party" ;;
 esac
 grep -q "^export AAB_CLAUDE_CODE_INFERENCE_PROVIDER=${expected_claude_provider}$" "$AAB_ENV_FILE" \
@@ -191,6 +191,7 @@ command -v claude >/dev/null 2>&1 || fail "claude not on PATH after bootstrap."
 [ -x "$HOME/.local/bin/claude-first-party" ] || fail "claude-first-party wrapper missing."
 [ -x "$HOME/.local/bin/claude-third-party-anthropic" ] || fail "claude-third-party-anthropic wrapper missing."
 [ -x "$HOME/.local/bin/claude-third-party-deepseek" ] || fail "claude-third-party-deepseek wrapper missing."
+[ -x "$HOME/.local/bin/claude-third-party-nemotron" ] || fail "claude-third-party-nemotron wrapper missing."
 pass "claude wrapper family installed and selected."
 claude_plugins=$(claude plugin list 2>&1) || fail "claude plugin list failed."
 case "$claude_plugins" in

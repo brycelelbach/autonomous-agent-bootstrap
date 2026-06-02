@@ -6,11 +6,11 @@
 # writes AAB runtime configuration to ~/.aab/.env and installs wrapper families
 # that source that file:
 #
-#   claude -> claude-first-party | claude-third-party-anthropic | claude-third-party-deepseek
+#   claude -> claude-first-party | claude-third-party-anthropic | claude-third-party-deepseek | claude-third-party-nemotron
 #   codex  -> codex-first-party  | codex-third-party-openai
 #
 # AAB_CLAUDE_CODE_INFERENCE_PROVIDER selects the claude symlink target:
-#   first-party, third-party-anthropic, or third-party-deepseek.
+#   first-party, third-party-anthropic, third-party-deepseek, or third-party-nemotron.
 #
 # AAB_CODEX_INFERENCE_PROVIDER selects the codex symlink target:
 #   first-party or third-party-openai.
@@ -87,11 +87,11 @@ warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
 normalize_claude_code_inference_provider() {
     local provider="${1:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}"
     case "$provider" in
-        first-party|third-party-anthropic|third-party-deepseek)
+        first-party|third-party-anthropic|third-party-deepseek|third-party-nemotron)
             printf '%s' "$provider"
             ;;
         *)
-            warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-anthropic', or 'third-party-deepseek'; defaulting to '${DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}'."
+            warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-anthropic', 'third-party-deepseek', or 'third-party-nemotron'; defaulting to '${DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}'."
             printf '%s' "$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER"
             ;;
     esac
@@ -390,6 +390,12 @@ write_aab_env_file() {
         _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
         _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
         _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL:-}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY:-}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
+        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
         _write_shell_export AAB_CODEX_INFERENCE_PROVIDER "$codex_provider"
         _write_shell_export AAB_CODEX_FIRST_PARTY_API_KEY "${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
         _write_shell_export AAB_CODEX_FIRST_PARTY_MODEL "${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
@@ -1088,7 +1094,7 @@ install_codex_plugins() {
 # ---------------------------------------------------------------------------
 _is_aab_launcher_symlink_target() {
     case "$(basename "$1")" in
-        claude-first-party|claude-third-party-anthropic|claude-third-party-deepseek|codex-first-party|codex-third-party-openai)
+        claude-first-party|claude-third-party-anthropic|claude-third-party-deepseek|claude-third-party-nemotron|codex-first-party|codex-third-party-openai)
             return 0
             ;;
         *)
@@ -1195,6 +1201,15 @@ case "$provider" in
         export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL:-$default_opus_model}"
         export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
         ;;
+    third-party-nemotron)
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL:-}" ] && export ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL"
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY:-}" ] && export ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY"
+        export ANTHROPIC_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL:-$default_model}"
+        export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL:-$default_haiku_model}"
+        export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL:-$default_sonnet_model}"
+        export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL:-$default_opus_model}"
+        export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+        ;;
 esac
 
 has_skip=0
@@ -1228,6 +1243,7 @@ install_claude_launcher() {
     _write_claude_launcher "first-party" "${HOME}/.local/bin/claude-first-party"
     _write_claude_launcher "third-party-anthropic" "${HOME}/.local/bin/claude-third-party-anthropic"
     _write_claude_launcher "third-party-deepseek" "${HOME}/.local/bin/claude-third-party-deepseek"
+    _write_claude_launcher "third-party-nemotron" "${HOME}/.local/bin/claude-third-party-nemotron"
     ln -sfn "claude-${selected_provider}" "$claude_bin"
     log "Installed Claude launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
 }
