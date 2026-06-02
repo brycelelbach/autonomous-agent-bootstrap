@@ -43,6 +43,7 @@ setup() {
           AAB_HERMES_BASE_URL AAB_HERMES_API_KEY AAB_HERMES_MODEL \
           AAB_HERMES_API_MODE AAB_HERMES_EFFORT \
           AAB_HERMES_SHELL_TIMEOUT AAB_HERMES_CHILD_TIMEOUT AAB_HERMES_MAX_CONCURRENCY \
+          AAB_HERMES_CURATOR \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
@@ -253,8 +254,22 @@ PY
     grep -q '^  timeout: 600$' "$HERMES_CONFIG"
     grep -q '^  child_timeout_seconds: 86400$' "$HERMES_CONFIG"
     grep -q "^  max_concurrent_children: ${DEFAULT_CODEX_AGENT_MAX_THREADS}\$" "$HERMES_CONFIG"
+    # Self-improvement (curator) disabled by default.
+    grep -q '^  enabled: false$' "$HERMES_CONFIG"
     # The gateway secret is referenced by env, never inlined into the config.
     ! grep -q 'api_key:' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config can re-enable the curator via AAB_HERMES_CURATOR" {
+    AAB_HERMES_CURATOR="true" write_hermes_config
+    grep -q '^  enabled: true$' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config defaults an invalid curator toggle back to false" {
+    AAB_HERMES_CURATOR="maybe" run write_hermes_config
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"AAB_HERMES_CURATOR='maybe'"* ]]
+    grep -q '^  enabled: false$' "$HERMES_CONFIG"
 }
 
 @test "write_hermes_config honors concurrency and timeout overrides" {

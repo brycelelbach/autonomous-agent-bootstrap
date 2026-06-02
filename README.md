@@ -6,7 +6,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 1. **Claude Code** via the official native installer, configured for unattended use with `bypassPermissions`, sandbox mode, debug logging, skipped onboarding, pre-approved first-party API-key fingerprints when provided, and `CLAUDE_CODE_ATTRIBUTION_HEADER=0` so the per-request attribution block does not invalidate the prompt cache on third-party gateways.
 2. **Codex CLI** via OpenAI's standalone installer, configured with `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, trusted project roots, live web search, shell env inheritance, service tier, reasoning effort, and `[agents].max_threads`.
-3. **Hermes** via NousResearch's installer, configured for one arbitrary OpenAI-compatible inference gateway and a permission-free, no-run-limit setup: approvals off, hooks auto-accepted, subagents auto-approved, `xhigh` effort, reasoning always shown, and the turn/iteration/timeout caps removed so it can run unattended for days.
+3. **Hermes** via NousResearch's installer, configured for one arbitrary OpenAI-compatible inference gateway and a permission-free, no-run-limit setup: approvals off, hooks auto-accepted, subagents auto-approved, `xhigh` effort, reasoning always shown, the turn/iteration/timeout caps removed so it can run unattended for days, and the self-improvement curator disabled.
 4. **AAB env file** at `~/.aab/.env` for provider selection, model names, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
 5. **Wrapper families** in `~/.local/bin`, with the selected `claude` entrypoint installed as a regular launcher file in `~/.local/aab-bin` (kept ahead of `~/.local/bin` on PATH so the native auto-updater, which owns `~/.local/bin/claude`, cannot shadow the wrapper):
    - `~/.local/aab-bin/claude` plus explicit `claude-first-party`, `claude-third-party-anthropic`, `claude-third-party-deepseek`, and `claude-third-party-nemotron` launchers
@@ -175,6 +175,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_HERMES_SHELL_TIMEOUT` | Hermes shell-command timeout in seconds. Defaults to `600` (10 minutes). |
 | `AAB_HERMES_CHILD_TIMEOUT` | Hermes per-subagent stuck-detector timeout in seconds (floored at 30s). Defaults to `86400`. |
 | `AAB_HERMES_MAX_CONCURRENCY` | Maximum concurrent Hermes delegated subagents. Defaults to `16` (matches `AAB_CODEX_AGENT_MAX_THREADS`). |
+| `AAB_HERMES_CURATOR` | Whether Hermes's self-improvement curator (background skill review/prune) runs: `true` or `false`. Defaults to `false`. |
 | `AAB_BREV_API_KEY` | Brev organization-scoped API key. Used with `AAB_BREV_ORG_ID`. |
 | `AAB_BREV_ORG_ID` | Brev organization ID paired with `AAB_BREV_API_KEY`. |
 | `AAB_GH_TOKEN` | GitHub token. Stored in `~/.aab/.env`; wrappers map it to `GH_TOKEN` for agent subprocesses. |

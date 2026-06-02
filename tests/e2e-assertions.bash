@@ -172,6 +172,8 @@ assert g("tool_loop_guardrails", "warnings_enabled") is False, g("tool_loop_guar
 assert int(g("delegation", "max_concurrent_children")) == 16, g("delegation", "max_concurrent_children")
 assert int(g("terminal", "timeout")) == 600, g("terminal", "timeout")
 assert int(g("delegation", "child_timeout_seconds")) >= 86400, g("delegation", "child_timeout_seconds")
+# self-improvement (curator) disabled
+assert g("curator", "enabled") is False, g("curator", "enabled")
 # the gateway secret is referenced by env, never inlined
 assert not gw.get("api_key"), "gateway entry must not inline an api_key"
 PY
