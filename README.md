@@ -7,8 +7,8 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 1. **Claude Code** via the official native installer, configured for unattended use with `bypassPermissions`, sandbox mode, debug logging, skipped onboarding, and pre-approved first-party API-key fingerprints when provided.
 2. **Codex CLI** via OpenAI's standalone installer, configured with `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, trusted project roots, live web search, shell env inheritance, service tier, reasoning effort, and `[agents].max_threads`.
 3. **AAB env file** at `~/.aab/.env` for provider selection, model names, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
-4. **Wrapper families** in `~/.local/bin`:
-   - `claude` -> `claude-first-party`, `claude-third-party-anthropic`, or `claude-third-party-deepseek`
+4. **Wrapper families** in `~/.local/bin`, with the selected `claude` entrypoint in `~/.local/aab-bin` (kept ahead of `~/.local/bin` on PATH so the native auto-updater, which owns `~/.local/bin/claude`, cannot shadow the wrapper):
+   - `~/.local/aab-bin/claude` -> `claude-first-party`, `claude-third-party-anthropic`, `claude-third-party-deepseek`, or `claude-third-party-nemotron`
    - `codex` -> `codex-first-party` or `codex-third-party-openai`
 5. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 6. **gh CLI**, installed from the official `cli.github.com` apt repo.
@@ -166,12 +166,13 @@ All variables are optional unless you select a provider that needs its credentia
 | Path | How |
 | --- | --- |
 | `~/.aab/.env` | Rewritten with provider config, model names, and credentials. Mode `0600`; parent directory mode `0700`. |
-| `~/.local/bin/claude` | Symlink to the selected Claude wrapper. |
+| `~/.local/aab-bin/claude` | Symlink to the selected Claude wrapper; on PATH ahead of `~/.local/bin`. |
+| `~/.local/bin/claude` | Left as the native installer's binary so the auto-updater can repoint it. |
 | `~/.local/bin/claude-first-party` | Claude wrapper for first-party Anthropic. |
 | `~/.local/bin/claude-third-party-anthropic` | Claude wrapper for Anthropic-compatible third-party gateways. |
 | `~/.local/bin/claude-third-party-deepseek` | Claude wrapper for DeepSeek gateways. |
 | `~/.local/bin/claude-third-party-nemotron` | Claude wrapper for Nemotron gateways. |
-| `~/.local/bin/claude-aab-real` | Link or moved copy of the real Claude binary. |
+| `~/.local/bin/claude-aab-real` | Symlink to `~/.local/bin/claude`, so wrappers exec whatever the updater installs. |
 | `~/.local/bin/codex` | Symlink to the selected Codex wrapper. |
 | `~/.local/bin/codex-first-party` | Codex wrapper for first-party OpenAI. |
 | `~/.local/bin/codex-third-party-openai` | Codex wrapper for OpenAI-compatible third-party gateways. |
@@ -181,6 +182,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `~/.codex/config.toml` | Rewritten with unattended Codex defaults and selected provider config while preserving Codex plugin tables; existing file is backed up. |
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when first-party Codex API-key auth is configured. |
 | `~/.bashrc` | Managed block for PATH and non-secret unattended-mode exports only. |
+| `~/.profile` | Managed block that keeps `~/.local/aab-bin` ahead of `~/.local/bin` for login shells. |
 | `/etc/environment` | Existing AAB managed blocks are removed so credentials do not remain there. |
 | `~/.brev/credentials.json` | Written by `brev login --api-key ... --org-id ...` when Brev credentials are configured. |
 | `~/.brev/onboarding_step.json` | Written to skip the Brev tutorial. |

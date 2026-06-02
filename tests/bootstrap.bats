@@ -475,8 +475,12 @@ SH
         write_aab_env_file
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" install_claude_launcher
 
-    [ "$(readlink "$HOME/.local/bin/claude")" = "claude-third-party-deepseek" ]
-    "$HOME/.local/bin/claude" -p hello
+    # The selected entrypoint lives in ~/.local/aab-bin; ~/.local/bin/claude is
+    # left as the native binary for the auto-updater, and the wrappers exec it.
+    [ "$(readlink "$HOME/.local/aab-bin/claude")" = "$HOME/.local/bin/claude-third-party-deepseek" ]
+    [ "$(readlink "$HOME/.local/bin/claude")" = "$TEST_HOME/real-claude" ]
+    [ "$(readlink "$HOME/.local/bin/claude-aab-real")" = "$HOME/.local/bin/claude" ]
+    "$HOME/.local/aab-bin/claude" -p hello
 
     grep -Fxq -- '--dangerously-skip-permissions' "$TEST_HOME/claude-launcher-args"
     grep -Fxq 'provider=third-party-deepseek' "$TEST_HOME/claude-launcher-env"
@@ -509,8 +513,12 @@ SH
         write_aab_env_file
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-nemotron" install_claude_launcher
 
-    [ "$(readlink "$HOME/.local/bin/claude")" = "claude-third-party-nemotron" ]
-    "$HOME/.local/bin/claude" -p hello
+    # The selected entrypoint lives in ~/.local/aab-bin; ~/.local/bin/claude is
+    # left as the native binary for the auto-updater, and the wrappers exec it.
+    [ "$(readlink "$HOME/.local/aab-bin/claude")" = "$HOME/.local/bin/claude-third-party-nemotron" ]
+    [ "$(readlink "$HOME/.local/bin/claude")" = "$TEST_HOME/real-claude" ]
+    [ "$(readlink "$HOME/.local/bin/claude-aab-real")" = "$HOME/.local/bin/claude" ]
+    "$HOME/.local/aab-bin/claude" -p hello
 
     grep -Fxq -- '--dangerously-skip-permissions' "$TEST_HOME/claude-launcher-args"
     grep -Fxq 'provider=third-party-nemotron' "$TEST_HOME/claude-launcher-env"
@@ -720,8 +728,38 @@ PY
 @test "update_bashrc puts launcher directory on PATH without aliases" {
     update_bashrc
     grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC"
+    grep -q 'export PATH="$HOME/.local/aab-bin:$PATH"' "$BASHRC"
     ! grep -q '^alias claude=' "$BASHRC"
     ! grep -q '^alias codex=' "$BASHRC"
+}
+
+@test "update_profile keeps the launcher dir ahead of ~/.local/bin in a login shell" {
+    # Mimic a distro-default ~/.profile: source ~/.bashrc, then re-prepend
+    # ~/.local/bin. Without the update_profile block this re-prepend would shadow
+    # the launcher dir for login/SSH shells.
+    cat > "$PROFILE" <<'SH'
+if [ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi
+if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; fi
+SH
+    update_bashrc
+    update_profile
+
+    # The managed block is added once and replaced (not stacked) on re-run.
+    update_profile
+    [ "$(grep -cF "$BASHRC_MARKER_BEGIN" "$PROFILE")" -eq 1 ]
+
+    mkdir -p "$HOME/.local/bin" "$HOME/.local/aab-bin"
+    printf '#!/usr/bin/env bash\necho real\n' > "$HOME/.local/bin/claude"
+    chmod +x "$HOME/.local/bin/claude"
+    printf '#!/usr/bin/env bash\necho wrapper\n' > "$HOME/.local/bin/claude-third-party-deepseek"
+    chmod +x "$HOME/.local/bin/claude-third-party-deepseek"
+    ln -sfn "$HOME/.local/bin/claude-third-party-deepseek" "$HOME/.local/aab-bin/claude"
+
+    # A login shell sources ~/.profile. PS1 is set so the distro ~/.bashrc guard
+    # (`case $- in *i*) ;; *) return`) does not abort early before the AAB block.
+    run env HOME="$HOME" PATH="/usr/bin:/bin" bash -c 'PS1="x"; . "$HOME/.profile" >/dev/null 2>&1; command -v claude'
+    [ "$status" -eq 0 ]
+    [ "$output" = "$HOME/.local/aab-bin/claude" ]
 }
 
 @test "update_bashrc exports DEBUG_SDK=1 (turns on Claude Code debug logging)" {
