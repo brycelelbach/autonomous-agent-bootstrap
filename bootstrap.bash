@@ -52,6 +52,9 @@ AAB_DIR="${HOME}/.aab"
 AAB_ENV_FILE="${AAB_DIR}/.env"
 CODEX_DIR="${HOME}/.codex"
 CODEX_CONFIG="${CODEX_DIR}/config.toml"
+HERMES_DIR="${HOME}/.hermes"
+HERMES_CONFIG="${HERMES_DIR}/config.yaml"
+HERMES_PLUGINS_DIR="${HERMES_DIR}/plugins"
 BREV_DIR="${HOME}/.brev"
 BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
@@ -111,6 +114,22 @@ DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
 DEFAULT_CODEX_SERVICE_TIER="priority"
 DEFAULT_CODEX_AGENT_MAX_THREADS="16"
+DEFAULT_HERMES_BASE_URL="https://inference-api.nvidia.com/v1"
+DEFAULT_HERMES_MODEL="nvidia/nvidia/nemotron-3-ultra"
+DEFAULT_HERMES_API_MODE="chat_completions"
+DEFAULT_HERMES_GATEWAY_PROVIDER_NAME="aab-gateway"
+DEFAULT_HERMES_EFFORT="xhigh"
+# Hermes caps turns/iterations with a "used >= max" budget, so 0 would stop
+# instantly; a very large number is the correct "effectively unlimited" for
+# multi-day autonomous runs.
+DEFAULT_HERMES_UNLIMITED_TURNS="999999"
+# Shell-command timeout (seconds). 10 minutes covers long builds/tests.
+DEFAULT_HERMES_SHELL_TIMEOUT="600"
+# Per-subagent wall-clock stuck-detector (seconds). Raised so long-running
+# children aren't killed mid-task during multi-day runs (floored at 30s).
+DEFAULT_HERMES_CHILD_TIMEOUT="86400"
+# Max concurrent delegated children, matched to Codex's agent thread cap.
+DEFAULT_HERMES_MAX_CONCURRENCY="$DEFAULT_CODEX_AGENT_MAX_THREADS"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -165,6 +184,9 @@ install_base_deps() {
     command -v python3 >/dev/null 2>&1 || needed+=(python3)
     command -v git     >/dev/null 2>&1 || needed+=(git)
     command -v tar     >/dev/null 2>&1 || needed+=(tar)
+    # The Hermes installer downloads a Node.js runtime as a .tar.xz and pipes
+    # it through tar, which needs the xz binary; bare container images omit it.
+    command -v xz      >/dev/null 2>&1 || needed+=(xz-utils)
     command -v gawk    >/dev/null 2>&1 || needed+=(gawk)
     command -v rg      >/dev/null 2>&1 || needed+=(ripgrep)
     # The autocuda agent plugin's report skills render their markdown
@@ -295,6 +317,19 @@ BASH
         "$real_curl" -fsSL "$installer_url" -o "$installer"
         _run_without_controlling_tty "${installer_env[@]}" bash "$installer"
     )
+}
+
+# ---------------------------------------------------------------------------
+# 3. Install / upgrade Hermes via NousResearch's standalone installer.
+# ---------------------------------------------------------------------------
+install_hermes() {
+    log "Installing / updating Hermes via NousResearch installer..."
+    # The installer fetches from raw.githubusercontent.com (not the GitHub
+    # API), so a plain curl | bash like Claude's suffices; no token wrapper
+    # is needed. It provisions ~/.hermes (uv, Python, venv) and drops a
+    # launcher at ~/.local/bin/hermes, and skips its interactive setup wizard
+    # when no TTY is attached.
+    curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
 }
 
 _run_without_controlling_tty() {
@@ -506,13 +541,21 @@ write_aab_env_file() {
         _write_shell_export AAB_CODEX_EFFORT "${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
         _write_shell_export AAB_CODEX_SERVICE_TIER "${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
         _write_shell_export AAB_CODEX_AGENT_MAX_THREADS "${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
+        _write_shell_export AAB_HERMES_BASE_URL "${AAB_HERMES_BASE_URL:-$DEFAULT_HERMES_BASE_URL}"
+        _write_shell_export AAB_HERMES_API_KEY "${AAB_HERMES_API_KEY:-}"
+        _write_shell_export AAB_HERMES_MODEL "${AAB_HERMES_MODEL:-$DEFAULT_HERMES_MODEL}"
+        _write_shell_export AAB_HERMES_API_MODE "${AAB_HERMES_API_MODE:-$DEFAULT_HERMES_API_MODE}"
+        _write_shell_export AAB_HERMES_EFFORT "${AAB_HERMES_EFFORT:-$DEFAULT_HERMES_EFFORT}"
+        _write_shell_export AAB_HERMES_SHELL_TIMEOUT "${AAB_HERMES_SHELL_TIMEOUT:-$DEFAULT_HERMES_SHELL_TIMEOUT}"
+        _write_shell_export AAB_HERMES_CHILD_TIMEOUT "${AAB_HERMES_CHILD_TIMEOUT:-$DEFAULT_HERMES_CHILD_TIMEOUT}"
+        _write_shell_export AAB_HERMES_MAX_CONCURRENCY "${AAB_HERMES_MAX_CONCURRENCY:-$DEFAULT_HERMES_MAX_CONCURRENCY}"
         _write_shell_export AAB_GH_TOKEN "${AAB_GH_TOKEN:-}"
         _write_shell_export AAB_BREV_API_KEY "${AAB_BREV_API_KEY:-}"
         _write_shell_export AAB_BREV_ORG_ID "${AAB_BREV_ORG_ID:-}"
     } > "$tmp"
     chmod 600 "$tmp"
     mv -f "$tmp" "$AAB_ENV_FILE"
-    log "Wrote ${AAB_ENV_FILE} (claude_provider=${claude_provider}, codex_provider=${codex_provider})."
+    log "Wrote ${AAB_ENV_FILE} (claude_provider=${claude_provider}, codex_provider=${codex_provider}, hermes=gateway)."
 }
 
 # ---------------------------------------------------------------------------
@@ -709,6 +752,123 @@ TOML
     fi
 
     log "Wrote ${CODEX_CONFIG} (provider=${codex_provider}, model=${model}, effort=${effort}, service_tier=${service_tier}, agent_max_threads=${agent_max_threads}, approval=never, sandbox=danger-full-access)."
+}
+
+# ---------------------------------------------------------------------------
+# 7b. Write ~/.hermes/config.yaml.
+#
+# Hermes routes at one arbitrary OpenAI-compatible gateway, declared as a
+# custom_providers entry whose key_env points at AAB_HERMES_API_KEY (exported
+# by the launcher from ~/.aab/.env, so no secret lands in this file). The
+# permission-free block mirrors the Claude/Codex unattended setup: approvals
+# off, hooks auto-accepted, subagents auto-approved. Hermes enforces an
+# unconditional catastrophic-command floor in code regardless, which no
+# config can disable. Effort defaults to xhigh and reasoning is always shown.
+# ---------------------------------------------------------------------------
+write_hermes_config() {
+    mkdir -p "${HERMES_DIR}"
+    if [[ -f "${HERMES_CONFIG}" ]]; then
+        local backup
+        backup="${HERMES_CONFIG}.bak.$(date +%Y%m%d-%H%M%S)"
+        cp "${HERMES_CONFIG}" "${backup}"
+        log "Backed up existing config.yaml -> ${backup}."
+    fi
+
+    local base_url model api_mode effort provider_name
+    local unlimited_turns shell_timeout child_timeout max_concurrency
+    base_url="${AAB_HERMES_BASE_URL:-$DEFAULT_HERMES_BASE_URL}"
+    model="${AAB_HERMES_MODEL:-$DEFAULT_HERMES_MODEL}"
+    api_mode="${AAB_HERMES_API_MODE:-$DEFAULT_HERMES_API_MODE}"
+    effort="${AAB_HERMES_EFFORT:-$DEFAULT_HERMES_EFFORT}"
+    provider_name="$DEFAULT_HERMES_GATEWAY_PROVIDER_NAME"
+    unlimited_turns="$DEFAULT_HERMES_UNLIMITED_TURNS"
+    shell_timeout="${AAB_HERMES_SHELL_TIMEOUT:-$DEFAULT_HERMES_SHELL_TIMEOUT}"
+    child_timeout="${AAB_HERMES_CHILD_TIMEOUT:-$DEFAULT_HERMES_CHILD_TIMEOUT}"
+    max_concurrency="${AAB_HERMES_MAX_CONCURRENCY:-$DEFAULT_HERMES_MAX_CONCURRENCY}"
+
+    case "$api_mode" in
+        chat_completions|anthropic_messages) ;;
+        *)
+            warn "AAB_HERMES_API_MODE='${api_mode}' is not 'chat_completions' or 'anthropic_messages'; defaulting to ${DEFAULT_HERMES_API_MODE}."
+            api_mode="$DEFAULT_HERMES_API_MODE"
+            ;;
+    esac
+    case "$effort" in
+        none|minimal|low|medium|high|xhigh) ;;
+        *)
+            warn "AAB_HERMES_EFFORT='${effort}' is not one of none, minimal, low, medium, high, or xhigh; defaulting to ${DEFAULT_HERMES_EFFORT}."
+            effort="$DEFAULT_HERMES_EFFORT"
+            ;;
+    esac
+    case "$shell_timeout" in
+        ''|*[!0-9]*)
+            warn "AAB_HERMES_SHELL_TIMEOUT='${shell_timeout}' is not a non-negative integer; defaulting to ${DEFAULT_HERMES_SHELL_TIMEOUT}."
+            shell_timeout="$DEFAULT_HERMES_SHELL_TIMEOUT"
+            ;;
+    esac
+    case "$child_timeout" in
+        ''|*[!0-9]*)
+            warn "AAB_HERMES_CHILD_TIMEOUT='${child_timeout}' is not a non-negative integer; defaulting to ${DEFAULT_HERMES_CHILD_TIMEOUT}."
+            child_timeout="$DEFAULT_HERMES_CHILD_TIMEOUT"
+            ;;
+    esac
+    case "$max_concurrency" in
+        ''|*[!0-9]*|0)
+            warn "AAB_HERMES_MAX_CONCURRENCY='${max_concurrency}' is not a positive integer; defaulting to ${DEFAULT_HERMES_MAX_CONCURRENCY}."
+            max_concurrency="$DEFAULT_HERMES_MAX_CONCURRENCY"
+            ;;
+    esac
+
+    local tmp
+    tmp=$(mktemp "${HERMES_CONFIG}.tmp.XXXXXX")
+    # Run-duration limits are deliberately removed for unattended multi-day
+    # operation: turn/iteration budgets use a "used >= max" check (so a huge
+    # number means unlimited, while 0 would stop instantly), gateway timeouts
+    # are inactivity-based where 0 means unlimited, the auto-continue freshness
+    # gate is disabled so the agent always resumes its task, and the tool-loop
+    # guardrails (anti-repeat nudges/hard stops) are turned off. Per-operation
+    # timeouts (shell command, subagent stuck-detector) are raised, not removed.
+    cat > "$tmp" <<YAML
+# Written by autonomous-agent-bootstrap. Re-run bootstrap.bash to update.
+model:
+  provider: "${provider_name}"
+  default: "${model}"
+  base_url: "${base_url}"
+custom_providers:
+  - name: "${provider_name}"
+    base_url: "${base_url}"
+    key_env: "AAB_HERMES_API_KEY"
+    api_mode: "${api_mode}"
+    model: "${model}"
+agent:
+  reasoning_effort: "${effort}"
+  max_turns: ${unlimited_turns}
+  gateway_timeout: 0
+  gateway_timeout_warning: 0
+  gateway_auto_continue_freshness: 0
+display:
+  show_reasoning: true
+goals:
+  max_turns: ${unlimited_turns}
+delegation:
+  subagent_auto_approve: true
+  max_iterations: ${unlimited_turns}
+  max_concurrent_children: ${max_concurrency}
+  child_timeout_seconds: ${child_timeout}
+terminal:
+  timeout: ${shell_timeout}
+tool_loop_guardrails:
+  warnings_enabled: false
+  hard_stop_enabled: false
+approvals:
+  mode: "off"
+  cron_mode: "approve"
+  destructive_slash_confirm: false
+hooks_auto_accept: true
+YAML
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$HERMES_CONFIG"
+    log "Wrote ${HERMES_CONFIG} (provider=${provider_name}, model=${model}, base_url=${base_url}, api_mode=${api_mode}, effort=${effort}, max_turns=${unlimited_turns}, gateway_timeout=0, max_concurrent_children=${max_concurrency}, shell_timeout=${shell_timeout}, approvals=off, show_reasoning=true)."
 }
 
 # ---------------------------------------------------------------------------
@@ -1319,6 +1479,7 @@ install_agent_plugins() {
 
     install_claude_code_plugins "${tuples[@]}"
     install_codex_plugins "${tuples[@]}"
+    install_hermes_plugins "${tuples[@]}"
 }
 
 install_claude_code_plugins() {
@@ -1473,12 +1634,136 @@ install_codex_plugins() {
     done
 }
 
+# Install AAB's plugins into Hermes. Hermes's own `plugins install owner/repo`
+# expects a single-plugin repo with a root plugin.yaml, but AAB's plugin repos
+# are Claude/Codex marketplaces (a .claude-plugin/marketplace.json indexing one
+# or more plugins under plugins/<name>/). Bridge the formats: clone each repo
+# once, then for each plugin materialize its plugins/<name>/ subtree into
+# ~/.hermes/plugins/<name>/ and synthesize the plugin.yaml Hermes needs from the
+# plugin's .claude-plugin/plugin.json, then enable it.
+install_hermes_plugins() {
+    local -a tuples=("$@")
+    [ ${#tuples[@]} -eq 0 ] && return
+    command -v python3 >/dev/null 2>&1 || { warn "python3 required for Hermes plugin install; skipping."; return; }
+
+    local hermes_bin=""
+    if [ -x "${HOME}/.local/bin/hermes-aab-real" ]; then
+        hermes_bin="${HOME}/.local/bin/hermes-aab-real"
+    elif command -v hermes >/dev/null 2>&1; then
+        hermes_bin=$(command -v hermes)
+    elif [ -x "${HOME}/.local/bin/hermes" ]; then
+        hermes_bin="${HOME}/.local/bin/hermes"
+    else
+        warn "hermes binary not on PATH; skipping Hermes plugin install."
+        return
+    fi
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+    local -a github_env=(env)
+    if [ -n "$github_token" ]; then
+        github_env=(env "GH_TOKEN=$github_token")
+    fi
+
+    mkdir -p "${HERMES_PLUGINS_DIR}"
+    local tmproot
+    tmproot=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$tmproot'" RETURN
+
+    local -A repo_clone=()
+    local t repo plugin clone_dir source_subpath plugin_src target
+    for t in "${tuples[@]}"; do
+        repo="${t%%|*}"
+        plugin="${t##*|}"
+
+        # Clone each marketplace repo at most once. Prefer gh (handles private
+        # repos via GH_TOKEN without leaking it into argv); fall back to an
+        # unauthenticated https clone so public plugins still work.
+        clone_dir="${repo_clone[$repo]:-}"
+        if [ -z "$clone_dir" ]; then
+            clone_dir="${tmproot}/$(printf '%s' "$repo" | tr '/' '_')"
+            if command -v gh >/dev/null 2>&1 && "${github_env[@]}" gh repo clone "$repo" "$clone_dir" -- --depth 1 --quiet >/dev/null 2>&1; then
+                repo_clone[$repo]="$clone_dir"
+            elif git clone --depth 1 --quiet "https://github.com/${repo}.git" "$clone_dir" >/dev/null 2>&1; then
+                repo_clone[$repo]="$clone_dir"
+            else
+                warn "Could not clone ${repo} for Hermes (private repo without access?); skipping its plugins."
+                repo_clone[$repo]="MISSING"
+            fi
+            clone_dir="${repo_clone[$repo]}"
+        fi
+        [ "$clone_dir" = "MISSING" ] && continue
+
+        source_subpath=$(HERMES_MP="${clone_dir}/.claude-plugin/marketplace.json" HERMES_PLUGIN="$plugin" python3 - <<'PY' || true
+import json, os
+try:
+    d = json.load(open(os.environ["HERMES_MP"]))
+except Exception:
+    raise SystemExit(0)
+want = os.environ["HERMES_PLUGIN"]
+for p in d.get("plugins", []):
+    if p.get("name") == want:
+        print((p.get("source") or "").lstrip("./"))
+        break
+PY
+)
+        if [ -z "$source_subpath" ]; then
+            warn "Could not resolve source for plugin ${plugin} in ${repo}; skipping."
+            continue
+        fi
+        plugin_src="${clone_dir}/${source_subpath}"
+        if [ ! -d "$plugin_src" ]; then
+            warn "Plugin source ${source_subpath} missing in ${repo}; skipping ${plugin}."
+            continue
+        fi
+
+        target="${HERMES_PLUGINS_DIR}/${plugin}"
+        if [ -f "${target}/plugin.yaml" ] || [ -f "${target}/plugin.yml" ]; then
+            log "Hermes plugin ${plugin} already installed; leaving in place."
+        else
+            rm -rf "$target"
+            if ! cp -r "$plugin_src" "$target"; then
+                warn "Failed to copy plugin ${plugin} into ${target}; skipping."
+                continue
+            fi
+            # Synthesize the plugin.yaml Hermes requires, from the Claude/Codex
+            # plugin.json, when the source tree doesn't already ship one.
+            if [ ! -f "${target}/plugin.yaml" ] && [ ! -f "${target}/plugin.yml" ]; then
+                HERMES_PJSON="${plugin_src}/.claude-plugin/plugin.json" HERMES_PLUGIN="$plugin" \
+                    python3 - "${target}/plugin.yaml" <<'PY' || warn "Could not synthesize plugin.yaml for ${plugin}."
+import json, os, sys
+out = sys.argv[1]
+name = os.environ.get("HERMES_PLUGIN", "")
+version, desc = "0.0.0", ""
+try:
+    d = json.load(open(os.environ.get("HERMES_PJSON", "")))
+    name = d.get("name") or name
+    version = d.get("version") or version
+    desc = d.get("description") or ""
+except Exception:
+    pass
+def q(s):
+    return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
+with open(out, "w") as f:
+    f.write(f"name: {q(name)}\n")
+    f.write(f"version: {q(version)}\n")
+    f.write(f"description: {q(desc)}\n")
+    f.write("hooks: []\n")
+PY
+            fi
+            log "Installed Hermes plugin ${plugin} into ${target}."
+        fi
+
+        "${github_env[@]}" "$hermes_bin" plugins enable "$plugin" 2>&1 | sed 's/^/  /' || \
+            warn "hermes plugins enable ${plugin} returned non-zero."
+    done
+}
+
 # ---------------------------------------------------------------------------
 # 10b. Install Claude and Codex launcher wrapper families.
 # ---------------------------------------------------------------------------
 _is_aab_launcher_symlink_target() {
     case "$(basename "$1")" in
-        claude-first-party|claude-third-party-anthropic|claude-third-party-deepseek|claude-third-party-nemotron|codex-first-party|codex-third-party-openai|codex-third-party-nemotron|codex-third-party-deepseek)
+        claude-first-party|claude-third-party-anthropic|claude-third-party-deepseek|claude-third-party-nemotron|codex-first-party|codex-third-party-openai|codex-third-party-nemotron|codex-third-party-deepseek|hermes-gateway)
             return 0
             ;;
         *)
@@ -1822,6 +2107,82 @@ install_codex_launcher() {
     log "Installed Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
 }
 
+_write_hermes_launcher() {
+    local provider="$1" launcher="$2" tmp
+    tmp=$(mktemp "${launcher}.tmp.XXXXXX")
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        printf '%s\n' '# Autonomous-agent-bootstrap Hermes launcher.'
+        printf 'provider=%q\n' "$provider"
+        cat <<'BASH'
+set -euo pipefail
+
+real_bin="${AAB_HERMES_REAL_BIN:-$HOME/.local/bin/hermes-aab-real}"
+env_file="${AAB_ENV_FILE:-$HOME/.aab/.env}"
+if [ -f "$env_file" ]; then
+    set -a
+    . "$env_file"
+    set +a
+fi
+
+if [ ! -x "$real_bin" ]; then
+    printf '[bootstrap] WARN: Hermes real binary not executable: %s\n' "$real_bin" >&2
+    exit 127
+fi
+
+export AAB_HERMES_INFERENCE_PROVIDER="$provider"
+# Fully autonomous operation in a safe sandbox. HERMES_YOLO_MODE is frozen at
+# import and short-circuits every approval path (chat, gateway, cron, send);
+# HERMES_ACCEPT_HOOKS auto-accepts shell hooks. Hermes has no equivalent of
+# Claude's --dangerously-skip-permissions flag, and its --yolo is a per-chat
+# flag that would break non-chat subcommands (config, doctor), so the bypass
+# lives entirely in these env vars plus the persisted config.yaml block.
+export HERMES_YOLO_MODE=1
+export HERMES_ACCEPT_HOOKS=1
+[ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
+[ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
+[ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
+
+# AAB_HERMES_API_KEY is left exported (sourced from ~/.aab/.env above) so the
+# gateway entry's key_env lookup in config.yaml resolves at runtime.
+
+exec "$real_bin" "$@"
+BASH
+    } > "$tmp"
+    chmod 755 "$tmp"
+    mv -f "$tmp" "$launcher"
+}
+
+install_hermes_launcher() {
+    local hermes_bin="${HOME}/.local/bin/hermes"
+    local real_bin="${HOME}/.local/bin/hermes-aab-real"
+    mkdir -p "${HOME}/.local/bin"
+
+    if [ -e "$hermes_bin" ] || [ -L "$hermes_bin" ]; then
+        # Standard layout: the Hermes installer (non-root) drops the launcher
+        # at ~/.local/bin/hermes, so relocate it to hermes-aab-real exactly
+        # like the Claude/Codex launchers.
+        _prepare_launcher_real_binary "hermes" "$hermes_bin" "$real_bin" "Autonomous-agent-bootstrap Hermes launcher"
+    else
+        # FHS layout: when run as root the Hermes installer uses an FHS layout
+        # and drops the launcher at /usr/local/bin/hermes instead. Point
+        # hermes-aab-real at wherever the binary actually landed; the AAB
+        # wrapper at ~/.local/bin/hermes then shadows it because the bootstrap
+        # puts ~/.local/bin first on PATH.
+        local found=""
+        found=$(command -v hermes 2>/dev/null || true)
+        if [ -z "$found" ]; then
+            warn "hermes binary not found on PATH; cannot install launcher wrappers."
+            return
+        fi
+        ln -sfn "$found" "$real_bin"
+    fi
+
+    _write_hermes_launcher "gateway" "${HOME}/.local/bin/hermes-gateway"
+    ln -sfn "hermes-gateway" "$hermes_bin"
+    log "Installed Hermes launcher wrapper at ${HOME}/.local/bin (selected=gateway)."
+}
+
 # ---------------------------------------------------------------------------
 # 11. Rewrite the unattended-mode block in ~/.bashrc.
 #
@@ -1998,12 +2359,14 @@ main() {
     enable_user_linger
     install_claude
     install_codex
+    install_hermes
     install_brev
     configure_brev_auth
     ensure_gh
     write_settings
     write_aab_env_file
     write_codex_config
+    write_hermes_config
     configure_codex_auth
     skip_onboarding
     skip_brev_onboarding
@@ -2015,6 +2378,7 @@ main() {
     install_agent_plugins
     install_claude_launcher
     install_codex_launcher
+    install_hermes_launcher
     update_bashrc
     update_profile
     update_etc_environment

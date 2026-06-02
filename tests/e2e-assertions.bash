@@ -13,6 +13,7 @@ SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 CLAUDE_JSON="${HOME}/.claude.json"
 CODEX_CONFIG="${HOME}/.codex/config.toml"
 CODEX_AUTH="${HOME}/.codex/auth.json"
+HERMES_CONFIG="${HOME}/.hermes/config.yaml"
 BREV_ONBOARDING="${HOME}/.brev/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
 PROFILE="${HOME}/.profile"
@@ -113,6 +114,68 @@ grep -Fxq "max_threads = ${expected_codex_agent_max_threads}" "$CODEX_CONFIG" \
 grep -qF "[projects.\"$HOME\"]" "$CODEX_CONFIG" \
     || fail "Codex HOME project trust entry missing."
 pass "Codex config.toml written with unattended yolo-mode defaults."
+
+# 2b. Hermes config.yaml routes at the gateway and is permission-free.
+# Parse the YAML rather than grep for literal lines: enabling plugins runs the
+# Hermes CLI, which normalizes/migrates config.yaml (re-emitting keys unquoted
+# and reordered), so only the parsed VALUES are stable. Use Hermes's own venv
+# interpreter (it ships PyYAML); it lives under the FHS or the ~/.local layout.
+[ -f "$HERMES_CONFIG" ] || fail "Hermes config.yaml not written."
+[ "$(stat -c '%a' "$HERMES_CONFIG")" = "600" ] || fail "Hermes config.yaml mode is not 600."
+hermes_py=""
+for cand in \
+    /usr/local/lib/hermes-agent/venv/bin/python \
+    "$HOME/.hermes/hermes-agent/venv/bin/python" \
+    /usr/local/lib/hermes-agent/venv/bin/python3 \
+    "$HOME/.hermes/hermes-agent/venv/bin/python3"; do
+    [ -x "$cand" ] && { hermes_py="$cand"; break; }
+done
+[ -n "$hermes_py" ] || hermes_py="$(command -v python3 || true)"
+[ -n "$hermes_py" ] || fail "no python interpreter available to parse Hermes config.yaml."
+AAB_EXPECTED_HERMES_BASE_URL="${AAB_HERMES_BASE_URL:-https://inference-api.nvidia.com/v1}" \
+AAB_EXPECTED_HERMES_MODEL="${AAB_HERMES_MODEL:-nvidia/nvidia/nemotron-3-ultra}" \
+    "$hermes_py" - "$HERMES_CONFIG" <<'PY' || fail "Hermes config.yaml does not have the expected gateway / permission-free / no-limit values."
+import os, sys, yaml
+d = yaml.safe_load(open(sys.argv[1])) or {}
+def g(*ks):
+    x = d
+    for k in ks:
+        if not isinstance(x, dict):
+            return None
+        x = x.get(k)
+    return x
+base = os.environ["AAB_EXPECTED_HERMES_BASE_URL"]
+model = os.environ["AAB_EXPECTED_HERMES_MODEL"]
+cps = d.get("custom_providers") or []
+gw = next((p for p in cps if isinstance(p, dict) and p.get("name") == "aab-gateway"), None)
+assert g("model", "provider") == "aab-gateway", g("model", "provider")
+assert g("model", "default") == model, g("model", "default")
+assert g("model", "base_url") == base, g("model", "base_url")
+assert gw is not None, "aab-gateway custom_providers entry missing"
+assert gw.get("base_url") == base and gw.get("key_env") == "AAB_HERMES_API_KEY", gw
+# permission-free
+assert str(g("approvals", "mode")).lower() == "off", g("approvals", "mode")
+assert g("hooks_auto_accept") is True, g("hooks_auto_accept")
+assert g("delegation", "subagent_auto_approve") is True, g("delegation", "subagent_auto_approve")
+# reasoning
+assert g("agent", "reasoning_effort") == "xhigh", g("agent", "reasoning_effort")
+assert g("display", "show_reasoning") is True, g("display", "show_reasoning")
+# run-duration limits removed
+assert int(g("agent", "max_turns")) >= 999999, g("agent", "max_turns")
+assert int(g("goals", "max_turns")) >= 999999, g("goals", "max_turns")
+assert int(g("delegation", "max_iterations")) >= 999999, g("delegation", "max_iterations")
+assert int(g("agent", "gateway_timeout")) == 0, g("agent", "gateway_timeout")
+assert int(g("agent", "gateway_auto_continue_freshness")) == 0, g("agent", "gateway_auto_continue_freshness")
+assert g("tool_loop_guardrails", "hard_stop_enabled") is False, g("tool_loop_guardrails", "hard_stop_enabled")
+assert g("tool_loop_guardrails", "warnings_enabled") is False, g("tool_loop_guardrails", "warnings_enabled")
+# per-op timeouts raised; concurrency matches Codex's cap (16)
+assert int(g("delegation", "max_concurrent_children")) == 16, g("delegation", "max_concurrent_children")
+assert int(g("terminal", "timeout")) == 600, g("terminal", "timeout")
+assert int(g("delegation", "child_timeout_seconds")) >= 86400, g("delegation", "child_timeout_seconds")
+# the gateway secret is referenced by env, never inlined
+assert not gw.get("api_key"), "gateway entry must not inline an api_key"
+PY
+pass "Hermes config.yaml written with gateway routing + permission-free, no-limit defaults."
 
 # 3. .claude.json has onboarding flag set.
 [ -f "$CLAUDE_JSON" ] || fail ".claude.json not written."
@@ -261,6 +324,24 @@ case "$codex_plugins" in
     *) fail "Codex agitentic plugin not installed." ;;
 esac
 pass "Codex agent plugins installed."
+command -v hermes >/dev/null 2>&1 || fail "hermes not on PATH after bootstrap."
+[ -L "$HOME/.local/bin/hermes" ] || fail "hermes is not an AAB provider symlink."
+[ "$(readlink "$HOME/.local/bin/hermes")" = "hermes-gateway" ] \
+    || fail "hermes symlink does not target hermes-gateway."
+[ -x "$HOME/.local/bin/hermes-gateway" ] || fail "hermes-gateway wrapper missing."
+[ -x "$HOME/.local/bin/hermes-aab-real" ] || fail "Hermes real binary link not installed."
+pass "hermes wrapper installed and selected."
+# The agitentic marketplace plugin is materialized into Hermes's plugin dir
+# (its source tree carries no root plugin.yaml, so the bootstrap synthesizes
+# one) and enabled.
+[ -f "$HOME/.hermes/plugins/agitentic/plugin.yaml" ] \
+    || fail "Hermes agitentic plugin.yaml not synthesized."
+hermes_plugins=$(hermes plugins list --plain 2>&1) || fail "hermes plugins list failed."
+case "$hermes_plugins" in
+    *"agitentic"*) ;;
+    *) fail "Hermes agitentic plugin not installed." ;;
+esac
+pass "Hermes agent plugins installed."
 if [ "$expected_codex_provider" = "first-party" ] && [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
     AAB_EXPECTED_CODEX_API_KEY="$AAB_CODEX_FIRST_PARTY_API_KEY" \
