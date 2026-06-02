@@ -136,6 +136,13 @@ run_smoke() {
             && claude_env+=(ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY")
         [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-}" ] \
             && claude_env+=(ANTHROPIC_MODEL="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL")
+    elif [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-first-party}" = "third-party-nemotron" ]; then
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL:-}" ] \
+            && claude_env+=(ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL")
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY:-}" ] \
+            && claude_env+=(ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY")
+        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL:-}" ] \
+            && claude_env+=(ANTHROPIC_MODEL="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL")
     fi
 
     if ! claude_output=$(timeout 180s "${claude_env[@]}" claude --dangerously-skip-permissions -p "$prompt" 2>&1); then
