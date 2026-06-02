@@ -15,6 +15,7 @@ CODEX_CONFIG="${HOME}/.codex/config.toml"
 CODEX_AUTH="${HOME}/.codex/auth.json"
 BREV_ONBOARDING="${HOME}/.brev/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
+PROFILE="${HOME}/.profile"
 AAB_ENV_FILE="${HOME}/.aab/.env"
 
 # 1. settings.json is well-formed and has the expected shape.
@@ -155,6 +156,13 @@ pass "AAB env file written with private provider config."
 # 7. bashrc exposes only PATH and non-secret unattended-mode defaults.
 grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC" \
     || fail "PATH export missing from bashrc managed block."
+grep -q 'export PATH="$HOME/.local/aab-bin:$PATH"' "$BASHRC" \
+    || fail "launcher-dir PATH export missing from bashrc managed block."
+# aab-bin must be prepended after ~/.local/bin so it lands ahead of it.
+bin_line=$(grep -n 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC" | head -1 | cut -d: -f1)
+aab_line=$(grep -n 'export PATH="$HOME/.local/aab-bin:$PATH"' "$BASHRC" | head -1 | cut -d: -f1)
+[ "$aab_line" -gt "$bin_line" ] \
+    || fail "aab-bin PATH export must come after the ~/.local/bin export in bashrc."
 ! grep -q '^alias claude=' "$BASHRC" || fail "claude alias should not be written."
 ! grep -q '^alias codex=' "$BASHRC" || fail "codex alias should not be written."
 ! grep -q 'claude_code_switch_inference_provider' "$BASHRC" \
@@ -181,18 +189,42 @@ pass "CLAUDE_CODE_EFFORT_LEVEL=max exported."
 bash -n "$BASHRC" || fail "bashrc has syntax errors."
 pass "bashrc parses cleanly."
 
-# 10. The binaries the bootstrap installed are on PATH (via ~/.local/bin).
-export PATH="$HOME/.local/bin:$PATH"
+# 9b. ~/.profile carries the launcher-dir prepend once and parses cleanly.
+grep -q 'export PATH="$HOME/.local/aab-bin:$PATH"' "$PROFILE" \
+    || fail "launcher-dir PATH export missing from ~/.profile."
+profile_begin=$(grep -c '^# >>> autonomous-agent-bootstrap >>>$' "$PROFILE")
+[ "$profile_begin" -eq 1 ] || fail "Expected 1 ~/.profile managed block, got $profile_begin."
+bash -n "$PROFILE" || fail "Login profile ~/.profile has syntax errors."
+pass "Login profile keeps the launcher dir ahead of ~/.local/bin."
+
+# 10. The launcher dir wins on PATH and selects the provider wrapper, while
+#     ~/.local/bin/claude stays the native binary for the auto-updater.
+export PATH="$HOME/.local/aab-bin:$HOME/.local/bin:$PATH"
 command -v claude >/dev/null 2>&1 || fail "claude not on PATH after bootstrap."
-[ -L "$HOME/.local/bin/claude" ] || fail "claude is not an AAB provider symlink."
-[ "$(readlink "$HOME/.local/bin/claude")" = "claude-${expected_claude_provider}" ] \
-    || fail "claude symlink does not target claude-${expected_claude_provider}."
+[ -L "$HOME/.local/aab-bin/claude" ] || fail "Launcher entrypoint ~/.local/aab-bin/claude is not a symlink."
+[ "$(readlink "$HOME/.local/aab-bin/claude")" = "$HOME/.local/bin/claude-${expected_claude_provider}" ] \
+    || fail "Launcher entrypoint does not target claude-${expected_claude_provider}."
+# ~/.local/bin/claude is the native binary, not one of our wrappers, so the
+# updater can repoint it freely; the wrappers exec it via claude-aab-real.
+[ -x "$HOME/.local/bin/claude" ] || fail "Native claude binary missing from ~/.local/bin."
+case "$(basename "$(readlink -f "$HOME/.local/bin/claude")")" in
+    claude-first-party|claude-third-party-*)
+        fail "Native ~/.local/bin/claude resolves to an AAB wrapper; the updater would self-exec." ;;
+esac
+[ "$(readlink "$HOME/.local/bin/claude-aab-real")" = "$HOME/.local/bin/claude" ] \
+    || fail "claude-aab-real does not track ~/.local/bin/claude."
 [ -x "$HOME/.local/bin/claude-aab-real" ] || fail "Claude real binary link not installed."
 [ -x "$HOME/.local/bin/claude-first-party" ] || fail "claude-first-party wrapper missing."
 [ -x "$HOME/.local/bin/claude-third-party-anthropic" ] || fail "claude-third-party-anthropic wrapper missing."
 [ -x "$HOME/.local/bin/claude-third-party-deepseek" ] || fail "claude-third-party-deepseek wrapper missing."
 [ -x "$HOME/.local/bin/claude-third-party-nemotron" ] || fail "claude-third-party-nemotron wrapper missing."
-pass "claude wrapper family installed and selected."
+# A login shell (sources ~/.profile, which re-prepends ~/.local/bin after
+# ~/.bashrc) must still resolve `claude` to the launcher-dir wrapper.
+login_claude=$(bash -lc 'command -v claude' 2>/dev/null) \
+    || fail "claude not resolvable in a login shell."
+[ "$login_claude" = "$HOME/.local/aab-bin/claude" ] \
+    || fail "login shell resolves claude to ${login_claude}, not the launcher dir."
+pass "claude wrapper family installed and selected (launcher dir wins on PATH)."
 claude_plugins=$(claude plugin list 2>&1) || fail "claude plugin list failed."
 case "$claude_plugins" in
     *"agitentic@robobryce-agitentic"*) ;;

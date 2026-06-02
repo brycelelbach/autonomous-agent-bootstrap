@@ -54,6 +54,7 @@ CODEX_CONFIG="${CODEX_DIR}/config.toml"
 BREV_DIR="${HOME}/.brev"
 BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
+PROFILE="${HOME}/.profile"
 BASHRC_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
 BASHRC_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
 SSH_DIR="${HOME}/.ssh"
@@ -1234,18 +1235,34 @@ BASH
 }
 
 install_claude_launcher() {
+    local launcher_dir="${HOME}/.local/aab-bin"
     local claude_bin="${HOME}/.local/bin/claude"
     local real_bin="${HOME}/.local/bin/claude-aab-real"
     local selected_provider
     selected_provider=$(normalize_claude_code_inference_provider "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}")
 
-    _prepare_launcher_real_binary "claude" "$claude_bin" "$real_bin" "Autonomous-agent-bootstrap Claude launcher"
+    if [ ! -e "$claude_bin" ]; then
+        warn "claude binary not found at ${claude_bin}; cannot install launcher wrappers."
+        exit 1
+    fi
+
+    # The native installer owns ~/.local/bin/claude and repoints it to each new
+    # version. Point the wrappers' exec target at that symlink (rather than a
+    # pinned version) so every wrapper runs whatever the updater currently
+    # installs. install_claude runs first in main(), so ~/.local/bin/claude is
+    # the native binary here, never one of our wrapper symlinks.
+    ln -sfn "$claude_bin" "$real_bin"
     _write_claude_launcher "first-party" "${HOME}/.local/bin/claude-first-party"
     _write_claude_launcher "third-party-anthropic" "${HOME}/.local/bin/claude-third-party-anthropic"
     _write_claude_launcher "third-party-deepseek" "${HOME}/.local/bin/claude-third-party-deepseek"
     _write_claude_launcher "third-party-nemotron" "${HOME}/.local/bin/claude-third-party-nemotron"
-    ln -sfn "claude-${selected_provider}" "$claude_bin"
-    log "Installed Claude launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
+
+    # Put the selected `claude` entrypoint in a dedicated directory kept ahead of
+    # ~/.local/bin on PATH (see update_bashrc / update_profile), so the native
+    # auto-updater's ~/.local/bin/claude can't shadow the provider wrapper.
+    mkdir -p "$launcher_dir"
+    ln -sfn "${HOME}/.local/bin/claude-${selected_provider}" "${launcher_dir}/claude"
+    log "Installed Claude launcher wrappers (selected=${selected_provider}); entrypoint at ${launcher_dir}/claude."
 }
 
 _write_codex_launcher() {
@@ -1400,7 +1417,9 @@ update_bashrc() {
         printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
         printf '%s\n' \
             '# Sources env file created by the Claude Code native installer and' \
-            '# ensures AAB-managed launcher wrappers are first on PATH.' \
+            '# ensures the AAB launcher dir (~/.local/aab-bin) is ahead of' \
+            '# ~/.local/bin on PATH, so the native auto-updater that owns' \
+            '# ~/.local/bin/claude cannot shadow the AAB provider wrapper.' \
             '# DEBUG_SDK=1 turns on Claude Code debug logging, written to' \
             '# ~/.claude/debug/<uuid>.txt with latest symlinked to the current' \
             '# run and verbose tags enabled by the DEBUG_SDK gate.' \
@@ -1408,12 +1427,44 @@ update_bashrc() {
             '    . "$HOME/.local/bin/env"' \
             'fi' \
             'export PATH="$HOME/.local/bin:$PATH"' \
+            'export PATH="$HOME/.local/aab-bin:$PATH"' \
             'export CLAUDE_CODE_SANDBOXED=1' \
             'export DEBUG_SDK=1'
         printf 'export CLAUDE_CODE_EFFORT_LEVEL="%s"\n' "$effort"
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${BASHRC}"
     log "Wrote autonomous-agent-bootstrap block to ${BASHRC} (effort=${effort})."
+}
+
+# A login shell sources ~/.profile, which (per the distro default) prepends
+# ~/.local/bin to PATH *after* sourcing ~/.bashrc — so a ~/.bashrc-only PATH
+# tweak gets shadowed in login/SSH shells. Append the launcher-dir prepend at
+# the end of ~/.profile so ~/.local/aab-bin stays ahead of ~/.local/bin there
+# too. The managed block is replaced in place on re-run, so it never stacks.
+update_profile() {
+    touch "${PROFILE}"
+    if grep -qF "${BASHRC_MARKER_BEGIN}" "${PROFILE}"; then
+        local tmp
+        tmp=$(mktemp)
+        awk -v begin="${BASHRC_MARKER_BEGIN}" -v end="${BASHRC_MARKER_END}" '
+            $0 == begin { skip=1; next }
+            $0 == end   { skip=0; next }
+            !skip { print }
+        ' "${PROFILE}" > "$tmp"
+        mv "$tmp" "${PROFILE}"
+        log "Replaced existing autonomous-agent-bootstrap block in ${PROFILE}."
+    fi
+
+    {
+        printf '\n%s\n' "${BASHRC_MARKER_BEGIN}"
+        printf '%s\n' \
+            '# Keep the AAB launcher dir ahead of ~/.local/bin for login shells,' \
+            '# whose ~/.profile re-prepends ~/.local/bin after sourcing ~/.bashrc.' \
+            '# This must be the last PATH mutation in the login-shell sequence.' \
+            'export PATH="$HOME/.local/aab-bin:$PATH"'
+        printf '%s\n' "${BASHRC_MARKER_END}"
+    } >> "${PROFILE}"
+    log "Wrote autonomous-agent-bootstrap block to ${PROFILE}."
 }
 
 # ---------------------------------------------------------------------------
@@ -1530,6 +1581,7 @@ main() {
     install_claude_launcher
     install_codex_launcher
     update_bashrc
+    update_profile
     update_etc_environment
     log "Done. Open a new shell (or 'source ~/.bashrc') so the PATH / alias take effect."
 }
