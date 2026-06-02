@@ -36,6 +36,10 @@ allow = d["permissions"]["allow"]
 for op in ("Edit", "Write", "Read"):
     assert f"{op}({home}/.claude/**)" in allow, (op, allow)
     assert f"{op}({home}/.claude.json)" in allow, (op, allow)
+deny = d["permissions"]["deny"]
+assert "AskUserQuestion" in deny, deny
+assert "EnterPlanMode" in deny, deny
+assert "ExitPlanMode" in deny, deny
 PY
 pass "settings.json written with unattended-mode defaults."
 

@@ -130,6 +130,10 @@ assert d["skipDangerousModePermissionPrompt"] is True
 assert d["env"]["CLAUDE_CODE_SANDBOXED"] == "1"
 assert d["effortLevel"] == "$DEFAULT_CLAUDE_CODE_EFFORT"
 assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "$DEFAULT_CLAUDE_CODE_EFFORT"
+deny = d["permissions"]["deny"]
+assert "AskUserQuestion" in deny, deny
+assert "EnterPlanMode" in deny, deny
+assert "ExitPlanMode" in deny, deny
 PY
 }
 
