@@ -132,8 +132,15 @@ for cand in \
 done
 [ -n "$hermes_py" ] || hermes_py="$(command -v python3 || true)"
 [ -n "$hermes_py" ] || fail "no python interpreter available to parse Hermes config.yaml."
-AAB_EXPECTED_HERMES_BASE_URL="${AAB_HERMES_BASE_URL:-https://inference-api.nvidia.com/v1}" \
-AAB_EXPECTED_HERMES_MODEL="${AAB_HERMES_MODEL:-nvidia/nvidia/nemotron-3-ultra}" \
+# Mirror write_hermes_config's /v1 normalization on the configured base URL
+# (no built-in default — the operator supplies the gateway).
+expected_hermes_base_url="${AAB_HERMES_BASE_URL%/}"
+case "$expected_hermes_base_url" in
+    ''|*/v1) ;;
+    *) expected_hermes_base_url="${expected_hermes_base_url}/v1" ;;
+esac
+AAB_EXPECTED_HERMES_BASE_URL="$expected_hermes_base_url" \
+AAB_EXPECTED_HERMES_MODEL="${AAB_HERMES_MODEL:-}" \
     "$hermes_py" - "$HERMES_CONFIG" <<'PY' || fail "Hermes config.yaml does not have the expected gateway / permission-free / no-limit values."
 import os, sys, yaml
 d = yaml.safe_load(open(sys.argv[1])) or {}

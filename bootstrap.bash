@@ -114,8 +114,9 @@ DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
 DEFAULT_CODEX_SERVICE_TIER="priority"
 DEFAULT_CODEX_AGENT_MAX_THREADS="16"
-DEFAULT_HERMES_BASE_URL="https://inference-api.nvidia.com/v1"
-DEFAULT_HERMES_MODEL="nvidia/nvidia/nemotron-3-ultra"
+# Gateway base URL and model have no default — the operator points Hermes at
+# their own inference gateway. An unset value leaves Hermes unconfigured
+# (it warns), exactly like an unset API key.
 DEFAULT_HERMES_API_MODE="chat_completions"
 DEFAULT_HERMES_GATEWAY_PROVIDER_NAME="aab-gateway"
 DEFAULT_HERMES_EFFORT="xhigh"
@@ -545,9 +546,9 @@ write_aab_env_file() {
         _write_shell_export AAB_CODEX_EFFORT "${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
         _write_shell_export AAB_CODEX_SERVICE_TIER "${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
         _write_shell_export AAB_CODEX_AGENT_MAX_THREADS "${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
-        _write_shell_export AAB_HERMES_BASE_URL "${AAB_HERMES_BASE_URL:-$DEFAULT_HERMES_BASE_URL}"
+        _write_shell_export AAB_HERMES_BASE_URL "${AAB_HERMES_BASE_URL:-}"
         _write_shell_export AAB_HERMES_API_KEY "${AAB_HERMES_API_KEY:-}"
-        _write_shell_export AAB_HERMES_MODEL "${AAB_HERMES_MODEL:-$DEFAULT_HERMES_MODEL}"
+        _write_shell_export AAB_HERMES_MODEL "${AAB_HERMES_MODEL:-}"
         _write_shell_export AAB_HERMES_API_MODE "${AAB_HERMES_API_MODE:-$DEFAULT_HERMES_API_MODE}"
         _write_shell_export AAB_HERMES_EFFORT "${AAB_HERMES_EFFORT:-$DEFAULT_HERMES_EFFORT}"
         _write_shell_export AAB_HERMES_SHELL_TIMEOUT "${AAB_HERMES_SHELL_TIMEOUT:-$DEFAULT_HERMES_SHELL_TIMEOUT}"
@@ -781,9 +782,26 @@ write_hermes_config() {
 
     local base_url model api_mode effort provider_name
     local unlimited_turns shell_timeout child_timeout max_concurrency curator
-    base_url="${AAB_HERMES_BASE_URL:-$DEFAULT_HERMES_BASE_URL}"
-    model="${AAB_HERMES_MODEL:-$DEFAULT_HERMES_MODEL}"
+    base_url="${AAB_HERMES_BASE_URL:-}"
+    model="${AAB_HERMES_MODEL:-}"
     api_mode="${AAB_HERMES_API_MODE:-$DEFAULT_HERMES_API_MODE}"
+
+    # Base URL and model have no built-in default — Hermes points at the
+    # operator's own gateway. Warn (don't fail) when unset so the rest of the
+    # unattended setup still lands; the operator fills these in via
+    # ~/.aab/.env and re-runs.
+    [ -n "$base_url" ] || warn "AAB_HERMES_BASE_URL is unset; Hermes gateway will be unconfigured until you set it in ~/.aab/.env."
+    [ -n "$model" ] || warn "AAB_HERMES_MODEL is unset; Hermes gateway will be unconfigured until you set it in ~/.aab/.env."
+    # Normalize the base URL to end in /v1 (the OpenAI-compatible route Hermes
+    # expects), matching the convention the other gateway vars document. Only
+    # append when a value is present and doesn't already end in /v1.
+    if [ -n "$base_url" ]; then
+        base_url="${base_url%/}"
+        case "$base_url" in
+            */v1) ;;
+            *) base_url="${base_url}/v1" ;;
+        esac
+    fi
     effort="${AAB_HERMES_EFFORT:-$DEFAULT_HERMES_EFFORT}"
     provider_name="$DEFAULT_HERMES_GATEWAY_PROVIDER_NAME"
     unlimited_turns="$DEFAULT_HERMES_UNLIMITED_TURNS"

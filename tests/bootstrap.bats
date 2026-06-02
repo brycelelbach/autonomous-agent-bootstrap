@@ -228,12 +228,14 @@ PY
 }
 
 @test "write_hermes_config writes a permission-free gateway config by default" {
-    write_hermes_config
+    AAB_HERMES_BASE_URL="https://gw.example.com/v1" \
+        AAB_HERMES_MODEL="vendor/model-x" \
+        write_hermes_config
     [ -f "$HERMES_CONFIG" ]
     [ "$(stat -c '%a' "$HERMES_CONFIG")" = "600" ]
     grep -q '^  provider: "aab-gateway"$' "$HERMES_CONFIG"
-    grep -q '^  default: "nvidia/nvidia/nemotron-3-ultra"$' "$HERMES_CONFIG"
-    grep -q '^    base_url: "https://inference-api.nvidia.com/v1"$' "$HERMES_CONFIG"
+    grep -q '^  default: "vendor/model-x"$' "$HERMES_CONFIG"
+    grep -q '^    base_url: "https://gw.example.com/v1"$' "$HERMES_CONFIG"
     grep -q '^    key_env: "AAB_HERMES_API_KEY"$' "$HERMES_CONFIG"
     grep -q '^    api_mode: "chat_completions"$' "$HERMES_CONFIG"
     grep -q '^  reasoning_effort: "xhigh"$' "$HERMES_CONFIG"
@@ -298,6 +300,31 @@ PY
     grep -q '^  base_url: "https://gw.example.com/v1"$' "$HERMES_CONFIG"
     grep -q '^    api_mode: "anthropic_messages"$' "$HERMES_CONFIG"
     grep -q '^  reasoning_effort: "high"$' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config appends /v1 to a base URL that lacks it" {
+    AAB_HERMES_BASE_URL="https://gw.example.com" \
+        AAB_HERMES_MODEL="vendor/model-x" \
+        write_hermes_config
+    grep -q '^  base_url: "https://gw.example.com/v1"$' "$HERMES_CONFIG"
+    grep -q '^    base_url: "https://gw.example.com/v1"$' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config does not double /v1 (trailing slash tolerated)" {
+    AAB_HERMES_BASE_URL="https://gw.example.com/v1/" \
+        AAB_HERMES_MODEL="vendor/model-x" \
+        write_hermes_config
+    grep -q '^  base_url: "https://gw.example.com/v1"$' "$HERMES_CONFIG"
+    ! grep -q '/v1/v1' "$HERMES_CONFIG"
+}
+
+@test "write_hermes_config warns when base URL and model are unset (no built-in default)" {
+    run write_hermes_config
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"AAB_HERMES_BASE_URL is unset"* ]]
+    [[ "$output" == *"AAB_HERMES_MODEL is unset"* ]]
+    # No nvidia/internal endpoint baked in as a fallback.
+    ! grep -q 'inference-api.nvidia.com' "$HERMES_CONFIG"
 }
 
 @test "write_hermes_config defaults an invalid api mode back to chat_completions" {
