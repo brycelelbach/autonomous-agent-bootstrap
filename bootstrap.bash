@@ -130,6 +130,10 @@ DEFAULT_HERMES_SHELL_TIMEOUT="600"
 DEFAULT_HERMES_CHILD_TIMEOUT="86400"
 # Max concurrent delegated children, matched to Codex's agent thread cap.
 DEFAULT_HERMES_MAX_CONCURRENCY="$DEFAULT_CODEX_AGENT_MAX_THREADS"
+# Hermes "self-improvement" is the background curator that reviews/prunes/
+# consolidates agent-created skills. Off by default for predictable unattended
+# runs (set AAB_HERMES_CURATOR=true to re-enable).
+DEFAULT_HERMES_CURATOR="false"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -558,6 +562,7 @@ write_aab_env_file() {
         _write_shell_export AAB_HERMES_SHELL_TIMEOUT "${AAB_HERMES_SHELL_TIMEOUT:-$DEFAULT_HERMES_SHELL_TIMEOUT}"
         _write_shell_export AAB_HERMES_CHILD_TIMEOUT "${AAB_HERMES_CHILD_TIMEOUT:-$DEFAULT_HERMES_CHILD_TIMEOUT}"
         _write_shell_export AAB_HERMES_MAX_CONCURRENCY "${AAB_HERMES_MAX_CONCURRENCY:-$DEFAULT_HERMES_MAX_CONCURRENCY}"
+        _write_shell_export AAB_HERMES_CURATOR "${AAB_HERMES_CURATOR:-$DEFAULT_HERMES_CURATOR}"
         _write_shell_export AAB_GH_TOKEN "${AAB_GH_TOKEN:-}"
         _write_shell_export AAB_BREV_API_KEY "${AAB_BREV_API_KEY:-}"
         _write_shell_export AAB_BREV_ORG_ID "${AAB_BREV_ORG_ID:-}"
@@ -784,7 +789,7 @@ write_hermes_config() {
     fi
 
     local base_url model api_mode effort provider_name
-    local unlimited_turns shell_timeout child_timeout max_concurrency
+    local unlimited_turns shell_timeout child_timeout max_concurrency curator
     base_url="${AAB_HERMES_BASE_URL:-$DEFAULT_HERMES_BASE_URL}"
     model="${AAB_HERMES_MODEL:-$DEFAULT_HERMES_MODEL}"
     api_mode="${AAB_HERMES_API_MODE:-$DEFAULT_HERMES_API_MODE}"
@@ -794,6 +799,7 @@ write_hermes_config() {
     shell_timeout="${AAB_HERMES_SHELL_TIMEOUT:-$DEFAULT_HERMES_SHELL_TIMEOUT}"
     child_timeout="${AAB_HERMES_CHILD_TIMEOUT:-$DEFAULT_HERMES_CHILD_TIMEOUT}"
     max_concurrency="${AAB_HERMES_MAX_CONCURRENCY:-$DEFAULT_HERMES_MAX_CONCURRENCY}"
+    curator="${AAB_HERMES_CURATOR:-$DEFAULT_HERMES_CURATOR}"
 
     case "$api_mode" in
         chat_completions|anthropic_messages) ;;
@@ -825,6 +831,13 @@ write_hermes_config() {
         ''|*[!0-9]*|0)
             warn "AAB_HERMES_MAX_CONCURRENCY='${max_concurrency}' is not a positive integer; defaulting to ${DEFAULT_HERMES_MAX_CONCURRENCY}."
             max_concurrency="$DEFAULT_HERMES_MAX_CONCURRENCY"
+            ;;
+    esac
+    case "$curator" in
+        true|false) ;;
+        *)
+            warn "AAB_HERMES_CURATOR='${curator}' is not 'true' or 'false'; defaulting to ${DEFAULT_HERMES_CURATOR}."
+            curator="$DEFAULT_HERMES_CURATOR"
             ;;
     esac
 
@@ -874,10 +887,12 @@ approvals:
   cron_mode: "approve"
   destructive_slash_confirm: false
 hooks_auto_accept: true
+curator:
+  enabled: ${curator}
 YAML
     chmod 600 "$tmp"
     mv -f "$tmp" "$HERMES_CONFIG"
-    log "Wrote ${HERMES_CONFIG} (provider=${provider_name}, model=${model}, base_url=${base_url}, api_mode=${api_mode}, effort=${effort}, max_turns=${unlimited_turns}, gateway_timeout=0, max_concurrent_children=${max_concurrency}, shell_timeout=${shell_timeout}, approvals=off, show_reasoning=true)."
+    log "Wrote ${HERMES_CONFIG} (provider=${provider_name}, model=${model}, base_url=${base_url}, api_mode=${api_mode}, effort=${effort}, max_turns=${unlimited_turns}, gateway_timeout=0, max_concurrent_children=${max_concurrency}, shell_timeout=${shell_timeout}, approvals=off, show_reasoning=true, curator=${curator})."
 }
 
 # ---------------------------------------------------------------------------
