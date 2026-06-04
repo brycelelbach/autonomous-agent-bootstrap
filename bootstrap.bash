@@ -1455,20 +1455,44 @@ case "$provider" in
     third-party-deepseek)
         [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL:-}" ] && export ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL"
         [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY:-}" ] && export ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY"
-        export ANTHROPIC_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-$default_model}"
+        # Claude Code resolves a model's context window to 200K unless the model
+        # name carries a "[1m]" suffix (or is a known first-party id). Without a
+        # known window, auto-compaction is also skipped in a local session, so
+        # the conversation grows until the provider's hard limit. Tag the model
+        # with "[1m]" so Claude Code resolves the full window and engages
+        # compaction; the suffix is stripped from the model name before the
+        # request, so the gateway still receives the real id (DeepSeek V4 Pro:
+        # 1M context window).
+        deepseek_model="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-$default_model}"
+        export ANTHROPIC_MODEL="${deepseek_model}[1m]"
         export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL:-$default_haiku_model}"
         export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL:-$default_sonnet_model}"
         export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL:-$default_opus_model}"
         export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+        # Pin the auto-compact window to DeepSeek's full 1M context. Compaction
+        # then fires ~33K below it (~967K), the same window-minus-reserve margin
+        # a first-party 1M model uses.
+        export CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000
         ;;
     third-party-nemotron)
         [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL:-}" ] && export ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL"
         [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY:-}" ] && export ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY"
-        export ANTHROPIC_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL:-$default_model}"
+        # Tag the model with "[1m]" so Claude Code resolves the full configured
+        # window and engages auto-compaction (see the deepseek arm above); the
+        # suffix is stripped before the request, so the gateway receives the
+        # real id. Nemotron 3 Ultra's window is 262,144, below the 1M the tag
+        # unlocks, so the auto-compact window below is what actually applies.
+        nemotron_model="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL:-$default_model}"
+        export ANTHROPIC_MODEL="${nemotron_model}[1m]"
         export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL:-$default_haiku_model}"
         export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL:-$default_sonnet_model}"
         export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL:-$default_opus_model}"
         export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
+        # Pin the auto-compact window to Nemotron's full 262,144 context.
+        # Compaction fires ~33K below it (~229K), the same window-minus-reserve
+        # margin a first-party model uses, leaving headroom under the hard limit
+        # (the failure this prevents hit ~268K with no compaction at all).
+        export CLAUDE_CODE_AUTO_COMPACT_WINDOW=262144
         ;;
 esac
 
