@@ -467,6 +467,7 @@ printf '%s\n' "\$@" > "$TEST_HOME/claude-launcher-args"
     printf 'auth_token=%s\n' "\${ANTHROPIC_AUTH_TOKEN:-}"
     printf 'model=%s\n' "\${ANTHROPIC_MODEL:-}"
     printf 'debug=%s\n' "\${DEBUG_SDK:-}"
+    printf 'auto_compact_window=%s\n' "\${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}"
 } > "$TEST_HOME/claude-launcher-env"
 SH
     chmod +x "$TEST_HOME/real-claude"
@@ -490,8 +491,12 @@ SH
     grep -Fxq 'provider=third-party-deepseek' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'base_url=https://deepseek.example.com/v1' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'auth_token=deepseek-test-key' "$TEST_HOME/claude-launcher-env"
-    grep -Fxq 'model=deepseek-reasoner' "$TEST_HOME/claude-launcher-env"
+    # The model carries a [1m] suffix so Claude Code resolves the full 1M
+    # window and engages auto-compaction; Claude Code strips the suffix before
+    # the request, so the gateway still receives the real id.
+    grep -Fxq 'model=deepseek-reasoner[1m]' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'auto_compact_window=1000000' "$TEST_HOME/claude-launcher-env"
 }
 
 @test "install_claude_launcher selects nemotron wrapper and maps env from .env" {
@@ -505,6 +510,7 @@ printf '%s\n' "\$@" > "$TEST_HOME/claude-launcher-args"
     printf 'auth_token=%s\n' "\${ANTHROPIC_AUTH_TOKEN:-}"
     printf 'model=%s\n' "\${ANTHROPIC_MODEL:-}"
     printf 'debug=%s\n' "\${DEBUG_SDK:-}"
+    printf 'auto_compact_window=%s\n' "\${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}"
 } > "$TEST_HOME/claude-launcher-env"
 SH
     chmod +x "$TEST_HOME/real-claude"
@@ -528,8 +534,12 @@ SH
     grep -Fxq 'provider=third-party-nemotron' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'base_url=https://nemotron.example.com/v1' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'auth_token=nemotron-test-key' "$TEST_HOME/claude-launcher-env"
-    grep -Fxq 'model=nvidia/nvidia/nemotron-3-ultra' "$TEST_HOME/claude-launcher-env"
+    # The model carries a [1m] suffix so Claude Code resolves the configured
+    # window and engages auto-compaction; the suffix is stripped before the
+    # request, so the gateway still receives the real id.
+    grep -Fxq 'model=nvidia/nvidia/nemotron-3-ultra[1m]' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'auto_compact_window=262144' "$TEST_HOME/claude-launcher-env"
 }
 
 setup_fake_codex() {
