@@ -41,6 +41,15 @@ run_lint() {
     need shellcheck
     bash -n bootstrap.bash
     shellcheck -S warning bootstrap.bash test.bash tests/e2e-assertions.bash
+    # The global git hook is emitted from bootstrap.bash via a quoted heredoc,
+    # so shellcheck does not see it above. Extract and lint it on its own.
+    local hook
+    hook=$(mktemp)
+    # shellcheck disable=SC1090
+    ( set -euo pipefail; source ./bootstrap.bash; emit_git_hook_script ) > "$hook"
+    bash -n "$hook"
+    shellcheck -S warning "$hook"
+    rm -f "$hook"
 }
 
 run_unit() {

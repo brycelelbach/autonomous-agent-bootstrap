@@ -299,6 +299,61 @@ gh_helper=$(git config --global --get 'credential.https://github.com.helper' || 
     || fail "gh credential helper not registered (got: '$gh_helper')."
 pass "gh registered as github.com credential helper."
 
+# 12b. The global git-identity enforcement hook is installed and wired via
+# core.hooksPath, with a symlink for each managed hook name.
+GIT_HOOKS_DIR="${HOME}/.aab/git-hooks"
+GIT_HOOK_DISPATCHER="${GIT_HOOKS_DIR}/aab-git-hook"
+[ -x "$GIT_HOOK_DISPATCHER" ] || fail "git hook dispatcher not installed at $GIT_HOOK_DISPATCHER."
+hooks_path=$(git config --global --get core.hooksPath || true)
+[ "$hooks_path" = "$GIT_HOOKS_DIR" ] \
+    || fail "core.hooksPath not set to $GIT_HOOKS_DIR (got: '$hooks_path')."
+for hook in pre-commit commit-msg pre-push; do
+    [ -L "$GIT_HOOKS_DIR/$hook" ] \
+        || fail "git hook symlink $GIT_HOOKS_DIR/$hook missing."
+    [ "$(readlink "$GIT_HOOKS_DIR/$hook")" = "aab-git-hook" ] \
+        || fail "git hook $hook does not point at the dispatcher."
+done
+pass "git identity enforcement hook installed and wired via core.hooksPath."
+
+# 12c. Functional check: a commit with the configured identity is allowed, and
+# a commit that overrides the identity is rejected. Runs in a throwaway repo so
+# the assertions exercise the real hook end-to-end.
+hook_repo=$(mktemp -d)
+git init -q "$hook_repo"
+(
+    cd "$hook_repo"
+    echo enforce > f.txt
+    git add f.txt
+    git commit -q -m "matching identity" \
+        || { echo "FAIL: commit with the configured identity was rejected." >&2; exit 1; }
+    echo enforce-more > f.txt
+    git add f.txt
+    if git -c user.email="hacker@example.com" -c user.name="Hacker" \
+        commit -q -m "overridden identity" 2>/dev/null; then
+        echo "FAIL: commit overriding the global identity was NOT blocked." >&2
+        exit 1
+    fi
+) || { rm -rf "$hook_repo"; exit 1; }
+rm -rf "$hook_repo"
+pass "git hook allows the configured identity and blocks overrides."
+
+# 12d. The agent instruction files carry the git-identity rule in a managed
+# block, so Claude Code (~/.claude/CLAUDE.md) and Codex (~/.codex/AGENTS.md)
+# both see it in every repository.
+CLAUDE_MEMORY_FILE="${HOME}/.claude/CLAUDE.md"
+CODEX_AGENTS_FILE="${HOME}/.codex/AGENTS.md"
+for rule_file in "$CLAUDE_MEMORY_FILE" "$CODEX_AGENTS_FILE"; do
+    [ -f "$rule_file" ] || fail "agent rule file $rule_file not written."
+    grep -q '# >>> autonomous-agent-bootstrap >>>' "$rule_file" \
+        || fail "agent rule file $rule_file missing managed-block begin marker."
+    begin_count=$(grep -c '^# >>> autonomous-agent-bootstrap >>>$' "$rule_file")
+    [ "$begin_count" -eq 1 ] \
+        || fail "agent rule file $rule_file has $begin_count managed blocks, expected 1."
+    grep -q 'Always use the configured git identity' "$rule_file" \
+        || fail "agent rule file $rule_file missing the git-identity rule heading."
+done
+pass "agent instruction files carry the git-identity rule exactly once."
+
 # 13. /etc/environment does not carry AAB secrets or provider config.
 ETC_ENV=/etc/environment
 if [ ! -r "$ETC_ENV" ]; then
