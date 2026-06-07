@@ -1352,6 +1352,230 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# install_git_hooks / write_agent_git_rules: the global commit-identity
+# enforcement hook plus the agent instruction-file rule. Cover:
+#   - hook dispatcher + per-name symlinks installed, core.hooksPath set
+#   - the emitted dispatcher is valid bash
+#   - idempotent re-runs (one rule block, stable symlink count)
+#   - functional enforcement: a matching identity commits, an overridden one
+#     is blocked, by every override vector agents reach for
+#   - the dispatcher chains through to a repo's own hook
+#   - signing enforcement when global signing is configured
+#   - the rule block lands in CLAUDE.md / AGENTS.md and preserves prior content
+# Each test runs with HOME=$TEST_HOME, so `git config --global` and the hooks
+# dir are sandboxed to the per-test home.
+# ---------------------------------------------------------------------------
+
+# Stage a committable repo under $TEST_HOME with the global identity pinned and
+# the hooks installed. Echoes the repo path. The bootstrap helpers log to
+# stdout, so redirect their chatter to stderr to keep the echoed path clean.
+_setup_enforced_repo() {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    AAB_GIT_AUTHOR_NAME="Global Name" \
+        AAB_GIT_AUTHOR_EMAIL="global@example.com" \
+        configure_git >&2
+    install_git_hooks >&2
+    local repo="$TEST_HOME/repo"
+    git init -q "$repo"
+    printf '%s\n' "$repo"
+}
+
+@test "install_git_hooks installs the dispatcher, per-name symlinks, and sets core.hooksPath" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    install_git_hooks
+    [ -x "$GIT_HOOK_DISPATCHER" ]
+    [ "$(git config --global --get core.hooksPath)" = "$GIT_HOOKS_DIR" ]
+    local name
+    for name in "${GIT_HOOK_NAMES[@]}"; do
+        [ -L "$GIT_HOOKS_DIR/$name" ]
+        [ "$(readlink "$GIT_HOOKS_DIR/$name")" = "aab-git-hook" ]
+    done
+}
+
+@test "emit_git_hook_script emits a syntactically valid bash hook" {
+    emit_git_hook_script > "$TEST_HOME/hook"
+    bash -n "$TEST_HOME/hook"
+    head -1 "$TEST_HOME/hook" | grep -q '^#!/usr/bin/env bash$'
+}
+
+@test "install_git_hooks is idempotent (stable symlink count, hooksPath set once)" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    install_git_hooks
+    local count1
+    count1=$(find "$GIT_HOOKS_DIR" -maxdepth 1 -type l | wc -l)
+    install_git_hooks
+    local count2
+    count2=$(find "$GIT_HOOKS_DIR" -maxdepth 1 -type l | wc -l)
+    [ "$count1" -eq "$count2" ]
+    [ "$count1" -eq "${#GIT_HOOK_NAMES[@]}" ]
+    [ "$(git config --global --get core.hooksPath)" = "$GIT_HOOKS_DIR" ]
+}
+
+@test "enforcement: a commit with the configured identity is allowed" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    echo hi > f.txt && git add f.txt
+    run git commit -m "matching identity"
+    [ "$status" -eq 0 ]
+}
+
+@test "enforcement: -c user.email override is blocked" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    echo hi > f.txt && git add f.txt
+    run git -c user.email=hacker@evil.com commit -m "override"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Commit blocked"* ]]
+}
+
+@test "enforcement: --author override is blocked" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    echo hi > f.txt && git add f.txt
+    run git commit --author="Hacker <hacker@evil.com>" -m "override"
+    [ "$status" -ne 0 ]
+}
+
+@test "enforcement: GIT_AUTHOR_EMAIL env override is blocked" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    echo hi > f.txt && git add f.txt
+    GIT_AUTHOR_EMAIL=hacker@evil.com run git commit -m "override"
+    [ "$status" -ne 0 ]
+}
+
+@test "enforcement: GIT_COMMITTER_EMAIL env override is blocked" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    echo hi > f.txt && git add f.txt
+    GIT_COMMITTER_EMAIL=hacker@evil.com run git commit -m "override"
+    [ "$status" -ne 0 ]
+}
+
+@test "enforcement: repo-local user.email override is blocked" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    git config user.email hacker@evil.com
+    git config user.name Hacker
+    echo hi > f.txt && git add f.txt
+    run git commit -m "override"
+    [ "$status" -ne 0 ]
+}
+
+@test "enforcement: --no-verify bypasses the hook (documented escape hatch)" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    echo hi > f.txt && git add f.txt
+    run git -c user.email=hacker@evil.com commit --no-verify -m "bypass"
+    [ "$status" -eq 0 ]
+}
+
+@test "enforcement: no global identity pinned is a no-op (commit allowed)" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    install_git_hooks
+    local repo="$TEST_HOME/repo"
+    git init -q "$repo"
+    cd "$repo"
+    # Only a repo-local identity, no global one — nothing to enforce against.
+    git config user.name "Local Only"
+    git config user.email "local@only.test"
+    echo hi > f.txt && git add f.txt
+    run git commit -m "no global identity"
+    [ "$status" -eq 0 ]
+}
+
+@test "enforcement: dispatcher chains through to the repo's own hook" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    mkdir -p .git/hooks
+    cat > .git/hooks/pre-commit <<'RH'
+#!/usr/bin/env bash
+echo "REPO_LOCAL_HOOK_RAN"
+exit 0
+RH
+    chmod +x .git/hooks/pre-commit
+    echo hi > f.txt && git add f.txt
+    run git commit -m "with repo hook"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"REPO_LOCAL_HOOK_RAN"* ]]
+}
+
+@test "enforcement: a failing repo-local hook still blocks the commit" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    mkdir -p .git/hooks
+    cat > .git/hooks/pre-commit <<'RH'
+#!/usr/bin/env bash
+exit 1
+RH
+    chmod +x .git/hooks/pre-commit
+    echo hi > f.txt && git add f.txt
+    run git commit -m "repo hook rejects"
+    [ "$status" -ne 0 ]
+}
+
+@test "enforcement: signing disabled via config is blocked when global signing is on" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    AAB_GIT_AUTHOR_NAME="Global Name" \
+        AAB_GIT_AUTHOR_EMAIL="global@example.com" \
+        configure_git
+    git config --global commit.gpgsign true
+    git config --global gpg.format ssh
+    git config --global user.signingkey "$TEST_HOME/fake.pub"
+    install_git_hooks
+    local repo="$TEST_HOME/repo"
+    git init -q "$repo"
+    cd "$repo"
+    echo hi > f.txt && git add f.txt
+    # --no-gpg-sign keeps git from invoking a real signer; the hook should
+    # still block because the effective commit.gpgsign is false.
+    run git -c commit.gpgsign=false commit --no-gpg-sign -m "unsigned"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"signing is required"* ]]
+}
+
+@test "write_agent_git_rules writes a managed block to CLAUDE.md and AGENTS.md" {
+    write_agent_git_rules
+    [ -f "$CLAUDE_MEMORY_FILE" ]
+    [ -f "$CODEX_AGENTS_FILE" ]
+    grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE"
+    grep -qF "$AGENT_RULES_MARKER_END" "$CLAUDE_MEMORY_FILE"
+    grep -q "Always use the configured git identity" "$CLAUDE_MEMORY_FILE"
+    grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CODEX_AGENTS_FILE"
+    grep -q "Always use the configured git identity" "$CODEX_AGENTS_FILE"
+}
+
+@test "write_agent_git_rules is idempotent (single managed block, size stable)" {
+    write_agent_git_rules
+    local size1
+    size1=$(wc -c < "$CLAUDE_MEMORY_FILE")
+    write_agent_git_rules
+    local begin_count size2
+    begin_count=$(grep -cF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE")
+    size2=$(wc -c < "$CLAUDE_MEMORY_FILE")
+    [ "$begin_count" -eq 1 ]
+    [ "$size1" -eq "$size2" ]
+}
+
+@test "write_agent_git_rules preserves pre-existing instruction-file content" {
+    mkdir -p "$(dirname "$CLAUDE_MEMORY_FILE")"
+    printf '# My memory\n\nKeep this line.\n' > "$CLAUDE_MEMORY_FILE"
+    write_agent_git_rules
+    grep -q '^# My memory$' "$CLAUDE_MEMORY_FILE"
+    grep -q '^Keep this line\.$' "$CLAUDE_MEMORY_FILE"
+    grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE"
+}
+
+# ---------------------------------------------------------------------------
 # update_etc_environment: removes stale AAB blocks from older installs.
 # ---------------------------------------------------------------------------
 

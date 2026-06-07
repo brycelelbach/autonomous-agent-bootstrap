@@ -65,6 +65,31 @@ SIGNING_KEY="${SSH_DIR}/id_aab_signing"
 SIGNING_KEY_PUB="${SIGNING_KEY}.pub"
 SSH_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
 SSH_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+GIT_HOOKS_DIR="${AAB_DIR}/git-hooks"
+GIT_HOOK_DISPATCHER="${GIT_HOOKS_DIR}/aab-git-hook"
+# git hook names the dispatcher is symlinked under. core.hooksPath replaces
+# the per-repo hooks dir wholesale, so we cover the hooks git invokes around a
+# commit / push and chain through to any repo-local hook of the same name.
+GIT_HOOK_NAMES=(
+    pre-commit
+    prepare-commit-msg
+    commit-msg
+    post-commit
+    pre-merge-commit
+    pre-rebase
+    post-checkout
+    post-merge
+    pre-push
+    post-rewrite
+    applypatch-msg
+    pre-applypatch
+    post-applypatch
+    sendemail-validate
+)
+CLAUDE_MEMORY_FILE="${CLAUDE_DIR}/CLAUDE.md"
+CODEX_AGENTS_FILE="${CODEX_DIR}/AGENTS.md"
+AGENT_RULES_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
+AGENT_RULES_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
 ETC_ENV="/etc/environment"
 ETC_ENV_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
 ETC_ENV_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
@@ -833,6 +858,235 @@ install_signing_ssh_key() {
 }
 
 # ---------------------------------------------------------------------------
+# 9c. Install a global git hook that enforces the bootstrap-configured git
+# identity (and signing, when configured) on every commit, regardless of the
+# repository the agent is working in.
+#
+# The motivation: agents routinely ignore the global git identity this script
+# configures and commit under their own name/email via `git -c user.email=...`,
+# `git commit --author=...`, GIT_AUTHOR_*/GIT_COMMITTER_* env vars, or a
+# repo-local `git config user.email`. The agent rules written by
+# write_agent_git_rules() ask them not to; this hook makes the ask
+# non-optional.
+#
+# emit_git_hook_script writes the dispatcher to stdout so it can be both
+# installed and linted (test.bash --lint shellchecks the emitted script). The
+# dispatcher reads the expected identity from --global (which -c / env / config
+# overrides cannot poison) and the actual identity from `git var`, which does
+# reflect --author and GIT_*_ env vars. It then chains through to the repo's
+# own hook of the same name so projects that ship hooks keep working — a global
+# core.hooksPath replaces the per-repo hooks dir rather than adding to it.
+# ---------------------------------------------------------------------------
+emit_git_hook_script() {
+    cat <<'HOOK'
+#!/usr/bin/env bash
+# autonomous-agent-bootstrap global git hook dispatcher. Installed by
+# bootstrap.bash and pointed to by the global core.hooksPath. Every git hook
+# name is a symlink to this one script.
+#
+# On pre-commit it blocks commits whose author / committer identity (and, when
+# global signing is on, whose signing config) does not match the global git
+# config the bootstrap set up. For every hook it then chains to the
+# repository's own .git/hooks/<name> so project hooks keep running, since a
+# global core.hooksPath replaces rather than supplements the per-repo hooks
+# directory.
+set -uo pipefail
+
+hook_name=$(basename -- "$0")
+
+# Extract a field from a `git var GIT_*_IDENT` value, formatted as
+# "Name <email> <unixtime> <tz>".
+_aab_ident_field() {
+    case "$2" in
+        name)  printf '%s' "$1" | sed -E 's/ <[^>]*> [0-9]+ [-+][0-9]+$//' ;;
+        email) printf '%s' "$1" | sed -E 's/.*<([^>]*)> [0-9]+ [-+][0-9]+$/\1/' ;;
+    esac
+}
+
+# Block the commit unless the author and committer identity match the global
+# git config, and unless the globally-configured signing is honored. The
+# expected values come from --global, which `git -c`, GIT_CONFIG_PARAMETERS,
+# and a repo-local config cannot override; the actual values come from
+# `git var`, which reflects `--author` and GIT_AUTHOR_*/GIT_COMMITTER_* env
+# vars that the effective `git config user.email` does not.
+_aab_enforce_commit_identity() {
+    local exp_name exp_email
+    exp_name=$(git config --global --get user.name 2>/dev/null || true)
+    exp_email=$(git config --global --get user.email 2>/dev/null || true)
+
+    # Nothing pinned in the global config — nothing to enforce.
+    if [ -z "$exp_name" ] && [ -z "$exp_email" ]; then
+        return 0
+    fi
+
+    local author committer a_name a_email c_name c_email
+    author=$(git var GIT_AUTHOR_IDENT 2>/dev/null) || return 0
+    committer=$(git var GIT_COMMITTER_IDENT 2>/dev/null) || return 0
+    a_name=$(_aab_ident_field "$author" name)
+    a_email=$(_aab_ident_field "$author" email)
+    c_name=$(_aab_ident_field "$committer" name)
+    c_email=$(_aab_ident_field "$committer" email)
+
+    local bad=0
+    if [ -n "$exp_email" ]; then
+        [ "$a_email" = "$exp_email" ] || bad=1
+        [ "$c_email" = "$exp_email" ] || bad=1
+    fi
+    if [ -n "$exp_name" ]; then
+        [ "$a_name" = "$exp_name" ] || bad=1
+        [ "$c_name" = "$exp_name" ] || bad=1
+    fi
+    if [ "$bad" -ne 0 ]; then
+        {
+            echo "[autonomous-agent-bootstrap] Commit blocked: identity does not match the global git config."
+            echo "  expected:  ${exp_name} <${exp_email}>"
+            echo "  author:    ${a_name} <${a_email}>"
+            echo "  committer: ${c_name} <${c_email}>"
+            echo "  Use the configured identity: plain 'git commit', without -c user.*, --author, or GIT_AUTHOR_*/GIT_COMMITTER_*."
+            echo "  This rule is installed by autonomous-agent-bootstrap. See ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md."
+        } >&2
+        return 1
+    fi
+
+    # When the global config requires signing, refuse a commit that disables it
+    # via config (e.g. `-c commit.gpgsign=false`) or swaps the signing key. The
+    # per-commit `--no-gpg-sign` flag is invisible to the hook, mirroring how
+    # `--no-verify` skips hooks entirely.
+    local exp_sign
+    exp_sign=$(git config --global --get commit.gpgsign 2>/dev/null || true)
+    if [ "$exp_sign" = "true" ]; then
+        local eff_sign exp_key eff_key
+        eff_sign=$(git config --type=bool --get commit.gpgsign 2>/dev/null || true)
+        if [ "$eff_sign" != "true" ]; then
+            echo "[autonomous-agent-bootstrap] Commit blocked: signing is required by the global git config but disabled for this commit." >&2
+            return 1
+        fi
+        exp_key=$(git config --global --get user.signingkey 2>/dev/null || true)
+        eff_key=$(git config --get user.signingkey 2>/dev/null || true)
+        if [ -n "$exp_key" ] && [ "$eff_key" != "$exp_key" ]; then
+            echo "[autonomous-agent-bootstrap] Commit blocked: signing key does not match the global git config." >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
+if [ "$hook_name" = "pre-commit" ]; then
+    _aab_enforce_commit_identity || exit 1
+fi
+
+# Chain to the repository's own hook of the same name. The repo hooks dir is
+# located via --git-common-dir (so linked worktrees share the main repo's
+# hooks); --git-path is avoided because it honors core.hooksPath and would
+# resolve back to this dispatcher.
+common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+common_dir=$(cd "$common_dir" 2>/dev/null && pwd) || exit 0
+repo_hook="$common_dir/hooks/$hook_name"
+if [ -x "$repo_hook" ]; then
+    self_dir=$(cd "$(dirname -- "$0")" 2>/dev/null && pwd || true)
+    repo_target=$(readlink -f -- "$repo_hook" 2>/dev/null || echo "$repo_hook")
+    self_target=$(readlink -f -- "${self_dir}/$(basename -- "$0")" 2>/dev/null || true)
+    # Skip a repo hook that is just a symlink back to this dispatcher.
+    if [ "$repo_target" != "$self_target" ]; then
+        exec "$repo_hook" "$@"
+    fi
+fi
+exit 0
+HOOK
+}
+
+install_git_hooks() {
+    if ! command -v git >/dev/null 2>&1; then
+        warn "git not installed — skipping git hook enforcement."
+        return
+    fi
+
+    mkdir -p "${GIT_HOOKS_DIR}"
+    local tmp
+    tmp=$(mktemp "${GIT_HOOK_DISPATCHER}.tmp.XXXXXX")
+    emit_git_hook_script > "$tmp"
+    chmod 0755 "$tmp"
+    mv -f "$tmp" "${GIT_HOOK_DISPATCHER}"
+
+    local name
+    for name in "${GIT_HOOK_NAMES[@]}"; do
+        ln -sf "aab-git-hook" "${GIT_HOOKS_DIR}/${name}"
+    done
+
+    git config --global core.hooksPath "${GIT_HOOKS_DIR}"
+    log "Installed global git hooks at ${GIT_HOOKS_DIR} and set core.hooksPath (enforces the global commit identity)."
+}
+
+# ---------------------------------------------------------------------------
+# 9d. Tell every agent, in its global instruction file, to always commit with
+# the bootstrap-configured git identity. Claude Code reads ~/.claude/CLAUDE.md
+# and Codex reads ~/.codex/AGENTS.md for every session in every repository, so
+# the rule lands regardless of what a project's own CLAUDE.md / AGENTS.md says.
+# The rule is wrapped in a managed block so re-runs replace it in place rather
+# than stacking, and pre-existing user content in either file is preserved.
+# ---------------------------------------------------------------------------
+emit_agent_git_rules() {
+    cat <<'RULES'
+## Always use the configured git identity
+
+This machine is set up by autonomous-agent-bootstrap with a global git author,
+email, and (optionally) commit-signing key. Always commit and tag with that
+configured identity.
+
+- Commit with a plain `git commit`. Do not override the identity with
+  `git -c user.name=... -c user.email=...`, `git commit --author=...`, or the
+  `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL` / `GIT_COMMITTER_NAME` /
+  `GIT_COMMITTER_EMAIL` environment variables, and do not run
+  `git config user.name` / `git config user.email` inside a repository to set a
+  different identity.
+- Do not change `user.name`, `user.email`, `user.signingkey`, `commit.gpgsign`,
+  or `core.hooksPath` in the global git config.
+- Do not disable commit signing when it is configured (`-c commit.gpgsign=false`
+  or `--no-gpg-sign`), and do not bypass hooks with `--no-verify`.
+- Run `git config --global --get user.name` and `git config --global --get
+  user.email` if you need to know who you are committing as.
+
+A global pre-commit hook enforces this and rejects commits whose identity does
+not match the global git config.
+RULES
+}
+
+write_agent_git_rules() {
+    _write_agent_rules_block() {
+        local file="$1" dir
+        dir=$(dirname -- "$file")
+        mkdir -p "$dir"
+        touch "$file"
+        if grep -qF "${AGENT_RULES_MARKER_BEGIN}" "$file"; then
+            local tmp
+            tmp=$(mktemp)
+            awk -v begin="${AGENT_RULES_MARKER_BEGIN}" -v end="${AGENT_RULES_MARKER_END}" '
+                $0 == begin { skip=1; next }
+                $0 == end   { skip=0; next }
+                !skip { print }
+            ' "$file" > "$tmp"
+            # Drop trailing blank lines left behind so the file size stays
+            # stable across re-runs.
+            while [ -s "$tmp" ] && [ -z "$(tail -n 1 "$tmp")" ]; do
+                sed -i '$ d' "$tmp"
+            done
+            mv "$tmp" "$file"
+        fi
+        {
+            [ -s "$file" ] && printf '\n'
+            printf '%s\n' "${AGENT_RULES_MARKER_BEGIN}"
+            emit_agent_git_rules
+            printf '%s\n' "${AGENT_RULES_MARKER_END}"
+        } >> "$file"
+    }
+
+    _write_agent_rules_block "${CLAUDE_MEMORY_FILE}"
+    log "Wrote git-identity rule to ${CLAUDE_MEMORY_FILE}."
+    _write_agent_rules_block "${CODEX_AGENTS_FILE}"
+    log "Wrote git-identity rule to ${CODEX_AGENTS_FILE}."
+}
+
+# ---------------------------------------------------------------------------
 # 10. Install agent plugins listed in agent_plugins.txt.
 #
 # Each line is a GitHub owner/repo that hosts a plugin marketplace
@@ -1582,6 +1836,8 @@ main() {
     configure_git
     install_auth_ssh_key
     install_signing_ssh_key
+    install_git_hooks
+    write_agent_git_rules
     install_agent_plugins
     install_claude_launcher
     install_codex_launcher

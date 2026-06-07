@@ -13,7 +13,8 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 5. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 6. **gh CLI**, installed from the official `cli.github.com` apt repo.
 7. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
-8. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into both Claude Code and Codex.
+8. **Global git-identity enforcement** — an agent rule in every harness's global instruction file plus a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
+9. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into both Claude Code and Codex.
 
 ## Requirements
 
@@ -186,9 +187,11 @@ All variables are optional unless you select a provider that needs its credentia
 | `/etc/environment` | Existing AAB managed blocks are removed so credentials do not remain there. |
 | `~/.brev/credentials.json` | Written by `brev login --api-key ... --org-id ...` when Brev credentials are configured. |
 | `~/.brev/onboarding_step.json` | Written to skip the Brev tutorial. |
-| `~/.gitconfig` | git identity, GitHub credential helper, and optional SSH signing config. |
+| `~/.gitconfig` | git identity, GitHub credential helper, `core.hooksPath` for identity enforcement, and optional SSH signing config. |
 | `~/.ssh/id_aab_auth`, `~/.ssh/config` | Written only when `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` is set. |
 | `~/.ssh/id_aab_signing` | Written only when `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` is set. |
+| `~/.aab/git-hooks/` | Global git hook dispatcher and per-hook-name symlinks that enforce the configured commit identity. `core.hooksPath` points here. See [Git Identity Enforcement](#git-identity-enforcement). |
+| `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` | Managed block carrying the git-identity agent rule; other content is preserved. |
 
 ## SSH Keys
 
@@ -207,6 +210,19 @@ base64 -w0 < ~/.ssh/new_key
 ```
 
 Set the encoded private key on the relevant AAB variable, and upload the public key to GitHub as either an authentication key, a signing key, or both.
+
+## Git Identity Enforcement
+
+The bootstrap configures a global git author, email, and (optionally) a commit-signing key, but unattended agents routinely commit under their own identity anyway — via `git -c user.email=...`, `git commit --author=...`, `GIT_AUTHOR_*` / `GIT_COMMITTER_*` environment variables, or a repo-local `git config user.email`. Two layers keep commits on the configured identity:
+
+1. **An agent rule** is written to each harness's global instruction file — `~/.claude/CLAUDE.md` for Claude Code and `~/.codex/AGENTS.md` for Codex — both of which are loaded in every repository. The rule tells the agent to always commit with the configured identity and to leave the global git config alone. The rule lives inside a managed block (`# >>> autonomous-agent-bootstrap >>>` … `# <<< autonomous-agent-bootstrap <<<`), so re-running the bootstrap replaces it in place and any other content in those files is preserved.
+2. **A global git hook** makes the rule non-optional. The bootstrap installs a dispatcher at `~/.aab/git-hooks/aab-git-hook`, symlinks it under each managed hook name, and points `core.hooksPath` at that directory. On `pre-commit` the dispatcher compares the commit's resolved author and committer identity (`git var GIT_AUTHOR_IDENT` / `GIT_COMMITTER_IDENT`) against the global `user.name` / `user.email`, and rejects the commit on a mismatch. When the global config requires signing (`commit.gpgsign=true`), it also rejects commits that disable signing via config or swap the signing key. The expected values are read from `--global`, which a per-invocation `-c`, an environment variable, or a repo-local config cannot override.
+
+Because a global `core.hooksPath` replaces — rather than supplements — a repository's own `.git/hooks`, the dispatcher chains through to the repo's hook of the same name after its own checks pass, so projects that ship their own hooks (Husky, `pre-commit`, lint-staged, …) keep working.
+
+The enforcement is intentionally scoped to identity and signing. It does not try to defeat the deliberate per-commit escape hatches git provides — `git commit --no-verify` skips all hooks, and `--no-gpg-sign` skips signing — which remain available for the rare legitimate case.
+
+If no global `user.name` / `user.email` is configured, the hook is a no-op: there is nothing to enforce against, so all commits pass.
 
 ## Running the Tests
 
