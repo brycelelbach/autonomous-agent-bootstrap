@@ -15,6 +15,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 7. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
 8. **Global git-identity enforcement** — an agent rule in every harness's global instruction file plus a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
 9. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into both Claude Code and Codex.
+10. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
 
 ## Requirements
 
@@ -185,6 +186,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `~/.bashrc` | Managed block for PATH and non-secret unattended-mode exports only. |
 | `~/.profile` | Managed block that keeps `~/.local/aab-bin` ahead of `~/.local/bin` for login shells. |
 | `/etc/environment` | Existing AAB managed blocks are removed so credentials do not remain there. |
+| `/var/lib/systemd/linger/<user>` | Created by `loginctl enable-linger <user>` so the per-user systemd bus stays up across sessions. Skipped on hosts without a systemd user manager. |
 | `~/.brev/credentials.json` | Written by `brev login --api-key ... --org-id ...` when Brev credentials are configured. |
 | `~/.brev/onboarding_step.json` | Written to skip the Brev tutorial. |
 | `~/.gitconfig` | git identity, GitHub credential helper, `core.hooksPath` for identity enforcement, and optional SSH signing config. |
