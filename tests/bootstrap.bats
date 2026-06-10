@@ -945,6 +945,106 @@ SH
 
 
 # ---------------------------------------------------------------------------
+# enable_user_linger: cover the no-systemd skip, the already-lingering no-op,
+# the enable path, the missing-passwordless-sudo skip, and the enable failure.
+# ---------------------------------------------------------------------------
+
+# Stubs `id`, `loginctl`, and `sudo` on a fresh $FAKE_LINGER_BIN, parameterized
+# by exported env vars so each test sets only the behavior it needs:
+#   FAKE_USER             — username `id -un` reports (default testuser).
+#   FAKE_LINGER           — value `loginctl show-user --property=Linger` reports.
+#   FAKE_ENABLE_RC        — exit code of `loginctl enable-linger` (default 0).
+#   FAKE_SUDO_NOPASSWD_RC — exit code of `sudo -n true` (default 0 = available).
+# `loginctl enable-linger <user>` records its args to $LINGER_ENABLE_LOG.
+make_linger_fakes() {
+    export FAKE_LINGER_BIN="$TEST_HOME/fake-linger-bin"
+    export LINGER_ENABLE_LOG="$TEST_HOME/linger-enable-invocations"
+    mkdir -p "$FAKE_LINGER_BIN"
+
+    cat > "$FAKE_LINGER_BIN/id" <<'SH'
+#!/bin/sh
+[ "$1" = "-un" ] && { printf '%s\n' "${FAKE_USER:-testuser}"; exit 0; }
+exit 0
+SH
+
+    cat > "$FAKE_LINGER_BIN/loginctl" <<'SH'
+#!/bin/sh
+case "$1" in
+    show-user)     printf '%s\n' "${FAKE_LINGER:-no}" ;;
+    enable-linger) printf 'enable-linger %s\n' "$2" >> "$LINGER_ENABLE_LOG"
+                   exit "${FAKE_ENABLE_RC:-0}" ;;
+esac
+exit 0
+SH
+
+    cat > "$FAKE_LINGER_BIN/sudo" <<'SH'
+#!/bin/sh
+[ "$1" = "-n" ] && exit "${FAKE_SUDO_NOPASSWD_RC:-0}"
+shift_to_cmd=0
+for a in "$@"; do
+    case "$a" in -*) shift ;; *) shift_to_cmd=1; break ;; esac
+done
+[ "$shift_to_cmd" = "1" ] && exec "$@"
+exit 0
+SH
+
+    chmod +x "$FAKE_LINGER_BIN/id" "$FAKE_LINGER_BIN/loginctl" "$FAKE_LINGER_BIN/sudo"
+}
+
+@test "enable_user_linger skips cleanly when loginctl is unavailable" {
+    make_linger_fakes
+    rm -f "$FAKE_LINGER_BIN/loginctl"
+
+    SUDO="" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"loginctl not available"* ]]
+    [ ! -f "$LINGER_ENABLE_LOG" ]
+}
+
+@test "enable_user_linger is a no-op when lingering is already enabled" {
+    make_linger_fakes
+    export FAKE_LINGER=yes
+
+    SUDO="" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already enabled for testuser"* ]]
+    # Must not re-run enable-linger when it is already on.
+    [ ! -f "$LINGER_ENABLE_LOG" ]
+}
+
+@test "enable_user_linger enables lingering when it is off" {
+    make_linger_fakes
+    export FAKE_LINGER=no
+
+    SUDO="" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Enabled user lingering for testuser"* ]]
+    grep -Fxq 'enable-linger testuser' "$LINGER_ENABLE_LOG"
+}
+
+@test "enable_user_linger skips and warns when passwordless sudo is unavailable" {
+    make_linger_fakes
+    export FAKE_LINGER=no FAKE_SUDO_NOPASSWD_RC=1
+
+    SUDO="sudo" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"passwordless sudo is not available"* ]]
+    [[ "$output" == *"sudo loginctl enable-linger testuser"* ]]
+    # Without passwordless sudo it must not attempt the change.
+    [ ! -f "$LINGER_ENABLE_LOG" ]
+}
+
+@test "enable_user_linger warns when enable-linger fails" {
+    make_linger_fakes
+    export FAKE_LINGER=no FAKE_ENABLE_RC=1
+
+    SUDO="" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Could not enable user lingering for testuser"* ]]
+}
+
+
+# ---------------------------------------------------------------------------
 # install_agent_plugins: cover the gh-authenticated path, the
 # raw.githubusercontent.com fallback, and the skip-on-no-access path added for
 # private plugin marketplaces.

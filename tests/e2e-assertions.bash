@@ -373,4 +373,19 @@ fi
 ! grep -q '^GH_TOKEN=' "$ETC_ENV" || fail "$ETC_ENV should not contain GitHub tokens."
 pass "$ETC_ENV has no AAB provider or credential state."
 
+# 14. User lingering is enabled so the per-user systemd bus survives across
+# sessions. The conditions here mirror enable_user_linger's own skip branches:
+# a host with no systemd user manager (bare container) or a non-root user
+# without passwordless sudo is a correct skip, not a failure.
+linger_user="$(id -un)"
+if ! command -v loginctl >/dev/null 2>&1 || ! loginctl show-user "$linger_user" >/dev/null 2>&1; then
+    pass "No systemd user manager; user-linger setup correctly skipped."
+elif [ "$(id -u)" -ne 0 ] && ! sudo -n true 2>/dev/null; then
+    pass "No passwordless sudo for non-root user; user-linger setup correctly skipped."
+else
+    linger="$(loginctl show-user "$linger_user" --property=Linger --value 2>/dev/null || true)"
+    [ "$linger" = "yes" ] || fail "User lingering not enabled for $linger_user (Linger=$linger)."
+    pass "User lingering enabled for $linger_user."
+fi
+
 echo "All e2e assertions passed."
