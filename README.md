@@ -20,7 +20,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 - Ubuntu/Debian host with `bash` and `apt-get`
 - Passwordless `sudo`, or run as root
-- A bare `ubuntu:22.04` image is valid; the bootstrap installs `curl`, `python3`, `git`, `tar`, `gawk`, `ripgrep`, `sudo`, `ca-certificates`, and `gh`
+- A bare `ubuntu:22.04` image is valid; the bootstrap installs `curl`, `python3`, `git`, `tar`, `gawk`, `ripgrep`, `pandoc`, `sudo`, `ca-certificates`, and `gh`
 
 ## Quick Start
 

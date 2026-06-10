@@ -62,7 +62,7 @@ run_unit() {
 run_e2e() {
     echo "=== e2e (runs bootstrap.bash on this host — DESTRUCTIVE) ==="
     # bootstrap.bash's install_base_deps step installs curl / python3 /
-    # git / sudo / ripgrep / ca-certificates itself, so we only need bash here.
+    # git / sudo / ripgrep / pandoc / ca-certificates itself, so we only need bash here.
     need bash
     : "${AAB_GIT_AUTHOR_NAME:=CI Bot}"
     : "${AAB_GIT_AUTHOR_EMAIL:=ci@example.com}"
