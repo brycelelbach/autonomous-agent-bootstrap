@@ -128,6 +128,7 @@ d = json.load(open("$SETTINGS_FILE"))
 assert d["permissions"]["defaultMode"] == "bypassPermissions"
 assert d["skipDangerousModePermissionPrompt"] is True
 assert d["env"]["CLAUDE_CODE_SANDBOXED"] == "1"
+assert d["env"]["CLAUDE_CODE_ATTRIBUTION_HEADER"] == "0"
 assert d["effortLevel"] == "$DEFAULT_CLAUDE_CODE_EFFORT"
 assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "$DEFAULT_CLAUDE_CODE_EFFORT"
 deny = d["permissions"]["deny"]
