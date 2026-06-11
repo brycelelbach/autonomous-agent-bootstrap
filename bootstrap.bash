@@ -1357,9 +1357,7 @@ emit_agent_rules() {
     cat <<'RULES'
 ## Operating principles
 
-- Be concise in replies to operator queries.
-- Act autonomously and do not seek operator input.
-- You are operating in a safe sandbox without credentials that would allow you to cause serious harm.
+Be concise in replies to operator queries. Act autonomously without seeking operator input. You are in a safe sandbox without credentials that could cause serious harm.
 
 ## Always use the configured git identity
 
