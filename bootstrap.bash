@@ -104,6 +104,10 @@ DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER="first-party"
 DEFAULT_CODEX_INFERENCE_PROVIDER="first-party"
 DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL="openai/openai/gpt-5.5"
 DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://inference-api.nvidia.com/v1"
+DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL="nvidia/nemotron-3-ultra"
+DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL="https://integrate.api.nvidia.com/v1"
+DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL="deepseek/deepseek-v4-pro"
+DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
 DEFAULT_CODEX_SERVICE_TIER="priority"
 DEFAULT_CODEX_AGENT_MAX_THREADS="16"
@@ -127,11 +131,11 @@ normalize_claude_code_inference_provider() {
 normalize_codex_inference_provider() {
     local provider="${1:-$DEFAULT_CODEX_INFERENCE_PROVIDER}"
     case "$provider" in
-        first-party|third-party-openai)
+        first-party|third-party-openai|third-party-nemotron|third-party-deepseek)
             printf '%s' "$provider"
             ;;
         *)
-            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'first-party' or 'third-party-openai'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
+            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-openai', 'third-party-nemotron', or 'third-party-deepseek'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
             printf '%s' "$DEFAULT_CODEX_INFERENCE_PROVIDER"
             ;;
     esac
@@ -474,6 +478,12 @@ write_aab_env_file() {
         _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL "${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL}"
         _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY "${AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY:-}"
         _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_MODEL "${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL}"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL "${AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL}"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY "${AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY:-}"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL "${AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL}"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL "${AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL}"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY "${AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY:-}"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL "${AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL}"
         _write_shell_export AAB_CODEX_EFFORT "${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
         _write_shell_export AAB_CODEX_SERVICE_TIER "${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
         _write_shell_export AAB_CODEX_AGENT_MAX_THREADS "${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
@@ -516,10 +526,22 @@ write_codex_config() {
     local first_party_model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
     local third_party_openai_model="${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL}"
     local third_party_openai_base_url="${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL}"
+    local third_party_nemotron_model="${AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL}"
+    local third_party_nemotron_base_url="${AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL}"
+    local third_party_deepseek_model="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL}"
+    local third_party_deepseek_base_url="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL}"
     local model="$first_party_model"
-    if [ "$codex_provider" = "third-party-openai" ]; then
-        model="$third_party_openai_model"
-    fi
+    case "$codex_provider" in
+        third-party-openai)
+            model="$third_party_openai_model"
+            ;;
+        third-party-nemotron)
+            model="$third_party_nemotron_model"
+            ;;
+        third-party-deepseek)
+            model="$third_party_deepseek_model"
+            ;;
+    esac
     local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
     local service_tier="${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
     local agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
@@ -554,22 +576,36 @@ write_codex_config() {
         agent_max_threads="$DEFAULT_CODEX_AGENT_MAX_THREADS"
     fi
 
-    local model_escaped home_escaped cwd cwd_escaped third_party_openai_base_url_escaped
+    local model_escaped home_escaped cwd cwd_escaped third_party_openai_base_url_escaped third_party_nemotron_base_url_escaped third_party_deepseek_base_url_escaped
     model_escaped=$(_toml_escape "$model")
     home_escaped=$(_toml_escape "$HOME")
     cwd="${PWD:-$HOME}"
     cwd_escaped=$(_toml_escape "$cwd")
     third_party_openai_base_url_escaped=$(_toml_escape "$third_party_openai_base_url")
+    third_party_nemotron_base_url_escaped=$(_toml_escape "$third_party_nemotron_base_url")
+    third_party_deepseek_base_url_escaped=$(_toml_escape "$third_party_deepseek_base_url")
 
     cat > "${CODEX_CONFIG}" <<TOML
 model = "${model_escaped}"
 TOML
 
-    if [ "$codex_provider" = "third-party-openai" ]; then
-        cat >> "${CODEX_CONFIG}" <<TOML
+    case "$codex_provider" in
+        third-party-openai)
+            cat >> "${CODEX_CONFIG}" <<TOML
 model_provider = "third-party-openai"
 TOML
-    fi
+            ;;
+        third-party-nemotron)
+            cat >> "${CODEX_CONFIG}" <<TOML
+model_provider = "third-party-nemotron"
+TOML
+            ;;
+        third-party-deepseek)
+            cat >> "${CODEX_CONFIG}" <<TOML
+model_provider = "third-party-deepseek"
+TOML
+            ;;
+    esac
 
     cat >> "${CODEX_CONFIG}" <<TOML
 model_reasoning_effort = "${effort}"
@@ -594,6 +630,34 @@ TOML
 name = "Third Party OpenAI"
 base_url = "${third_party_openai_base_url_escaped}"
 env_key = "AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY"
+wire_api = "responses"
+request_max_retries = 4
+stream_max_retries = 5
+stream_idle_timeout_ms = 300000
+TOML
+    fi
+
+    if [ "$codex_provider" = "third-party-nemotron" ]; then
+        cat >> "${CODEX_CONFIG}" <<TOML
+
+[model_providers."third-party-nemotron"]
+name = "Third Party Nemotron"
+base_url = "${third_party_nemotron_base_url_escaped}"
+env_key = "AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY"
+wire_api = "responses"
+request_max_retries = 4
+stream_max_retries = 5
+stream_idle_timeout_ms = 300000
+TOML
+    fi
+
+    if [ "$codex_provider" = "third-party-deepseek" ]; then
+        cat >> "${CODEX_CONFIG}" <<TOML
+
+[model_providers."third-party-deepseek"]
+name = "Third Party DeepSeek"
+base_url = "${third_party_deepseek_base_url_escaped}"
+env_key = "AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY"
 wire_api = "responses"
 request_max_retries = 4
 stream_max_retries = 5
@@ -1395,7 +1459,7 @@ install_codex_plugins() {
 # ---------------------------------------------------------------------------
 _is_aab_launcher_symlink_target() {
     case "$(basename "$1")" in
-        claude-first-party|claude-third-party-anthropic|claude-third-party-deepseek|claude-third-party-nemotron|codex-first-party|codex-third-party-openai)
+        claude-first-party|claude-third-party-anthropic|claude-third-party-deepseek|claude-third-party-nemotron|codex-first-party|codex-third-party-openai|codex-third-party-nemotron|codex-third-party-deepseek)
             return 0
             ;;
         *)
@@ -1600,6 +1664,10 @@ _write_codex_launcher() {
         printf 'default_model=%q\n' "$DEFAULT_CODEX_MODEL"
         printf 'default_third_party_openai_model=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL"
         printf 'default_third_party_openai_base_url=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL"
+        printf 'default_third_party_nemotron_model=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL"
+        printf 'default_third_party_nemotron_base_url=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL"
+        printf 'default_third_party_deepseek_model=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL"
+        printf 'default_third_party_deepseek_base_url=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL"
         cat <<'BASH'
 set -euo pipefail
 
@@ -1654,6 +1722,24 @@ case "$provider" in
         base_url_escaped=$(toml_escape "$base_url")
         provider_override="model_providers={\"third-party-openai\"={name=\"Third Party OpenAI\",base_url=\"${base_url_escaped}\",env_key=\"AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
         config_args=(-c "model=\"${model_escaped}\"" -c 'model_provider="third-party-openai"' -c "$provider_override")
+        ;;
+    third-party-nemotron)
+        unset OPENAI_API_KEY
+        model="${AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL:-$default_third_party_nemotron_model}"
+        base_url="${AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL:-$default_third_party_nemotron_base_url}"
+        model_escaped=$(toml_escape "$model")
+        base_url_escaped=$(toml_escape "$base_url")
+        provider_override="model_providers={\"third-party-nemotron\"={name=\"Third Party Nemotron\",base_url=\"${base_url_escaped}\",env_key=\"AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
+        config_args=(-c "model=\"${model_escaped}\"" -c 'model_provider="third-party-nemotron"' -c "$provider_override")
+        ;;
+    third-party-deepseek)
+        unset OPENAI_API_KEY
+        model="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL:-$default_third_party_deepseek_model}"
+        base_url="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL:-$default_third_party_deepseek_base_url}"
+        model_escaped=$(toml_escape "$model")
+        base_url_escaped=$(toml_escape "$base_url")
+        provider_override="model_providers={\"third-party-deepseek\"={name=\"Third Party DeepSeek\",base_url=\"${base_url_escaped}\",env_key=\"AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
+        config_args=(-c "model=\"${model_escaped}\"" -c 'model_provider="third-party-deepseek"' -c "$provider_override")
         ;;
 esac
 
@@ -1711,6 +1797,8 @@ install_codex_launcher() {
     _prepare_launcher_real_binary "codex" "$codex_bin" "$real_bin" "Autonomous-agent-bootstrap Codex launcher"
     _write_codex_launcher "first-party" "${HOME}/.local/bin/codex-first-party"
     _write_codex_launcher "third-party-openai" "${HOME}/.local/bin/codex-third-party-openai"
+    _write_codex_launcher "third-party-nemotron" "${HOME}/.local/bin/codex-third-party-nemotron"
+    _write_codex_launcher "third-party-deepseek" "${HOME}/.local/bin/codex-third-party-deepseek"
     _write_codex_launcher "$selected_provider" "$codex_bin"
     log "Installed Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
 }
