@@ -4,7 +4,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 ## What It Sets Up
 
-1. **Claude Code** via the official native installer, configured for unattended use with `bypassPermissions`, sandbox mode, debug logging, skipped onboarding, pre-approved first-party API-key fingerprints when provided, and `CLAUDE_CODE_ATTRIBUTION_HEADER=0` so the per-request attribution block does not invalidate the prompt cache on third-party gateways.
+1. **Claude Code** via the official native installer, configured for unattended use with `bypassPermissions`, sandbox mode, debug logging, skipped onboarding, pre-approved first-party API-key fingerprints when provided, `CLAUDE_CODE_ATTRIBUTION_HEADER=0` so the per-request attribution block does not invalidate the prompt cache on third-party gateways, and OpenTelemetry usage logging to the console (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_LOGS_EXPORTER=console`) with prompt, tool, and raw-body content logging left disabled.
 2. **Codex CLI** via OpenAI's standalone installer, configured with `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, trusted project roots, live web search, shell env inheritance, service tier, reasoning effort, and `[agents].max_threads`.
 3. **AAB env file** at `~/.aab/.env` for provider selection, model names, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
 4. **Wrapper families** in `~/.local/bin`, with the selected `claude` entrypoint installed as a regular launcher file in `~/.local/aab-bin` (kept ahead of `~/.local/bin` on PATH so the native auto-updater, which owns `~/.local/bin/claude`, cannot shadow the wrapper):

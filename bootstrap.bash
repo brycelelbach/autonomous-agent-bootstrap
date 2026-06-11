@@ -416,6 +416,13 @@ write_settings() {
     # widens the per-request ceiling to 30 minutes, and
     # CLAUDE_CODE_MAX_RETRIES raises the backoff-retry count above its
     # default of 10.
+    #
+    # CLAUDE_CODE_ENABLE_TELEMETRY=1 plus OTEL_LOGS_EXPORTER=console turns on
+    # OpenTelemetry usage/event logging to the console for these unattended
+    # runs. We deliberately leave OTEL_LOG_RAW_API_BODIES, OTEL_LOG_USER_PROMPTS,
+    # OTEL_LOG_TOOL_DETAILS, and OTEL_LOG_TOOL_CONTENT unset — all default to
+    # disabled — so prompts, tool arguments, and raw request/response bodies
+    # stay out of the telemetry stream.
     cat > "${SETTINGS_FILE}" <<JSON
 {
   "model": "${model}",
@@ -443,7 +450,9 @@ write_settings() {
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
     "API_FORCE_IDLE_TIMEOUT": "0",
     "API_TIMEOUT_MS": "1800000",
-    "CLAUDE_CODE_MAX_RETRIES": "15"
+    "CLAUDE_CODE_MAX_RETRIES": "15",
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "OTEL_LOGS_EXPORTER": "console"
   }
 }
 JSON

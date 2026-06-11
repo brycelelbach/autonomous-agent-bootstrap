@@ -131,6 +131,11 @@ assert d["env"]["CLAUDE_CODE_SANDBOXED"] == "1"
 assert d["env"]["CLAUDE_CODE_ATTRIBUTION_HEADER"] == "0"
 assert d["effortLevel"] == "$DEFAULT_CLAUDE_CODE_EFFORT"
 assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "$DEFAULT_CLAUDE_CODE_EFFORT"
+assert d["env"]["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
+assert d["env"]["OTEL_LOGS_EXPORTER"] == "console"
+# Content-logging gates stay off so prompts / tool args / raw bodies are not exported.
+for gate in ("OTEL_LOG_RAW_API_BODIES", "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT"):
+    assert gate not in d["env"], gate
 deny = d["permissions"]["deny"]
 assert "AskUserQuestion" in deny, deny
 assert "EnterPlanMode" in deny, deny

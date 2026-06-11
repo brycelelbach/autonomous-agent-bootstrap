@@ -31,6 +31,10 @@ assert d["env"]["CLAUDE_CODE_ATTRIBUTION_HEADER"] == "0", d
 assert d["env"]["API_FORCE_IDLE_TIMEOUT"] == "0", d
 assert d["env"]["API_TIMEOUT_MS"] == "1800000", d
 assert d["env"]["CLAUDE_CODE_MAX_RETRIES"] == "15", d
+assert d["env"]["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1", d
+assert d["env"]["OTEL_LOGS_EXPORTER"] == "console", d
+for gate in ("OTEL_LOG_RAW_API_BODIES", "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT"):
+    assert gate not in d["env"], gate
 assert d["effortLevel"] == "max", d
 assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "max", d
 assert d["model"].startswith("claude-"), d
