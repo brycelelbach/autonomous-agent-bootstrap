@@ -15,9 +15,10 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 6. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 7. **gh CLI**, installed from the official `cli.github.com` apt repo.
 8. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
-9. **Global git-identity enforcement** — an agent rule in every harness's global instruction file plus a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
-10. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code, Codex, and Hermes.
-11. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
+9. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
+10. **Global git-identity enforcement** — the git-identity agent rule above, backed by a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
+11. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code, Codex, and Hermes.
+12. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
 
 ## Requirements
 
@@ -221,7 +222,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `~/.ssh/id_aab_auth`, `~/.ssh/config` | Written only when `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` is set. |
 | `~/.ssh/id_aab_signing` | Written only when `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` is set. |
 | `~/.aab/git-hooks/` | Global git hook dispatcher and per-hook-name symlinks that enforce the configured commit identity. `core.hooksPath` points here. See [Git Identity Enforcement](#git-identity-enforcement). |
-| `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` | Managed block carrying the git-identity agent rule; other content is preserved. |
+| `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` | Managed block carrying the global agent rules (operating principles + git-identity rule); other content is preserved. |
 
 ## SSH Keys
 
@@ -245,7 +246,7 @@ Set the encoded private key on the relevant AAB variable, and upload the public 
 
 The bootstrap configures a global git author, email, and (optionally) a commit-signing key, but unattended agents routinely commit under their own identity anyway — via `git -c user.email=...`, `git commit --author=...`, `GIT_AUTHOR_*` / `GIT_COMMITTER_*` environment variables, or a repo-local `git config user.email`. Two layers keep commits on the configured identity:
 
-1. **An agent rule** is written to each harness's global instruction file — `~/.claude/CLAUDE.md` for Claude Code and `~/.codex/AGENTS.md` for Codex — both of which are loaded in every repository. The rule tells the agent to always commit with the configured identity and to leave the global git config alone. The rule lives inside a managed block (`# >>> autonomous-agent-bootstrap >>>` … `# <<< autonomous-agent-bootstrap <<<`), so re-running the bootstrap replaces it in place and any other content in those files is preserved.
+1. **An agent rule** is written to each harness's global instruction file — `~/.claude/CLAUDE.md` for Claude Code and `~/.codex/AGENTS.md` for Codex — both of which are loaded in every repository. The rule tells the agent to always commit with the configured identity and to leave the global git config alone. It shares a managed block (`# >>> autonomous-agent-bootstrap >>>` … `# <<< autonomous-agent-bootstrap <<<`) with the global [operating principles](#what-it-sets-up), so re-running the bootstrap replaces the block in place and any other content in those files is preserved.
 2. **A global git hook** makes the rule non-optional. The bootstrap installs a dispatcher at `~/.aab/git-hooks/aab-git-hook`, symlinks it under each managed hook name, and points `core.hooksPath` at that directory. On `pre-commit` the dispatcher compares the commit's resolved author and committer identity (`git var GIT_AUTHOR_IDENT` / `GIT_COMMITTER_IDENT`) against the global `user.name` / `user.email`, and rejects the commit on a mismatch. When the global config requires signing (`commit.gpgsign=true`), it also rejects commits that disable signing via config or swap the signing key. The expected values are read from `--global`, which a per-invocation `-c`, an environment variable, or a repo-local config cannot override.
 
 Because a global `core.hooksPath` replaces — rather than supplements — a repository's own `.git/hooks`, the dispatcher chains through to the repo's hook of the same name after its own checks pass, so projects that ship their own hooks (Husky, `pre-commit`, lint-staged, …) keep working.

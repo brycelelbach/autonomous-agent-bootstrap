@@ -441,9 +441,9 @@ git init -q "$hook_repo"
 rm -rf "$hook_repo"
 pass "git hook allows the configured identity and blocks overrides."
 
-# 12d. The agent instruction files carry the git-identity rule in a managed
-# block, so Claude Code (~/.claude/CLAUDE.md) and Codex (~/.codex/AGENTS.md)
-# both see it in every repository.
+# 12d. The agent instruction files carry the agent rules in a managed block, so
+# Claude Code (~/.claude/CLAUDE.md) and Codex (~/.codex/AGENTS.md) both see them
+# in every repository: the operating principles plus the git-identity rule.
 CLAUDE_MEMORY_FILE="${HOME}/.claude/CLAUDE.md"
 CODEX_AGENTS_FILE="${HOME}/.codex/AGENTS.md"
 for rule_file in "$CLAUDE_MEMORY_FILE" "$CODEX_AGENTS_FILE"; do
@@ -453,10 +453,12 @@ for rule_file in "$CLAUDE_MEMORY_FILE" "$CODEX_AGENTS_FILE"; do
     begin_count=$(grep -c '^# >>> autonomous-agent-bootstrap >>>$' "$rule_file")
     [ "$begin_count" -eq 1 ] \
         || fail "agent rule file $rule_file has $begin_count managed blocks, expected 1."
+    grep -q 'Operating principles' "$rule_file" \
+        || fail "agent rule file $rule_file missing the operating-principles heading."
     grep -q 'Always use the configured git identity' "$rule_file" \
         || fail "agent rule file $rule_file missing the git-identity rule heading."
 done
-pass "agent instruction files carry the git-identity rule exactly once."
+pass "agent instruction files carry the agent rules exactly once."
 
 # 13. /etc/environment does not carry AAB secrets or provider config.
 ETC_ENV=/etc/environment

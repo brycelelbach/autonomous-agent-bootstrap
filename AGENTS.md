@@ -1,58 +1,38 @@
 # autonomous-agent-bootstrap contributor guide for AI coding agents
 
-This file is read by Claude Code (via `CLAUDE.md` symlink resolution) and other AGENTS.md-aware harnesses (Codex, Aider, etc.). The conventions below apply to every change, regardless of which agent wrote it.
+This file is read by Claude Code (via the `CLAUDE.md` symlink) and other AGENTS.md-aware harnesses (Codex, Aider, etc.). The conventions below apply to every change, whichever agent wrote it.
 
 ## Act autonomously
 
-You are operating in a safe sandbox without credentials that would allow you to cause serious harm. The operator has been clear, repeatedly: don't pause for permission on the routine parts of the loop.
+You are operating in a safe sandbox without credentials that would allow you to cause serious harm, so don't pause for permission on the routine parts of the loop.
 
-- "Fix issue #N" / "address the P0s" / "fix X" is authorisation to commit, push, and open a PR. Don't end the session with a staged diff and a "shall I commit?" question.
+- "Fix issue #N" / "address the P0s" / "fix X" authorises you to commit, push, and open a PR. Don't end the session with a staged diff and a "shall I commit?" question.
 - One issue = one branch (off `main`, not whatever the worktree is on) = one PR. Don't bundle unrelated fixes.
-- Run live tests, then open the PR. Don't wait to be asked.
-- Still pause for destructive actions whose blast radius is wider than the local tree: force-pushing to `main`, deleting branches, rotating shared credentials. Those are not what this rule covers.
-
-If you are unsure whether a step is "destructive", look at what would happen if you ran it twice. A second `git commit` is a no-op; a second `git push --force` to `main` is not.
+- Run live tests, then open the PR — don't wait to be asked.
+- Still pause for destructive actions whose blast radius is wider than the local tree: force-pushing to `main`, deleting branches, rotating shared credentials. The test is what happens if you run it twice — a second `git commit` is a no-op; a second `git push --force` to `main` is not.
 
 ## Avoid documenting history
 
-Code and documentation describe what *is*, not what *was*. Git contains the history; PR descriptions explain the change; issue threads carry the discussion. Don't duplicate that into the tree.
+Code and documentation describe what *is*, not what *was*. Git holds the history, the PR description explains the change, the issue thread carries the discussion — don't duplicate any of that into the tree. A reader walking into a file cold should see only what's true now; `git log` and `git blame` are one keystroke away.
 
-- No `# previously this …` / `# changed from … to …` / `# this used to be a …` comments.
-- No "we tried X but switched to Y because Z" prose. State Y. The reason it isn't X belongs in the PR that made the switch.
-- No bug-incident write-ups embedded in source. The post-mortem belongs in the PR that fixed the bug.
+- No `# previously this …` / `# changed from … to …` / `# this used to be a …` comments, and no "we tried X but switched to Y because Z" prose — state Y; why it isn't X belongs in the PR that made the switch.
+- No bug-incident write-ups embedded in source — the post-mortem belongs in the PR that fixed the bug.
 - Removed code stays removed. Don't comment it out, don't `# (removed in #NN)` it.
-
-A reader walking into the file cold should see only what's true now. If they need the history, `git log` and `git blame` are one keystroke away.
 
 ## Stay rebased on upstream/main
 
 A branch is only worth what its diff against `upstream/main` says it does, so rebase at two checkpoints:
 
-1. **Before you start.** `git fetch upstream && git rebase upstream/main` on a fresh worktree. Your live exercise then runs against the same code the reviewer will see.
-2. **Right before you open the PR.** Rebase again, force-push to your GitHub fork with `git push --force-with-lease fork <branch>`. Patch-id detection drops commits that already landed on main, so the PR diff stays a clean isolation of your change.
+1. **Before you start.** `git fetch upstream && git rebase upstream/main` on a fresh worktree, so your live exercise runs against the same code the reviewer will see.
+2. **Right before you open the PR.** Rebase again and force-push to your fork with `git push --force-with-lease fork <branch>`. Patch-id detection drops commits that already landed on main, so the PR diff stays a clean isolation of your change.
 
-Don't merge `upstream/main` into the branch. The PR fills with unrelated noise and the squash-merge mangles the history. If main moves while a PR is open, rebase — don't merge.
+Don't merge `upstream/main` into the branch — the PR fills with unrelated noise and the squash-merge mangles the history. If main moves while a PR is open, rebase.
 
 ## Perform live tests
 
-Every AAB PR must include evidence of a live exercise — performed by the agent BEFORE opening the PR. Update the PR's test-plan checkboxes to reflect what actually ran.
+Every AAB PR must include evidence of a live exercise the agent ran BEFORE opening the PR, with the test-plan checkboxes updated to reflect what actually ran. Treat manual-testing-by-the-reviewer as a load-bearing failure mode, not a courtesy — don't create manual testing work for humans unless absolutely positively necessary, and that bar is extraordinarily rare.
 
-Treat manual-testing-by-the-reviewer as a load-bearing failure mode, not a courtesy — agents must not create manual testing work for humans unless absolutely positively necessary, and that bar is supposed to be extraordinarily rare.
-
-**How to apply:**
-
-- `./test.bash` (lint + unit) is the table stakes — every PR runs it and pastes the trailing `ok N` summary into the PR body.
-- `./test.bash --docker` is the canonical live exercise: it runs `bootstrap.bash` end-to-end inside a fresh `ubuntu:22.04` container, then runs `tests/e2e-assertions.bash` against the resulting `$HOME`. Use this whenever the change touches `bootstrap.bash`, `test.bash`, the assertions, or anything in CI. Don't run it from inside a git worktree (`.../.claude/worktrees/<name>`): the harness mounts the source read-only and `cp -r`'s it into the container, which copies the worktree's `.git` *file* containing a host-only `gitdir:` pointer — `git config --global` then fails with `fatal: not a git repository: <host path>` even though `--global` should be repo-agnostic. Stage the tree to a `.git`-less tmpdir first (`tar -C <worktree> -cf - --exclude=.git . | tar -C "$tmpdir" -xf -`) and run from there, or run from the main checkout.
-- For changes that are visible from a real user shell (PATH wiring, alias, provider-switch function, SSH-key files, git config), run `./test.bash --e2e` on a disposable VM — it bootstraps the current `$HOME` for real, so you can re-source `~/.bashrc` and inspect the live env. Capture the relevant `claude --version`, `git config --get`, `cat ~/.bashrc` excerpts in the PR.
-- `./test.bash --secrets` (gitleaks) on any change that touches files committed to the repo's history.
-- Capture verbatim outputs (test summary, container log lines, post-bootstrap assertion run) and paste them into the PR body as evidence.
-- "Tool not installed locally" is **not** a valid skip reason. The sandbox lets you install software (`apt-get`, `curl … | sh`, `uv tool install`) — install the tool, run the check. `README.md`'s [Running the tests](README.md#running-the-tests) section pins the exact `gitleaks` install recipe matching CI. Don't paste "N/A locally — CI will catch it" into the PR body to dodge work the agent could have done itself.
-- Every checkbox in the test plan must be `[x]` before reporting done — no `[ ]` placeholders, no exceptions, including for legitimate skips. `[x]` means "I considered this and the answer is here," not "the test passed": the answer is either verbatim output (for tests you ran) or a one-line justification (for legitimate scope-of-change skips — see the next bullet). `[ ]` means "I haven't dealt with this yet," which is not a state a finished PR should be in. While sweeping, also confirm any `N/A` entries cite scope-of-change, not "I didn't have the tool."
-- The only acceptable reason to skip the live exercise is when running on a fresh container wouldn't add anything: a pure docs change to README.md or this file, or a CI workflow file whose effect can only be observed once it's merged. State the reason in the PR body.
-
-## Run ./test.bash before pushing
-
-`./test.bash` is the single source of truth for "passes locally" — `.github/workflows/ci.yml` invokes the same flags, so anything green locally will be green in CI. Install the prerequisites once per checkout:
+`./test.bash` is the single source of truth for "passes locally": `.github/workflows/ci.yml` runs the same five jobs (`--lint`, `--unit`, `--e2e`, `--docker`, `--secrets`), so anything green locally is green in CI — and if something fails in CI you didn't catch, the test gap is a bug to fix, not a workflow to work around. Install the prerequisites once per checkout:
 
 ```bash
 sudo apt-get install -y bats shellcheck python3
@@ -61,15 +41,16 @@ curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitlea
   | sudo tar -xz -C /usr/local/bin gitleaks
 ```
 
-Run, before every push:
+**How to apply:**
 
-```bash
-./test.bash              # lint + unit (fast, no side effects)
-./test.bash --docker     # full e2e in a fresh ubuntu:22.04 container
-./test.bash --secrets    # gitleaks scan
-```
-
-CI is the canonical gate and runs the same five jobs (`--lint`, `--unit`, `--e2e`, `--docker`, `--secrets`). Don't skip a flag locally that CI runs — if anything fails in CI that you didn't catch, the test gap is a bug to fix, not a workflow to work around.
+- `./test.bash` (lint + unit) is the table stakes — every PR runs it and pastes the trailing `ok N` summary into the body.
+- `./test.bash --docker` is the canonical live exercise: it runs `bootstrap.bash` end-to-end inside a fresh `ubuntu:22.04` container, then `tests/e2e-assertions.bash` against the resulting `$HOME`. Use it whenever the change touches `bootstrap.bash`, `test.bash`, the assertions, or anything in CI. Don't run it from inside a git worktree (`.../.claude/worktrees/<name>`): the harness mounts the source read-only and `cp -r`'s it into the container, which copies the worktree's `.git` *file* containing a host-only `gitdir:` pointer — `git config --global` then fails with `fatal: not a git repository: <host path>` even though `--global` should be repo-agnostic. Stage the tree to a `.git`-less tmpdir first (`tar -C <worktree> -cf - --exclude=.git . | tar -C "$tmpdir" -xf -`) and run from there, or run from the main checkout.
+- `./test.bash --e2e` on a disposable VM for changes visible from a real user shell (PATH wiring, alias, provider-switch function, SSH-key files, git config): it bootstraps the current `$HOME` for real, so you can re-source `~/.bashrc` and inspect the live env. Capture the relevant `claude --version`, `git config --get`, `cat ~/.bashrc` excerpts in the PR.
+- `./test.bash --secrets` (gitleaks) on any change that touches files committed to the repo's history.
+- Capture verbatim outputs (test summary, container log lines, post-bootstrap assertion run) and paste them into the PR body as evidence.
+- "Tool not installed locally" is **not** a valid skip reason — the sandbox lets you install software (`apt-get`, `curl … | sh`, `uv tool install`), so install the tool and run the check. Don't paste "N/A locally — CI will catch it" to dodge work you could have done.
+- Every checkbox in the test plan must be `[x]` before reporting done — no `[ ]` placeholders, no exceptions, including for legitimate skips. `[x]` means "I considered this and the answer is here" (verbatim output for tests you ran, or a one-line scope-of-change justification for legitimate skips), not "the test passed". `[ ]` is not a state a finished PR should be in. Confirm any `N/A` cites scope-of-change, not a missing tool.
+- The only acceptable reason to skip the live exercise is when a fresh container adds nothing: a pure docs change (README.md or this file) or a CI workflow file whose effect can only be observed once merged. State the reason in the PR body.
 
 ## Style
 
@@ -87,7 +68,7 @@ Skipped intentionally:
 
 - BATS `@test "..."` descriptions — they are test names, not user-facing prose. Lowercase fragments are fine.
 - The literal banner text inside `=== ... ===` section markers in `test.bash` — these are field labels, not sentences.
-- Strings that lead with a command/identifier the Style guide exempts (`gh install needs sudo ...`, `git not installed ...`, `ssh-keygen not installed ...`, `apt-get not found ...`) — the leading identifier stays verbatim, the rest of the sentence is capitalized normally and the whole string still gets terminal punctuation.
+- Strings that lead with a command/identifier the Style guide exempts (`gh install needs sudo ...`, `git not installed ...`, `ssh-keygen not installed ...`, `apt-get not found ...`) — the leading identifier stays verbatim, the rest of the sentence is capitalized normally, and the whole string still gets terminal punctuation.
 - Strings that ARE data values (env var names, JSON keys, URL paths, file paths).
 - Single-word log lines / short value-labeling trailing comments (`# trim`, `# bytes`).
 

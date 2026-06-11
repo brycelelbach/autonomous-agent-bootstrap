@@ -1723,8 +1723,8 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# install_git_hooks / write_agent_git_rules: the global commit-identity
-# enforcement hook plus the agent instruction-file rule. Cover:
+# install_git_hooks / write_agent_rules: the global commit-identity
+# enforcement hook plus the agent instruction-file rules. Cover:
 #   - hook dispatcher + per-name symlinks installed, core.hooksPath set
 #   - the emitted dispatcher is valid bash
 #   - idempotent re-runs (one rule block, stable symlink count)
@@ -1914,22 +1914,25 @@ RH
     [[ "$output" == *"signing is required"* ]]
 }
 
-@test "write_agent_git_rules writes a managed block to CLAUDE.md and AGENTS.md" {
-    write_agent_git_rules
+@test "write_agent_rules writes a managed block to CLAUDE.md and AGENTS.md" {
+    write_agent_rules
     [ -f "$CLAUDE_MEMORY_FILE" ]
     [ -f "$CODEX_AGENTS_FILE" ]
     grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE"
     grep -qF "$AGENT_RULES_MARKER_END" "$CLAUDE_MEMORY_FILE"
+    grep -q "Operating principles" "$CLAUDE_MEMORY_FILE"
+    grep -q "Act autonomously and do not seek operator input" "$CLAUDE_MEMORY_FILE"
     grep -q "Always use the configured git identity" "$CLAUDE_MEMORY_FILE"
     grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CODEX_AGENTS_FILE"
+    grep -q "Operating principles" "$CODEX_AGENTS_FILE"
     grep -q "Always use the configured git identity" "$CODEX_AGENTS_FILE"
 }
 
-@test "write_agent_git_rules is idempotent (single managed block, size stable)" {
-    write_agent_git_rules
+@test "write_agent_rules is idempotent (single managed block, size stable)" {
+    write_agent_rules
     local size1
     size1=$(wc -c < "$CLAUDE_MEMORY_FILE")
-    write_agent_git_rules
+    write_agent_rules
     local begin_count size2
     begin_count=$(grep -cF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE")
     size2=$(wc -c < "$CLAUDE_MEMORY_FILE")
@@ -1937,10 +1940,10 @@ RH
     [ "$size1" -eq "$size2" ]
 }
 
-@test "write_agent_git_rules preserves pre-existing instruction-file content" {
+@test "write_agent_rules preserves pre-existing instruction-file content" {
     mkdir -p "$(dirname "$CLAUDE_MEMORY_FILE")"
     printf '# My memory\n\nKeep this line.\n' > "$CLAUDE_MEMORY_FILE"
-    write_agent_git_rules
+    write_agent_rules
     grep -q '^# My memory$' "$CLAUDE_MEMORY_FILE"
     grep -q '^Keep this line\.$' "$CLAUDE_MEMORY_FILE"
     grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE"

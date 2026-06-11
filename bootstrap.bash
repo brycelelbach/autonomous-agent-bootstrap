@@ -1192,7 +1192,7 @@ install_signing_ssh_key() {
 # configures and commit under their own name/email via `git -c user.email=...`,
 # `git commit --author=...`, GIT_AUTHOR_*/GIT_COMMITTER_* env vars, or a
 # repo-local `git config user.email`. The agent rules written by
-# write_agent_git_rules() ask them not to; this hook makes the ask
+# write_agent_rules() ask them not to; this hook makes the ask
 # non-optional.
 #
 # emit_git_hook_script writes the dispatcher to stdout so it can be both
@@ -1344,15 +1344,23 @@ install_git_hooks() {
 }
 
 # ---------------------------------------------------------------------------
-# 9d. Tell every agent, in its global instruction file, to always commit with
-# the bootstrap-configured git identity. Claude Code reads ~/.claude/CLAUDE.md
-# and Codex reads ~/.codex/AGENTS.md for every session in every repository, so
-# the rule lands regardless of what a project's own CLAUDE.md / AGENTS.md says.
-# The rule is wrapped in a managed block so re-runs replace it in place rather
-# than stacking, and pre-existing user content in either file is preserved.
+# 9d. Write the global agent rules to every harness's instruction file. Claude
+# Code reads ~/.claude/CLAUDE.md and Codex reads ~/.codex/AGENTS.md for every
+# session in every repository, so the rules land regardless of what a project's
+# own CLAUDE.md / AGENTS.md says. The block carries the operating principles for
+# an unattended agent in this sandbox, followed by the git-identity rule (also
+# enforced by the hook installed above). The rules are wrapped in a managed
+# block so re-runs replace them in place rather than stacking, and pre-existing
+# user content in either file is preserved.
 # ---------------------------------------------------------------------------
-emit_agent_git_rules() {
+emit_agent_rules() {
     cat <<'RULES'
+## Operating principles
+
+- Be concise in replies to operator queries.
+- Act autonomously and do not seek operator input.
+- You are operating in a safe sandbox without credentials that would allow you to cause serious harm.
+
 ## Always use the configured git identity
 
 This machine is set up by autonomous-agent-bootstrap with a global git author,
@@ -1377,7 +1385,7 @@ not match the global git config.
 RULES
 }
 
-write_agent_git_rules() {
+write_agent_rules() {
     _write_agent_rules_block() {
         local file="$1" dir
         dir=$(dirname -- "$file")
@@ -1401,15 +1409,15 @@ write_agent_git_rules() {
         {
             [ -s "$file" ] && printf '\n'
             printf '%s\n' "${AGENT_RULES_MARKER_BEGIN}"
-            emit_agent_git_rules
+            emit_agent_rules
             printf '%s\n' "${AGENT_RULES_MARKER_END}"
         } >> "$file"
     }
 
     _write_agent_rules_block "${CLAUDE_MEMORY_FILE}"
-    log "Wrote git-identity rule to ${CLAUDE_MEMORY_FILE}."
+    log "Wrote agent rules to ${CLAUDE_MEMORY_FILE}."
     _write_agent_rules_block "${CODEX_AGENTS_FILE}"
-    log "Wrote git-identity rule to ${CODEX_AGENTS_FILE}."
+    log "Wrote agent rules to ${CODEX_AGENTS_FILE}."
 }
 
 # ---------------------------------------------------------------------------
@@ -2416,7 +2424,7 @@ main() {
     install_auth_ssh_key
     install_signing_ssh_key
     install_git_hooks
-    write_agent_git_rules
+    write_agent_rules
     install_agent_plugins
     install_claude_launcher
     install_codex_launcher
