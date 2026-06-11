@@ -28,6 +28,9 @@ assert d["permissions"]["defaultMode"] == "bypassPermissions", d
 assert d["skipDangerousModePermissionPrompt"] is True, d
 assert d["env"]["CLAUDE_CODE_SANDBOXED"] == "1", d
 assert d["env"]["CLAUDE_CODE_ATTRIBUTION_HEADER"] == "0", d
+assert d["env"]["API_FORCE_IDLE_TIMEOUT"] == "0", d
+assert d["env"]["API_TIMEOUT_MS"] == "1800000", d
+assert d["env"]["CLAUDE_CODE_MAX_RETRIES"] == "15", d
 assert d["effortLevel"] == "max", d
 assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "max", d
 assert d["model"].startswith("claude-"), d

@@ -138,6 +138,18 @@ assert "ExitPlanMode" in deny, deny
 PY
 }
 
+@test "write_settings sets network-resilience env" {
+    write_settings
+    python3 - <<PY
+import json
+d = json.load(open("$SETTINGS_FILE"))
+env = d["env"]
+assert env["API_FORCE_IDLE_TIMEOUT"] == "0", env
+assert env["API_TIMEOUT_MS"] == "1800000", env
+assert env["CLAUDE_CODE_MAX_RETRIES"] == "15", env
+PY
+}
+
 @test "write_settings pre-approves edits to ~/.claude/** and ~/.claude.json" {
     write_settings
     python3 - <<PY
