@@ -407,6 +407,15 @@ write_settings() {
     # That block changes per request, so it invalidates the prompt-cache
     # prefix on every turn — disabling it restores cache hits when Claude is
     # routed through a third-party gateway, which is the common AAB setup.
+    #
+    # Network-resilience env for unattended runs on Bedrock / gateway
+    # connections, where Claude Code's 5-minute streaming idle timeout is
+    # active. API_FORCE_IDLE_TIMEOUT=0 disables that abort, which a long
+    # Opus turn trips when it streams no bytes for 5 minutes (surfacing as
+    # "The socket connection was closed unexpectedly"). API_TIMEOUT_MS
+    # widens the per-request ceiling to 30 minutes, and
+    # CLAUDE_CODE_MAX_RETRIES raises the backoff-retry count above its
+    # default of 10.
     cat > "${SETTINGS_FILE}" <<JSON
 {
   "model": "${model}",
@@ -431,7 +440,10 @@ write_settings() {
   "env": {
     "CLAUDE_CODE_SANDBOXED": "1",
     "CLAUDE_CODE_EFFORT_LEVEL": "${effort}",
-    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "API_FORCE_IDLE_TIMEOUT": "0",
+    "API_TIMEOUT_MS": "1800000",
+    "CLAUDE_CODE_MAX_RETRIES": "15"
   }
 }
 JSON
