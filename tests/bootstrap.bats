@@ -1921,7 +1921,7 @@ RH
     grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE"
     grep -qF "$AGENT_RULES_MARKER_END" "$CLAUDE_MEMORY_FILE"
     grep -q "Operating principles" "$CLAUDE_MEMORY_FILE"
-    grep -q "Act autonomously and do not seek operator input" "$CLAUDE_MEMORY_FILE"
+    grep -q "Act autonomously without seeking operator input" "$CLAUDE_MEMORY_FILE"
     grep -q "Always use the configured git identity" "$CLAUDE_MEMORY_FILE"
     grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CODEX_AGENTS_FILE"
     grep -q "Operating principles" "$CODEX_AGENTS_FILE"
