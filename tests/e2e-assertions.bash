@@ -27,6 +27,7 @@ home = sys.argv[2]
 assert d["permissions"]["defaultMode"] == "bypassPermissions", d
 assert d["skipDangerousModePermissionPrompt"] is True, d
 assert d["env"]["CLAUDE_CODE_SANDBOXED"] == "1", d
+assert d["env"]["CLAUDE_CODE_ATTRIBUTION_HEADER"] == "0", d
 assert d["effortLevel"] == "max", d
 assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "max", d
 assert d["model"].startswith("claude-"), d

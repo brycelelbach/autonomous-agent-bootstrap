@@ -401,6 +401,12 @@ write_settings() {
     # under .claude/ already, but the explicit allow list also keeps
     # config / memory / agent / skill edits unprompted in 'default' or
     # 'acceptEdits' mode if a user toggles out of bypass mid-session.
+    #
+    # CLAUDE_CODE_ATTRIBUTION_HEADER=0 omits the attribution block (client
+    # version and prompt fingerprint) from the start of the system prompt.
+    # That block changes per request, so it invalidates the prompt-cache
+    # prefix on every turn — disabling it restores cache hits when Claude is
+    # routed through a third-party gateway, which is the common AAB setup.
     cat > "${SETTINGS_FILE}" <<JSON
 {
   "model": "${model}",
@@ -424,7 +430,8 @@ write_settings() {
   "skipDangerousModePermissionPrompt": true,
   "env": {
     "CLAUDE_CODE_SANDBOXED": "1",
-    "CLAUDE_CODE_EFFORT_LEVEL": "${effort}"
+    "CLAUDE_CODE_EFFORT_LEVEL": "${effort}",
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
   }
 }
 JSON
