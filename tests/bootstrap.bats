@@ -48,7 +48,8 @@ setup() {
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           OPENAI_API_KEY GH_TOKEN GITHUB_TOKEN \
-          AAB_AGENT_PLUGINS_FILE AAB_AGENT_PLUGINS_URL
+          AAB_AGENT_PLUGINS_FILE AAB_AGENT_PLUGINS_URL \
+          AAB_MANAGED_SETTINGS_FILE
     # shellcheck disable=SC1091
     source "$REPO_ROOT/bootstrap.bash"
 }
@@ -179,6 +180,36 @@ PY
     local backup_count
     backup_count=$(find "$CLAUDE_DIR" -maxdepth 1 -name 'settings.json.bak.*' | wc -l)
     [ "$backup_count" -ge 1 ]
+}
+
+@test "write_managed_settings denies the interactive tools in the policy file" {
+    SUDO="" AAB_MANAGED_SETTINGS_FILE="$TEST_HOME/etc/claude-code/managed-settings.json" \
+        MANAGED_SETTINGS_FILE="$TEST_HOME/etc/claude-code/managed-settings.json" \
+        write_managed_settings
+    [ -f "$TEST_HOME/etc/claude-code/managed-settings.json" ]
+    python3 - <<PY
+import json
+d = json.load(open("$TEST_HOME/etc/claude-code/managed-settings.json"))
+deny = d["permissions"]["deny"]
+assert "AskUserQuestion" in deny, deny
+assert "EnterPlanMode" in deny, deny
+assert "ExitPlanMode" in deny, deny
+PY
+}
+
+@test "write_managed_settings policy is deny-only so it does not fight the launcher" {
+    SUDO="" AAB_MANAGED_SETTINGS_FILE="$TEST_HOME/etc/claude-code/managed-settings.json" \
+        MANAGED_SETTINGS_FILE="$TEST_HOME/etc/claude-code/managed-settings.json" \
+        write_managed_settings
+    python3 - <<PY
+import json
+d = json.load(open("$TEST_HOME/etc/claude-code/managed-settings.json"))
+perms = d["permissions"]
+# A defaultMode / disableBypassPermissionsMode policy would override the
+# launcher's bypassPermissions mode; the policy must carry the deny list only.
+assert "defaultMode" not in perms, perms
+assert "disableBypassPermissionsMode" not in perms, perms
+PY
 }
 
 @test "write_aab_env_file writes AAB config and credentials with private permissions" {

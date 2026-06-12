@@ -10,6 +10,7 @@ pass() { echo "PASS: $*"; }
 
 CLAUDE_DIR="${HOME}/.claude"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
+MANAGED_SETTINGS_FILE="${AAB_MANAGED_SETTINGS_FILE:-/etc/claude-code/managed-settings.json}"
 CLAUDE_JSON="${HOME}/.claude.json"
 CODEX_CONFIG="${HOME}/.codex/config.toml"
 CODEX_AUTH="${HOME}/.codex/auth.json"
@@ -51,6 +52,29 @@ assert "EnterPlanMode" in deny, deny
 assert "ExitPlanMode" in deny, deny
 PY
 pass "settings.json written with unattended-mode defaults."
+
+# 1b. The system-wide policy file carries the same deny list, so the three
+# interactive tools stay blocked even if settings.json is later rewritten.
+# Writing it needs root / passwordless sudo; a host without that is a correct
+# skip (the settings.json deny list still applies), mirroring write_managed_settings.
+if [ "$(id -u)" -ne 0 ] && ! sudo -n true 2>/dev/null; then
+    pass "No passwordless sudo for non-root user; system-wide policy file correctly skipped."
+else
+    [ -f "$MANAGED_SETTINGS_FILE" ] || fail "managed-settings.json not written at $MANAGED_SETTINGS_FILE."
+    python3 - "$MANAGED_SETTINGS_FILE" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+deny = d["permissions"]["deny"]
+assert "AskUserQuestion" in deny, deny
+assert "EnterPlanMode" in deny, deny
+assert "ExitPlanMode" in deny, deny
+# Deny-only: a defaultMode / disableBypassPermissionsMode policy would override
+# the launcher's bypassPermissions mode.
+assert "defaultMode" not in d["permissions"], d
+assert "disableBypassPermissionsMode" not in d["permissions"], d
+PY
+    pass "system-wide policy file denies the interactive tools."
+fi
 
 # 2. config.toml is present and puts Codex in unattended yolo mode.
 [ -f "$CODEX_CONFIG" ] || fail "Codex config.toml not written."

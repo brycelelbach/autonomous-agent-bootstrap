@@ -206,6 +206,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `~/.local/bin/hermes-gateway` | Hermes wrapper for the OpenAI-compatible inference gateway. |
 | `~/.local/bin/hermes-aab-real` | Link or moved copy of the real Hermes binary. |
 | `~/.claude/settings.json` | Rewritten with unattended Claude defaults and plugin entries; existing file is backed up. |
+| `/etc/claude-code/managed-settings.json` | System-wide Claude Code policy that denies the interactive tools (`AskUserQuestion`, `EnterPlanMode`, `ExitPlanMode`). Highest-precedence settings tier, so the deny list survives a rewrite of `~/.claude/settings.json`. Needs root / passwordless sudo; skipped otherwise. |
 | `~/.claude.json` | Merged with onboarding and optional API-key approval state; existing file is backed up. |
 | `~/.codex/config.toml` | Rewritten with unattended Codex defaults and selected provider config while preserving Codex plugin tables; existing file is backed up. |
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when first-party Codex API-key auth is configured. |

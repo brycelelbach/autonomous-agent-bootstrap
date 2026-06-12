@@ -47,6 +47,10 @@ set -euo pipefail
 
 CLAUDE_DIR="${HOME}/.claude"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
+# System-wide Claude Code policy file. Highest-precedence settings tier, read
+# from outside $HOME, so the deny list it carries survives any rewrite of the
+# user-level settings.json. Overridable so the tests can target a sandbox path.
+MANAGED_SETTINGS_FILE="${AAB_MANAGED_SETTINGS_FILE:-/etc/claude-code/managed-settings.json}"
 CLAUDE_JSON="${HOME}/.claude.json"
 AAB_DIR="${HOME}/.aab"
 AAB_ENV_FILE="${AAB_DIR}/.env"
@@ -497,6 +501,48 @@ write_settings() {
 }
 JSON
     log "Wrote ${SETTINGS_FILE} (model=${model}, effort=${effort})."
+}
+
+# ---------------------------------------------------------------------------
+# 5b. Write the system-wide Claude Code policy file.
+#
+# The deny list in ~/.claude/settings.json is enough on its own — Claude Code
+# evaluates deny rules before the bypassPermissions shortcut, so the three
+# interactive tools stay blocked even under --dangerously-skip-permissions. But
+# settings.json lives in $HOME and is rewritten by plugin toggles, re-bootstrap,
+# and Claude's own settings edits, any of which can silently drop the deny list
+# and re-enable the tools mid-run. The managed-settings policy file is the
+# highest-precedence tier and is read from outside $HOME, so the same deny list
+# there cannot be overridden by a settings.json rewrite.
+#
+# Deny only: defaultMode and disableBypassPermissionsMode are deliberately left
+# out so the launcher's bypassPermissions mode keeps working — a deny rule is
+# enforced in every mode, a mode/bypass policy would fight the launcher.
+# ---------------------------------------------------------------------------
+write_managed_settings() {
+    local dir
+    dir=$(dirname "${MANAGED_SETTINGS_FILE}")
+    if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
+        warn "Writing ${MANAGED_SETTINGS_FILE} needs sudo and passwordless sudo is not available; skipping the system-wide policy. The deny list in ${SETTINGS_FILE} still applies."
+        return
+    fi
+    local tmp
+    tmp=$(mktemp)
+    cat > "${tmp}" <<'JSON'
+{
+  "permissions": {
+    "deny": [
+      "AskUserQuestion",
+      "EnterPlanMode",
+      "ExitPlanMode"
+    ]
+  }
+}
+JSON
+    $SUDO mkdir -p "${dir}"
+    $SUDO install -m 0644 "${tmp}" "${MANAGED_SETTINGS_FILE}"
+    rm -f "${tmp}"
+    log "Wrote ${MANAGED_SETTINGS_FILE} (policy deny: AskUserQuestion, EnterPlanMode, ExitPlanMode)."
 }
 
 # ---------------------------------------------------------------------------
@@ -2406,6 +2452,7 @@ main() {
     configure_brev_auth
     ensure_gh
     write_settings
+    write_managed_settings
     write_aab_env_file
     write_codex_config
     write_hermes_config
