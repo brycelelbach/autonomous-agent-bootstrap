@@ -43,7 +43,7 @@ setup() {
           AAB_HERMES_BASE_URL AAB_HERMES_API_KEY AAB_HERMES_MODEL \
           AAB_HERMES_API_MODE AAB_HERMES_EFFORT \
           AAB_HERMES_SHELL_TIMEOUT AAB_HERMES_CHILD_TIMEOUT AAB_HERMES_MAX_CONCURRENCY \
-          AAB_HERMES_CURATOR \
+          AAB_HERMES_CURATOR AAB_HERMES_BROWSER_TOOLS \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
@@ -565,6 +565,77 @@ SH
     ! grep -Fq -- '--config' "$TEST_HOME/codex-installer-curl-invocations"
     [ ! -f "$TEST_HOME/codex-installer-curl-configs" ]
     [ ! -f "$TEST_HOME/codex-installer-tty" ]
+}
+
+# Stub curl so install_hermes downloads a fake installer that records the flags
+# it was handed and whether it could reach a terminal. The Hermes installer's
+# setup wizard and gateway prompts read /dev/tty directly, so the test asserts
+# both unattended defenses: the --skip-setup / --non-interactive flags and the
+# controlling-terminal detach (no TTY marker written).
+setup_fake_hermes_installer() {
+    export FAKE_HERMES_INSTALLER_BIN="$TEST_HOME/fake-hermes-installer-bin"
+    mkdir -p "$FAKE_HERMES_INSTALLER_BIN"
+    cat > "$FAKE_HERMES_INSTALLER_BIN/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$TEST_HOME/hermes-installer-curl-invocations"
+
+output=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o|--output) output="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+[ -n "$output" ] || exit 0
+cat > "$output" <<'INSTALLER'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" > "$TEST_HOME/hermes-installer-args"
+if (: </dev/tty) 2>/dev/null; then
+    echo dev-tty-present > "$TEST_HOME/hermes-installer-tty"
+fi
+if [ -t 0 ]; then
+    echo stdin-tty-present > "$TEST_HOME/hermes-installer-tty"
+fi
+INSTALLER
+SH
+    chmod +x "$FAKE_HERMES_INSTALLER_BIN/curl"
+    export PATH="$FAKE_HERMES_INSTALLER_BIN:$PATH"
+}
+
+@test "install_hermes runs the installer unattended without a controlling terminal" {
+    setup_fake_hermes_installer
+    run install_hermes
+    [ "$status" -eq 0 ]
+    # curl fetched the installer to a local file rather than piping to bash.
+    grep -Fq -- '-o ' "$TEST_HOME/hermes-installer-curl-invocations"
+    grep -Fq 'raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh' \
+        "$TEST_HOME/hermes-installer-curl-invocations"
+    # Both unattended flags reached the installer.
+    [ -f "$TEST_HOME/hermes-installer-args" ]
+    grep -Fwq -- '--skip-setup' "$TEST_HOME/hermes-installer-args"
+    grep -Fwq -- '--non-interactive' "$TEST_HOME/hermes-installer-args"
+    # The installer saw no terminal it could grab for a prompt.
+    [ ! -f "$TEST_HOME/hermes-installer-tty" ]
+}
+
+@test "install_hermes skips the browser stack by default" {
+    setup_fake_hermes_installer
+    run install_hermes
+    [ "$status" -eq 0 ]
+    grep -Fwq -- '--skip-browser' "$TEST_HOME/hermes-installer-args"
+}
+
+@test "install_hermes installs the browser stack when AAB_HERMES_BROWSER_TOOLS=true" {
+    setup_fake_hermes_installer
+    AAB_HERMES_BROWSER_TOOLS=true run install_hermes
+    [ "$status" -eq 0 ]
+    ! grep -Fwq -- '--skip-browser' "$TEST_HOME/hermes-installer-args"
+    # The unattended flags are still passed regardless of the browser toggle.
+    grep -Fwq -- '--skip-setup' "$TEST_HOME/hermes-installer-args"
+    grep -Fwq -- '--non-interactive' "$TEST_HOME/hermes-installer-args"
 }
 
 @test "install_codex_launcher wraps codex with dynamic trust and bypass flags" {

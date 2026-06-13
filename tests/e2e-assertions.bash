@@ -344,6 +344,17 @@ command -v hermes >/dev/null 2>&1 || fail "hermes not on PATH after bootstrap."
 [ -x "$HOME/.local/bin/hermes-gateway" ] || fail "hermes-gateway wrapper missing."
 [ -x "$HOME/.local/bin/hermes-aab-real" ] || fail "Hermes real binary link not installed."
 pass "hermes wrapper installed and selected."
+# Browser tools (the Playwright Chromium download) are off by default for a lean
+# install. Playwright drops the browser into ~/.cache/ms-playwright; assert it is
+# absent unless AAB_HERMES_BROWSER_TOOLS opted in.
+hermes_playwright_cache="$HOME/.cache/ms-playwright"
+if [ "${AAB_HERMES_BROWSER_TOOLS:-false}" = "true" ]; then
+    pass "Hermes browser tools opted in (AAB_HERMES_BROWSER_TOOLS=true); browser cache not asserted absent."
+else
+    [ ! -e "$hermes_playwright_cache" ] \
+        || fail "Hermes browser stack installed despite the lean default (found $hermes_playwright_cache)."
+    pass "Hermes browser stack skipped by default (no Playwright Chromium cache)."
+fi
 # The agitentic marketplace plugin is materialized into Hermes's plugin dir
 # (its source tree carries no root plugin.yaml, so the bootstrap synthesizes
 # one) and enabled.

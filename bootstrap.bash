@@ -135,6 +135,12 @@ DEFAULT_HERMES_MAX_CONCURRENCY="$DEFAULT_CODEX_AGENT_MAX_THREADS"
 # consolidates agent-created skills. Off by default for predictable unattended
 # runs (set AAB_HERMES_CURATOR=true to re-enable).
 DEFAULT_HERMES_CURATOR="false"
+# Hermes's browser tools drive a headless Chromium that its installer pulls in
+# via Playwright — a ~110 MiB browser download plus a stack of X11/graphics
+# system libraries. AAB's agents target an inference gateway, not a browser, so
+# this is off by default for a lean install (set AAB_HERMES_BROWSER_TOOLS=true
+# to install the Playwright Chromium and enable browser automation).
+DEFAULT_HERMES_BROWSER_TOOLS="false"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
@@ -330,16 +336,44 @@ BASH
 install_hermes() {
     log "Installing / updating Hermes via NousResearch installer..."
     # The installer fetches from raw.githubusercontent.com (not the GitHub
-    # API), so a plain curl | bash like Claude's suffices; no token wrapper
-    # is needed. It provisions ~/.hermes (uv, Python, venv) and drops a
-    # launcher at ~/.local/bin/hermes, and skips its interactive setup wizard
-    # when no TTY is attached.
-    curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+    # API), so no token wrapper is needed. It provisions ~/.hermes (uv, Python,
+    # venv) and drops a launcher at ~/.local/bin/hermes.
+    #
+    # Its setup wizard and gateway prompts read from /dev/tty directly, not
+    # stdin, so a plain `curl | bash` does NOT keep it unattended: piping only
+    # redirects stdin, leaving the controlling terminal open for the wizard to
+    # grab. Two defenses, both required: pass the installer's own unattended
+    # flags (--skip-setup skips the API-key wizard, --non-interactive takes the
+    # default for every prompt without reading), and run it without a
+    # controlling terminal the way install_codex does, so a prompt that slips
+    # past the flags still can't block. AAB writes ~/.hermes/config.yaml itself,
+    # so the wizard is redundant.
+    #
+    # --skip-browser drops the Playwright Chromium download and its graphics
+    # system libraries unless AAB_HERMES_BROWSER_TOOLS opts back in; AAB's
+    # agents target an inference gateway, not a browser.
+    local installer_url="https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
+    local real_curl
+    real_curl="$(command -v curl)"
+    local installer_args=(--skip-setup --non-interactive)
+    if [ "${AAB_HERMES_BROWSER_TOOLS:-$DEFAULT_HERMES_BROWSER_TOOLS}" != "true" ]; then
+        installer_args+=(--skip-browser)
+    fi
+    local tmpdir
+    tmpdir="$(mktemp -d)"
+    (
+        set -euo pipefail
+        trap 'rm -rf "$tmpdir"' EXIT
+
+        local installer="${tmpdir}/hermes-install.sh"
+        "$real_curl" -fsSL "$installer_url" -o "$installer"
+        _run_without_controlling_tty bash "$installer" "${installer_args[@]}"
+    )
 }
 
 _run_without_controlling_tty() {
     if ! command -v setsid >/dev/null 2>&1; then
-        warn "setsid not found; cannot guarantee an unattended Codex installer run."
+        warn "setsid not found; cannot guarantee an unattended installer run."
         exit 1
     fi
 
@@ -564,6 +598,7 @@ write_aab_env_file() {
         _write_shell_export AAB_HERMES_CHILD_TIMEOUT "${AAB_HERMES_CHILD_TIMEOUT:-$DEFAULT_HERMES_CHILD_TIMEOUT}"
         _write_shell_export AAB_HERMES_MAX_CONCURRENCY "${AAB_HERMES_MAX_CONCURRENCY:-$DEFAULT_HERMES_MAX_CONCURRENCY}"
         _write_shell_export AAB_HERMES_CURATOR "${AAB_HERMES_CURATOR:-$DEFAULT_HERMES_CURATOR}"
+        _write_shell_export AAB_HERMES_BROWSER_TOOLS "${AAB_HERMES_BROWSER_TOOLS:-$DEFAULT_HERMES_BROWSER_TOOLS}"
         _write_shell_export AAB_GH_TOKEN "${AAB_GH_TOKEN:-}"
         _write_shell_export AAB_BREV_API_KEY "${AAB_BREV_API_KEY:-}"
         _write_shell_export AAB_BREV_ORG_ID "${AAB_BREV_ORG_ID:-}"
