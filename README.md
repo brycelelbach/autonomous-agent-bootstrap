@@ -159,6 +159,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL` | Nemotron sonnet-tier model. |
 | `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL` | Nemotron opus-tier model. |
 | `AAB_CLAUDE_CODE_EFFORT` | Claude Code effort level. Defaults to `max`. |
+| `AAB_CLAUDE_CODE_SUBAGENT_MODEL` | Model for sub-agents and team teammates, which spawn as separate processes. Mapped to `CLAUDE_CODE_SUBAGENT_MODEL`. Defaults to the resolved `ANTHROPIC_MODEL` the main agent uses, so a third-party gateway receives a model id it recognizes instead of a canonical first-party one. |
 | `AAB_CODEX_INFERENCE_PROVIDER` | `first-party` or `third-party-openai`. Selects the unqualified `codex` launcher behavior. Defaults to `first-party`. |
 | `AAB_CODEX_FIRST_PARTY_API_KEY` | OpenAI API key for first-party Codex. Stored in `~/.aab/.env`, mapped to `OPENAI_API_KEY` by `codex-first-party`, and used for `codex login --with-api-key`. |
 | `AAB_CODEX_FIRST_PARTY_MODEL` | Codex first-party model. Defaults to `gpt-5.5`. |

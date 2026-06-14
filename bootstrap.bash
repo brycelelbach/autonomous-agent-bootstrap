@@ -551,6 +551,7 @@ write_aab_env_file() {
         printf '# Written by autonomous-agent-bootstrap. Re-run bootstrap.bash to update.\n'
         _write_shell_export AAB_CLAUDE_CODE_INFERENCE_PROVIDER "$claude_provider"
         _write_shell_export AAB_CLAUDE_CODE_EFFORT "${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
+        _write_shell_export AAB_CLAUDE_CODE_SUBAGENT_MODEL "${AAB_CLAUDE_CODE_SUBAGENT_MODEL:-}"
         _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
         _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
         _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
@@ -1971,6 +1972,13 @@ case "$provider" in
         export CLAUDE_CODE_AUTO_COMPACT_WINDOW=262144
         ;;
 esac
+
+# CLAUDE_CODE_SUBAGENT_MODEL pins the model for sub-agents and team teammates,
+# which spawn as separate Claude Code processes and otherwise resolve a
+# canonical first-party model id that a third-party gateway rejects. Default it
+# to the same resolved ANTHROPIC_MODEL the main agent uses (provider-correct,
+# carrying any "[1m]" suffix); AAB_CLAUDE_CODE_SUBAGENT_MODEL overrides.
+export CLAUDE_CODE_SUBAGENT_MODEL="${AAB_CLAUDE_CODE_SUBAGENT_MODEL:-$ANTHROPIC_MODEL}"
 
 has_skip=0
 for arg in "$@"; do
