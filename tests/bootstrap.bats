@@ -26,6 +26,7 @@ setup() {
           AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL \
           AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL \
           AAB_CLAUDE_CODE_EFFORT \
+          AAB_CLAUDE_CODE_SUBAGENT_MODEL \
           AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
           AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY \
           AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL \
@@ -723,6 +724,7 @@ printf '%s\n' "\$@" > "$TEST_HOME/claude-launcher-args"
     printf 'base_url=%s\n' "\${ANTHROPIC_BASE_URL:-}"
     printf 'auth_token=%s\n' "\${ANTHROPIC_AUTH_TOKEN:-}"
     printf 'model=%s\n' "\${ANTHROPIC_MODEL:-}"
+    printf 'subagent_model=%s\n' "\${CLAUDE_CODE_SUBAGENT_MODEL:-}"
     printf 'debug=%s\n' "\${DEBUG_SDK:-}"
     printf 'auto_compact_window=%s\n' "\${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}"
 } > "$TEST_HOME/claude-launcher-env"
@@ -754,6 +756,9 @@ SH
     # window and engages auto-compaction; Claude Code strips the suffix before
     # the request, so the gateway still receives the real id.
     grep -Fxq 'model=deepseek-reasoner[1m]' "$TEST_HOME/claude-launcher-env"
+    # Sub-agents and teammates default to the same resolved model as the main
+    # agent (including the [1m] suffix), so a gateway gets a recognized id.
+    grep -Fxq 'subagent_model=deepseek-reasoner[1m]' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'auto_compact_window=1000000' "$TEST_HOME/claude-launcher-env"
 }
@@ -801,6 +806,37 @@ SH
     grep -Fxq 'model=nvidia/nvidia/nemotron-3-ultra[1m]' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'auto_compact_window=262144' "$TEST_HOME/claude-launcher-env"
+}
+
+@test "install_claude_launcher pins subagent model, explicit override or main-agent default" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$TEST_HOME/real-claude" <<SH
+#!/usr/bin/env bash
+{
+    printf 'model=%s\n' "\${ANTHROPIC_MODEL:-}"
+    printf 'subagent_model=%s\n' "\${CLAUDE_CODE_SUBAGENT_MODEL:-}"
+} > "$TEST_HOME/claude-launcher-env"
+SH
+    chmod +x "$TEST_HOME/real-claude"
+    ln -s "$TEST_HOME/real-claude" "$HOME/.local/bin/claude"
+
+    # Explicit override wins.
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" \
+        AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
+        AAB_CLAUDE_CODE_SUBAGENT_MODEL="claude-haiku-4-5" \
+        write_aab_env_file
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" install_claude_launcher
+    "$HOME/.local/aab-bin/claude" -p hello
+    grep -Fxq 'subagent_model=claude-haiku-4-5' "$TEST_HOME/claude-launcher-env"
+
+    # Unset: defaults to the resolved main-agent ANTHROPIC_MODEL.
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" \
+        AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
+        write_aab_env_file
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" install_claude_launcher
+    "$HOME/.local/aab-bin/claude" -p hello
+    grep -Fxq 'model=claude-opus-4-7' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'subagent_model=claude-opus-4-7' "$TEST_HOME/claude-launcher-env"
 }
 
 setup_fake_codex() {
