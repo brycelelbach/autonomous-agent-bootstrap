@@ -204,6 +204,11 @@ install_base_deps() {
     # reports to HTML by shelling out to pandoc (`autocuda report html`),
     # which fails when pandoc is not on PATH.
     command -v pandoc  >/dev/null 2>&1 || needed+=(pandoc)
+    # autocuda's `viz graph` renders through pygraphviz, which is a pip
+    # dependency of the autocuda package but binds at build/runtime to the
+    # system Graphviz libraries and headers — a `pip install` can't provide
+    # those, so install them here. `dot` is the marker binary for the set.
+    command -v dot     >/dev/null 2>&1 || needed+=(graphviz graphviz-dev)
     # The Brev installer (install-latest.sh) invokes `sudo` unconditionally;
     # bare container images ship without sudo, so we install it even when
     # running as root. Sudo as uid 0 is a no-op passthrough.
@@ -1440,6 +1445,101 @@ write_agent_rules() {
 }
 
 # ---------------------------------------------------------------------------
+# 9b. Install pip-packaged agent plugins listed in agent_pip_packages.txt.
+#
+# Each line is a `pip install` target (a `git+https://…` URL, a PyPI name,
+# anything pip accepts). These packages carry an agent plugin plus its
+# Python runtime: installing one puts its CLI on PATH (the path Codex needs,
+# since it doesn't add a plugin's bin/ to PATH), pulls the plugin's Python
+# dependencies, and — via the package's own `<name> install-plugins`
+# console command, run here — registers the plugin with Claude Code and
+# Codex and drops any Codex subagent definitions into ~/.codex/agents/.
+# This is why the bootstrap no longer hand-installs autocuda's Python deps
+# or its Codex subagent TOML: the package owns that.
+#
+# The list is taken from (in order): $AAB_AGENT_PIP_PACKAGES_FILE, then
+# ./agent_pip_packages.txt when present, otherwise $AAB_AGENT_PIP_PACKAGES_URL.
+# ---------------------------------------------------------------------------
+PIP_PACKAGES_DEFAULT_FILE="${PWD}/agent_pip_packages.txt"
+PIP_PACKAGES_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/agent_pip_packages.txt"
+install_agent_pip_packages() {
+    command -v python3 >/dev/null 2>&1 || { warn "python3 required for pip package install; skipping."; return; }
+
+    local packages_file="${AAB_AGENT_PIP_PACKAGES_FILE:-}"
+    local packages_url="${AAB_AGENT_PIP_PACKAGES_URL:-$PIP_PACKAGES_DEFAULT_URL}"
+    local content=""
+    if [ -n "$packages_file" ] && [ -f "$packages_file" ]; then
+        content=$(cat "$packages_file")
+        log "Reading pip package list from ${packages_file}."
+    elif [ -z "$packages_file" ] && [ -f "$PIP_PACKAGES_DEFAULT_FILE" ]; then
+        content=$(cat "$PIP_PACKAGES_DEFAULT_FILE")
+        log "Reading pip package list from ${PIP_PACKAGES_DEFAULT_FILE}."
+    elif content=$(curl -fsSL "$packages_url" 2>/dev/null); then
+        log "Fetched pip package list from ${packages_url}."
+    else
+        warn "Could not read pip package list (file=${packages_file:-unset}, url=${packages_url}); skipping pip package install."
+        return
+    fi
+
+    # Strip comments and blanks into one install target per line.
+    local -a specs=()
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [ -z "$line" ] && continue
+        specs+=("$line")
+    done <<< "$content"
+
+    if [ ${#specs[@]} -eq 0 ]; then
+        log "Pip package list is empty; skipping pip package install."
+        return
+    fi
+
+    # Private git+https targets need an authenticated fetch. When a GitHub
+    # token is set, hand pip a credential-bearing https rewrite via git's
+    # url.insteadOf so it can clone private repos without the token landing
+    # in the package spec (and thus in any error message pip prints).
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+    local -a pip_env=(env)
+    if [ -n "$github_token" ]; then
+        pip_env=(env "GIT_CONFIG_COUNT=1" \
+            "GIT_CONFIG_KEY_0=url.https://x-access-token:${github_token}@github.com/.insteadOf" \
+            "GIT_CONFIG_VALUE_0=https://github.com/")
+    fi
+
+    # Install into the user site so no root or venv is required; `pip` is
+    # whatever `python3 -m pip` resolves to. `--upgrade` makes re-runs pick
+    # up new package versions (the bootstrap is meant to be idempotent).
+    local spec
+    for spec in "${specs[@]}"; do
+        log "pip install ${spec}"
+        "${pip_env[@]}" python3 -m pip install --user --upgrade "$spec" 2>&1 | sed 's/^/  /' || {
+            warn "pip install ${spec} returned non-zero; skipping its plugin registration."
+            continue
+        }
+        # The package exposes its plugin-registration command as the package's
+        # own console script (`<name> install-plugins`). Derive the console
+        # name from the spec's trailing path component, minus any VCS / extras
+        # decoration, and run it if it landed on PATH. Strip, in order: a URL
+        # fragment/query (`#egg=…`, `?…`), the `.git` suffix, a `@<ref>` git
+        # ref, everything up to the last `/`, `[extras]`, and a version pin.
+        local console
+        console=$(printf '%s' "$spec" | sed -E 's#[#?].*$##; s#\.git($|@)#\1#; s#@[^/]*$##; s#.*/##; s#\[.*##; s#[<>=!~].*##')
+        local bin="${HOME}/.local/bin/${console}"
+        if [ -x "$bin" ] || command -v "$console" >/dev/null 2>&1; then
+            local run
+            if [ -x "$bin" ]; then run="$bin"; else run=$(command -v "$console"); fi
+            log "Registering the ${console} plugin via ${console} install-plugins."
+            "$run" install-plugins 2>&1 | sed 's/^/  /' || \
+                warn "${console} install-plugins returned non-zero; register it manually if needed."
+        else
+            warn "${spec} installed but no '${console}' console script on PATH; cannot auto-register its plugin."
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
 # 10. Install agent plugins listed in agent_plugins.txt.
 #
 # Each line is a GitHub owner/repo that hosts a plugin marketplace
@@ -2451,6 +2551,7 @@ main() {
     install_signing_ssh_key
     install_git_hooks
     write_agent_rules
+    install_agent_pip_packages
     install_agent_plugins
     install_claude_launcher
     install_codex_launcher

@@ -1,9 +1,15 @@
 # Agent plugin marketplaces installed by bootstrap.bash.
 #
 # One GitHub "owner/repo" per line. The repo must contain
-# .claude-plugin/marketplace.json at the repository root. Claude Code and
-# Codex both read that marketplace manifest to discover the marketplace
-# name and the plugin name(s) to install.
+# .claude-plugin/marketplace.json at the repository root. Claude Code,
+# Codex, and Hermes all read that marketplace manifest to discover the
+# marketplace name and the plugin name(s) to install.
+#
+# agitentic and autocuda are also pip packages (see agent_pip_packages.txt):
+# their pip `install-plugins` step registers them with Claude Code and
+# Codex (and pulls their Python deps / Codex subagents). They stay listed
+# here because this marketplace loop is what registers them with Hermes,
+# which the pip packages don't know about. Both paths are idempotent.
 #
 # Lines beginning with '#' and blank lines are ignored. To install
 # additional plugins, add their marketplace repos below.

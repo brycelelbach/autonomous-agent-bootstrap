@@ -17,8 +17,9 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 8. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
 9. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
 10. **Global git-identity enforcement** — the git-identity agent rule above, backed by a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
-11. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code, Codex, and Hermes.
-12. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
+11. **Pip-packaged agent plugins** listed in [`agent_pip_packages.txt`](./agent_pip_packages.txt), `pip install`ed into the user site. Each package carries an agent plugin plus its Python runtime: the install puts the plugin's CLI on PATH, pulls its Python dependencies, and (via the package's own `<name> install-plugins` command) registers the plugin with Claude Code and Codex and installs any Codex subagent definitions. This is what installs autocuda's renderer dependencies and Codex worker subagent, so the bootstrap no longer hand-rolls them.
+12. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code, Codex, and Hermes. The pip-packaged plugins above also appear here so they register with Hermes (which the pip step doesn't cover); both registration paths are idempotent.
+13. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
 
 ## Requirements
 
@@ -188,6 +189,8 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key for git commit/tag signing. |
 | `AAB_AGENT_PLUGINS_FILE` | Path to a local plugin marketplace list. |
 | `AAB_AGENT_PLUGINS_URL` | URL for the plugin marketplace list when no local file is used. |
+| `AAB_AGENT_PIP_PACKAGES_FILE` | Path to a local pip-package list (pip-packaged agent plugins). |
+| `AAB_AGENT_PIP_PACKAGES_URL` | URL for the pip-package list when no local file is used. |
 
 ## What the Script Touches
 

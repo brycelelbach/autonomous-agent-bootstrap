@@ -1,0 +1,20 @@
+# Pip-packaged agent plugins installed by bootstrap.bash (section 9b).
+#
+# One `pip install` target per line — a `git+https://…` URL, a PyPI name,
+# or anything `pip install` accepts. Each package carries an agent plugin
+# plus its Python runtime: installing it puts the plugin's CLI on PATH,
+# pulls the plugin's Python dependencies, and (via the package's own
+# `<name> install-plugins` console command, which bootstrap.bash runs after
+# the install) registers the plugin with Claude Code and Codex and installs
+# any Codex subagent definitions. The console name is the spec's trailing
+# path component (e.g. `…/autocuda` -> `autocuda install-plugins`).
+#
+# Packages listed here still appear in agent_plugins.txt as well: the pip
+# `install-plugins` step registers them with Claude Code and Codex, while
+# the agent_plugins.txt marketplace loop is what registers them with
+# Hermes. Both registration paths are idempotent.
+#
+# Lines beginning with '#' and blank lines are ignored.
+
+git+https://github.com/brycelelbach/agitentic
+git+https://github.com/brycelelbach-private/autocuda
