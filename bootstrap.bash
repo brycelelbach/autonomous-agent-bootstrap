@@ -1393,6 +1393,7 @@ emit_agent_rules() {
     cat <<'RULES'
 ## Operating principles
 
+- Be consistent.
 - Be concise in replies.
 - Act autonomously without seeking operator input.
 - You are in a safe sandbox without credentials that could cause serious harm.
