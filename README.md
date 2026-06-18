@@ -42,7 +42,7 @@ AAB_CODEX_FIRST_PARTY_MODEL=gpt-5.5
 AAB_CODEX_FIRST_PARTY_API_KEY=...
 AAB_CODEX_EFFORT=xhigh
 AAB_CODEX_SERVICE_TIER=priority
-AAB_CODEX_AGENT_MAX_THREADS=16
+AAB_CODEX_AGENT_MAX_THREADS=64
 
 AAB_BREV_API_KEY=...
 AAB_BREV_ORG_ID=...
@@ -168,7 +168,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_CODEX_THIRD_PARTY_OPENAI_MODEL` | Codex third-party OpenAI-compatible model. Defaults to `openai/openai/gpt-5.5`. |
 | `AAB_CODEX_EFFORT` | Codex reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh`. Defaults to `xhigh`. |
 | `AAB_CODEX_SERVICE_TIER` | Codex service tier: `priority`, `flex`, `default`, or `fast` as an alias for `priority`. Defaults to `priority`. |
-| `AAB_CODEX_AGENT_MAX_THREADS` | Maximum number of concurrently open Codex subagent threads. Defaults to `16`. |
+| `AAB_CODEX_AGENT_MAX_THREADS` | Maximum number of concurrently open Codex subagent threads. Defaults to `64`. |
 | `AAB_HERMES_BASE_URL` | OpenAI-compatible gateway base URL for Hermes. No default — point it at your own gateway. A `/v1` suffix is appended automatically when absent. |
 | `AAB_HERMES_API_KEY` | Hermes gateway API key. Stored in `~/.aab/.env`; referenced from `~/.hermes/config.yaml` via `key_env` (never inlined into the config). |
 | `AAB_HERMES_MODEL` | Hermes gateway model. No default — set it to your gateway's model id. |
@@ -176,7 +176,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_HERMES_EFFORT` | Hermes reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Defaults to `xhigh`. |
 | `AAB_HERMES_SHELL_TIMEOUT` | Hermes shell-command timeout in seconds. Defaults to `600` (10 minutes). |
 | `AAB_HERMES_CHILD_TIMEOUT` | Hermes per-subagent stuck-detector timeout in seconds (floored at 30s). Defaults to `86400`. |
-| `AAB_HERMES_MAX_CONCURRENCY` | Maximum concurrent Hermes delegated subagents. Defaults to `16` (matches `AAB_CODEX_AGENT_MAX_THREADS`). |
+| `AAB_HERMES_MAX_CONCURRENCY` | Maximum concurrent Hermes delegated subagents. Defaults to `64` (matches `AAB_CODEX_AGENT_MAX_THREADS`). |
 | `AAB_HERMES_CURATOR` | Whether Hermes's self-improvement curator (background skill review/prune) runs: `true` or `false`. Defaults to `false`. |
 | `AAB_HERMES_BROWSER_TOOLS` | Whether to install Hermes's browser tools — the Playwright Chromium (~110 MiB) and its system graphics libraries: `true` or `false`. Defaults to `false` for a lean install. |
 | `AAB_BREV_API_KEY` | Brev organization-scoped API key. Used with `AAB_BREV_ORG_ID`. |
