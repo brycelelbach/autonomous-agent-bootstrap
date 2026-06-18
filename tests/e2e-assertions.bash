@@ -67,7 +67,7 @@ if [ "$expected_codex_provider" = "third-party-openai" ]; then
 else
     expected_codex_model="${AAB_CODEX_FIRST_PARTY_MODEL:-gpt-5.5}"
 fi
-expected_codex_agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-16}"
+expected_codex_agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-64}"
 expected_codex_agent_max_threads_valid=1
 case "$expected_codex_service_tier" in
     priority|flex|default) ;;
@@ -95,7 +95,7 @@ case "$expected_codex_agent_max_threads" in
     *) expected_codex_agent_max_threads_valid=0 ;;
 esac
 if [ "$expected_codex_agent_max_threads_valid" -eq 0 ]; then
-    expected_codex_agent_max_threads="16"
+    expected_codex_agent_max_threads="64"
 fi
 grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
     || fail "Codex approval_policy is not never."
@@ -179,8 +179,8 @@ assert int(g("agent", "gateway_timeout")) == 0, g("agent", "gateway_timeout")
 assert int(g("agent", "gateway_auto_continue_freshness")) == 0, g("agent", "gateway_auto_continue_freshness")
 assert g("tool_loop_guardrails", "hard_stop_enabled") is False, g("tool_loop_guardrails", "hard_stop_enabled")
 assert g("tool_loop_guardrails", "warnings_enabled") is False, g("tool_loop_guardrails", "warnings_enabled")
-# per-op timeouts raised; concurrency matches Codex's cap (16)
-assert int(g("delegation", "max_concurrent_children")) == 16, g("delegation", "max_concurrent_children")
+# per-op timeouts raised; concurrency matches Codex's cap (64)
+assert int(g("delegation", "max_concurrent_children")) == 64, g("delegation", "max_concurrent_children")
 assert int(g("terminal", "timeout")) == 600, g("terminal", "timeout")
 assert int(g("delegation", "child_timeout_seconds")) >= 86400, g("delegation", "child_timeout_seconds")
 # self-improvement (curator) disabled

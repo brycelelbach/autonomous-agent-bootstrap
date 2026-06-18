@@ -292,8 +292,8 @@ PY
 
 @test "write_hermes_config defaults Hermes concurrency to the Codex thread cap" {
     write_hermes_config
-    # Hermes max concurrency tracks AAB_CODEX_AGENT_MAX_THREADS' default (16).
-    grep -q '^  max_concurrent_children: 16$' "$HERMES_CONFIG"
+    # Hermes max concurrency tracks AAB_CODEX_AGENT_MAX_THREADS' default (64).
+    grep -q '^  max_concurrent_children: 64$' "$HERMES_CONFIG"
 }
 
 @test "write_hermes_config honors base URL, model, api-mode, and effort overrides" {
@@ -394,7 +394,7 @@ SH
     grep -q '^inherit = "all"$' "$CODEX_CONFIG"
     grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG"
     grep -q '^\[agents\]$' "$CODEX_CONFIG"
-    grep -q '^max_threads = 16$' "$CODEX_CONFIG"
+    grep -q '^max_threads = 64$' "$CODEX_CONFIG"
     grep -qF "[projects.\"$HOME\"]" "$CODEX_CONFIG"
     grep -q '^trust_level = "trusted"$' "$CODEX_CONFIG"
 }
@@ -445,11 +445,11 @@ SH
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config defaults invalid agent max threads back to 16" {
+@test "write_codex_config defaults invalid agent max threads back to 64" {
     AAB_CODEX_AGENT_MAX_THREADS="many" run write_codex_config
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_CODEX_AGENT_MAX_THREADS='many'"* ]]
-    grep -q '^max_threads = 16$' "$CODEX_CONFIG"
+    grep -q '^max_threads = 64$' "$CODEX_CONFIG"
 }
 
 @test "write_codex_config backs up pre-existing config.toml" {
