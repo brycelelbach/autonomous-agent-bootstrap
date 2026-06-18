@@ -1,0 +1,33 @@
+# Debian packages bootstrap.bash installs with apt-get.
+#
+# One package per line, '#' comments and blank lines ignored. apt no-ops
+# packages that are already installed, so the whole list is installed
+# unconditionally. To install additional packages, add them below.
+
+# Bare container images (e.g. ubuntu:22.04) ship apt-get but not these, and the
+# bootstrap and its installers assume curl / python3 / git / tar are present.
+curl
+python3
+git
+tar
+# The Hermes installer downloads a Node.js runtime as a .tar.xz and pipes it
+# through tar, which needs the xz binary.
+xz-utils
+gawk
+ripgrep
+# The autocuda agent plugin's report skills render their markdown reports to
+# HTML by shelling out to pandoc (`autocuda report html`).
+pandoc
+# autocuda's `viz graph` renderer depends on pygraphviz, a C binding with no
+# prebuilt wheel: it compiles against the system Graphviz headers
+# (graphviz/cgraph.h, from graphviz-dev) and links libcgraph, using a C
+# compiler and pkg-config. build-essential supplies the compiler toolchain.
+graphviz
+graphviz-dev
+pkg-config
+build-essential
+# The Brev installer (install-latest.sh) invokes `sudo` unconditionally; we
+# install it even when running as root, where sudo is a no-op passthrough.
+sudo
+# HTTPS curl / apt fetches from cli.github.com need the CA bundle.
+ca-certificates

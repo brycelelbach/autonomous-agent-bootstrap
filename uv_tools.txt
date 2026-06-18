@@ -1,0 +1,18 @@
+# CLI tools bootstrap.bash installs with `uv tool install`.
+#
+# One tool specifier per line (the syntax `uv tool install` accepts), '#'
+# comments and blank lines ignored. Each tool gets its own isolated environment
+# and its executables are symlinked into ~/.local/bin, which the managed PATH
+# puts ahead of the system dirs. To install additional tools, add them below.
+#
+# The private autocuda package is deliberately absent: it lives behind
+# brycelelbach-private and bootstrap.bash installs it in its own best-effort
+# step that tolerates a host without repository access.
+
+# ruff: the linter / formatter. Pinned to the version the ruff-pre-commit hook
+# resolves to, so a bare `ruff` matches what `pre-commit run` invokes.
+ruff==0.15.12
+
+# pre-commit: the hook runner projects bootstrapped on this host run locally
+# and in CI.
+pre-commit

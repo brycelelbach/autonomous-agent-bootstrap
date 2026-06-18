@@ -49,7 +49,9 @@ setup() {
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           OPENAI_API_KEY GH_TOKEN GITHUB_TOKEN \
-          AAB_AGENT_PLUGINS_FILE AAB_AGENT_PLUGINS_URL
+          AAB_AGENT_PLUGINS_FILE AAB_AGENT_PLUGINS_URL \
+          AAB_APT_PACKAGES_FILE AAB_APT_PACKAGES_URL \
+          AAB_UV_TOOLS_FILE AAB_UV_TOOLS_URL
     # shellcheck disable=SC1091
     source "$REPO_ROOT/bootstrap.bash"
 }
@@ -639,6 +641,222 @@ SH
     grep -Fwq -- '--non-interactive' "$TEST_HOME/hermes-installer-args"
 }
 
+# Stub `uv` on PATH so the tool-install steps find it without reaching the
+# network. The stub records every invocation. UV_FAIL_TOOL_INSTALL=1 makes
+# `uv tool install` exit non-zero, exercising the best-effort warning branches.
+setup_fake_uv() {
+    export FAKE_UV_BIN="$TEST_HOME/fake-uv-bin"
+    mkdir -p "$FAKE_UV_BIN"
+    cat > "$FAKE_UV_BIN/uv" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$TEST_HOME/uv-invocations"
+if [ "${1:-}" = "tool" ] && [ "${2:-}" = "install" ] && [ "${UV_FAIL_TOOL_INSTALL:-0}" = "1" ]; then
+    exit 1
+fi
+exit 0
+SH
+    chmod +x "$FAKE_UV_BIN/uv"
+    export PATH="$FAKE_UV_BIN:$PATH"
+    UV_BIN="$FAKE_UV_BIN/uv"
+}
+
+# Stub `curl` so the uv installer fetch drops a fake `uv` into ~/.local/bin
+# instead of reaching the network; the fetched uv records its invocations too.
+setup_fake_uv_installer() {
+    export FAKE_UV_INSTALLER_BIN="$TEST_HOME/fake-uv-installer-bin"
+    mkdir -p "$FAKE_UV_INSTALLER_BIN"
+    cat > "$FAKE_UV_INSTALLER_BIN/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$TEST_HOME/uv-installer-curl-invocations"
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/uv" <<'UV'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$TEST_HOME/uv-invocations"
+UV
+chmod +x "$HOME/.local/bin/uv"
+SH
+    chmod +x "$FAKE_UV_INSTALLER_BIN/curl"
+    export PATH="$FAKE_UV_INSTALLER_BIN:$PATH"
+}
+
+@test "ensure_uv installs uv via the official installer when absent" {
+    # A PATH without uv forces the installer path; the fake curl provisions
+    # ~/.local/bin/uv, which ensure_uv then records as UV_BIN.
+    setup_fake_uv_installer
+    PATH="$FAKE_UV_INSTALLER_BIN:/usr/bin:/bin" run ensure_uv
+    [ "$status" -eq 0 ]
+    grep -Fq 'astral.sh/uv/install.sh' "$TEST_HOME/uv-installer-curl-invocations"
+}
+
+@test "ensure_uv prepends ~/.local/bin to the live PATH so uv tool binaries resolve in-process" {
+    setup_fake_uv
+    # A PATH without ~/.local/bin: ensure_uv must prepend it so executables that
+    # `uv tool install` symlinks there (ruff, pre-commit, autocuda) resolve
+    # later in the same run.
+    PATH="$FAKE_UV_BIN:/usr/bin:/bin" ensure_uv
+    case ":${PATH}:" in
+        *":${HOME}/.local/bin:"*) ;;
+        *) printf 'PATH is %s\n' "$PATH"; return 1 ;;
+    esac
+    # ~/.local/bin comes before the system dirs so its tools win.
+    [[ "$PATH" == "${HOME}/.local/bin:"* ]]
+}
+
+@test "install_uv_tools runs uv tool install for each tool listed in the file" {
+    setup_fake_uv
+    printf '%s\n' '# The linter, pinned.' 'ruff==0.15.12' '' '# The hook runner.' 'pre-commit' \
+        > "$TEST_HOME/uv-tools.txt"
+    export AAB_UV_TOOLS_FILE="$TEST_HOME/uv-tools.txt"
+
+    run install_uv_tools
+    [ "$status" -eq 0 ]
+    # Each non-comment, non-blank line becomes its own `uv tool install`; the
+    # comment and blank lines are stripped, not installed.
+    grep -Fxq 'tool install ruff==0.15.12' "$TEST_HOME/uv-invocations"
+    grep -Fxq 'tool install pre-commit' "$TEST_HOME/uv-invocations"
+    [ "$(grep -c 'tool install' "$TEST_HOME/uv-invocations")" -eq 2 ]
+}
+
+@test "install_uv_tools reads ./uv_tools.txt by default" {
+    setup_fake_uv
+    # No AAB_UV_TOOLS_FILE override: the committed uv_tools.txt at the repo root
+    # is the default source, and the tools it lists get installed.
+    UV_TOOLS_DEFAULT_FILE="$REPO_ROOT/uv_tools.txt" run install_uv_tools
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Reading uv tool list from $REPO_ROOT/uv_tools.txt."* ]]
+    grep -Fxq 'tool install ruff==0.15.12' "$TEST_HOME/uv-invocations"
+    grep -Fxq 'tool install pre-commit' "$TEST_HOME/uv-invocations"
+}
+
+@test "install_uv_tools warns and continues when a tool install fails" {
+    setup_fake_uv
+    printf '%s\n' 'ruff==0.15.12' > "$TEST_HOME/uv-tools.txt"
+    export AAB_UV_TOOLS_FILE="$TEST_HOME/uv-tools.txt"
+    export UV_FAIL_TOOL_INSTALL=1
+
+    run install_uv_tools
+    # Best effort: a failed tool install warns but does not abort the bootstrap.
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN:"*"ruff==0.15.12"* ]]
+}
+
+@test "uv_tools.txt pins ruff to the ruff-pre-commit hook version" {
+    grep -Fxq 'ruff==0.15.12' "$REPO_ROOT/uv_tools.txt"
+    grep -Fxq 'pre-commit' "$REPO_ROOT/uv_tools.txt"
+    # autocuda is private, so it must not be an installable tool line here (it
+    # may be named in a comment explaining its absence). Strip comments and
+    # blanks, then assert no remaining line names it.
+    run bash -c "sed -E 's/#.*//' '$REPO_ROOT/uv_tools.txt' | grep -i 'autocuda'"
+    [ "$status" -ne 0 ]
+}
+
+@test "install_private_autocuda installs autocuda from its git+https url as a uv tool" {
+    setup_fake_uv
+
+    run install_private_autocuda
+    [ "$status" -eq 0 ]
+    # Installed as its own isolated uv tool, not into a shared interpreter.
+    grep -Fq "tool install git+https://github.com/${AUTOCUDA_PRIVATE_REPO}" "$TEST_HOME/uv-invocations"
+}
+
+@test "install_private_autocuda warns and continues when the install fails" {
+    setup_fake_uv
+    export UV_FAIL_TOOL_INSTALL=1
+
+    run install_private_autocuda
+    # Best effort: a failed install is never fatal.
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN:"*"autocuda"* ]]
+}
+
+@test "install_private_autocuda authenticates private fetches via a github token rewrite" {
+    setup_fake_uv
+    # Capture the environment uv runs under so the url.insteadOf rewrite is
+    # observable; the token value itself never lands in the package spec.
+    cat > "$FAKE_UV_BIN/uv" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'KEY0=%s VALUE0=%s\n' "${GIT_CONFIG_KEY_0:-}" "${GIT_CONFIG_VALUE_0:-}" >> "$TEST_HOME/uv-git-env"
+exit 0
+SH
+    chmod +x "$FAKE_UV_BIN/uv"
+    export AAB_GH_TOKEN="ghp_faketoken123"
+
+    run install_private_autocuda
+    [ "$status" -eq 0 ]
+    grep -Fq 'KEY0=url.https://x-access-token:ghp_faketoken123@github.com/.insteadOf VALUE0=https://github.com/' "$TEST_HOME/uv-git-env"
+}
+
+@test "run_autocuda_install runs autocuda install when autocuda is on PATH" {
+    local fake_bin="$TEST_HOME/fake-autocuda-bin"
+    mkdir -p "$fake_bin"
+    cat > "$fake_bin/autocuda" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >> "$TEST_HOME/autocuda-invocations"
+SH
+    chmod +x "$fake_bin/autocuda"
+    PATH="$fake_bin:$PATH" run run_autocuda_install
+    [ "$status" -eq 0 ]
+    grep -Fxq 'install' "$TEST_HOME/autocuda-invocations"
+}
+
+@test "run_autocuda_install warns and skips when autocuda is not on PATH" {
+    # A PATH without autocuda: the private install was skipped, so this is a
+    # graceful no-op warning rather than an error.
+    PATH="/usr/bin:/bin" run run_autocuda_install
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN:"*"autocuda"* ]]
+    [ ! -f "$TEST_HOME/autocuda-invocations" ]
+}
+
+@test "run_autocuda_install restores AAB-managed settings.json keys that autocuda install strips" {
+    # autocuda install shells out to claude's plugin CLI, which re-serialises
+    # settings.json and drops top-level keys like effortLevel. The fake autocuda
+    # below reproduces that strip; run_autocuda_install must re-merge them.
+    mkdir -p "$CLAUDE_DIR"
+    cat > "$SETTINGS_FILE" <<'JSON'
+{
+  "model": "claude-opus-4-7",
+  "effortLevel": "max",
+  "env": {"CLAUDE_CODE_EFFORT_LEVEL": "max"},
+  "extraKnownMarketplaces": {}
+}
+JSON
+    local fake_bin="$TEST_HOME/fake-autocuda-strip-bin"
+    mkdir -p "$fake_bin"
+    cat > "$fake_bin/autocuda" <<SH
+#!/usr/bin/env bash
+# Mimic claude's plugin CLI re-serialise: keep its own keys, drop effortLevel.
+python3 - "$SETTINGS_FILE" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d.pop("effortLevel", None)
+d["extraKnownMarketplaces"]["brycelelbach-autocuda"] = {"source": {"source": "github", "repo": "brycelelbach/autocuda"}}
+json.dump(d, open(p, "w"), indent=2)
+PY
+SH
+    chmod +x "$fake_bin/autocuda"
+
+    PATH="$fake_bin:$PATH" run run_autocuda_install
+    [ "$status" -eq 0 ]
+    # effortLevel is re-merged from the snapshot; the marketplace autocuda
+    # install added survives (live value wins where present).
+    python3 - "$SETTINGS_FILE" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["effortLevel"] == "max", d
+assert d["model"] == "claude-opus-4-7", d
+assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "max", d
+assert "brycelelbach-autocuda" in d["extraKnownMarketplaces"], d
+PY
+    # The snapshot file is cleaned up.
+    [ ! -f "${SETTINGS_FILE}.pre-autocuda-install.bak" ]
+}
+
 @test "install_codex_launcher wraps codex with dynamic trust and bypass flags" {
     mkdir -p "$HOME/.local/bin" "$TEST_HOME/work/subdir"
     cat > "$TEST_HOME/real-codex" <<SH
@@ -1130,144 +1348,116 @@ SH
     [[ "$output" != *"unbound variable"* ]]
 }
 
-@test "install_base_deps is a no-op when all required commands are present" {
-    local fake_bin="$TEST_HOME/fake-base-deps-present-bin"
+# A fake apt-get that records its args, plus a passthrough `env` so the
+# `$SUDO env DEBIAN_FRONTEND=... apt-get` call works under a sandboxed PATH.
+# `cat` is symlinked in so install_base_deps can read the package-list file
+# while PATH is otherwise just this fake dir. $1 is the directory to populate;
+# the recorded invocations land in $TEST_HOME/apt-get-invocations.
+make_apt_get_fakes() {
+    local fake_bin="$1"
     mkdir -p "$fake_bin"
-    for cmd in curl python3 git tar xz gawk rg pandoc sudo apt-get; do
-        cat > "$fake_bin/$cmd" <<'SH'
+    ln -s "$(command -v cat)" "$fake_bin/cat"
+    cat > "$fake_bin/env" <<'SH'
 #!/bin/sh
-printf '%s\n' "$0 $*" >> "$TEST_HOME/base-deps-present-invocations"
-exit 0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        *=*) shift ;;
+        *) break ;;
+    esac
+done
+exec "$@"
 SH
-        chmod +x "$fake_bin/$cmd"
-    done
-    [ -f /etc/ssl/certs/ca-certificates.crt ] || skip "precondition: ca-certificates bundle must exist"
-
-    SUDO="" PATH="$fake_bin" run install_base_deps
-    [ "$status" -eq 0 ]
-    # Silent: no "Installing base deps:" log line, and no apt-get invocation.
-    [[ "$output" != *"Installing base deps:"* ]]
-    [ ! -f "$TEST_HOME/base-deps-present-invocations" ]
+    chmod +x "$fake_bin/env"
+    cat > "$fake_bin/apt-get" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$TEST_HOME/apt-get-invocations"
+SH
+    chmod +x "$fake_bin/apt-get"
 }
 
-@test "install_base_deps installs ripgrep when rg is missing" {
+@test "install_base_deps installs exactly the packages listed in the file" {
     local fake_bin="$TEST_HOME/fake-base-deps-bin"
-    mkdir -p "$fake_bin"
-
-    for cmd in curl python3 git tar xz gawk pandoc sudo; do
-        cat > "$fake_bin/$cmd" <<'SH'
-#!/bin/sh
-exit 0
-SH
-        chmod +x "$fake_bin/$cmd"
-    done
-    cat > "$fake_bin/env" <<'SH'
-#!/bin/sh
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        *=*) shift ;;
-        *) break ;;
-    esac
-done
-exec "$@"
-SH
-    chmod +x "$fake_bin/env"
-    cat > "$fake_bin/apt-get" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$TEST_HOME/apt-get-invocations"
-SH
-    chmod +x "$fake_bin/apt-get"
+    make_apt_get_fakes "$fake_bin"
+    # Comment and blank lines are stripped; the surviving packages are the whole
+    # install list — no per-package marker check, the list goes in unconditionally.
+    printf '%s\n' '# A comment.' 'curl' '' 'ripgrep' 'graphviz-dev' \
+        > "$TEST_HOME/apt-packages.txt"
+    export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
 
     SUDO="" PATH="$fake_bin" run install_base_deps
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Installing base deps: ripgrep."* ]]
+    [[ "$output" == *"Reading apt package list from $TEST_HOME/apt-packages.txt."* ]]
+    [[ "$output" == *"Installing base deps: curl ripgrep graphviz-dev."* ]]
     grep -Fxq 'update -y' "$TEST_HOME/apt-get-invocations"
-    grep -Fxq 'install -y --no-install-recommends ripgrep' "$TEST_HOME/apt-get-invocations"
+    grep -Fxq 'install -y --no-install-recommends curl ripgrep graphviz-dev' "$TEST_HOME/apt-get-invocations"
 }
 
-@test "install_base_deps installs pandoc when pandoc is missing" {
-    local fake_bin="$TEST_HOME/fake-base-deps-pandoc-bin"
-    mkdir -p "$fake_bin"
-
-    for cmd in curl python3 git tar xz gawk rg sudo; do
-        cat > "$fake_bin/$cmd" <<'SH'
-#!/bin/sh
-exit 0
-SH
-        chmod +x "$fake_bin/$cmd"
-    done
-    cat > "$fake_bin/env" <<'SH'
-#!/bin/sh
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        *=*) shift ;;
-        *) break ;;
-    esac
-done
-exec "$@"
-SH
-    chmod +x "$fake_bin/env"
-    cat > "$fake_bin/apt-get" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$TEST_HOME/apt-get-invocations"
-SH
-    chmod +x "$fake_bin/apt-get"
-
-    SUDO="" PATH="$fake_bin" run install_base_deps
+@test "install_base_deps reads ./apt_packages.txt by default" {
+    local fake_bin="$TEST_HOME/fake-base-deps-default-bin"
+    make_apt_get_fakes "$fake_bin"
+    # No AAB_APT_PACKAGES_FILE override: the committed apt_packages.txt at the
+    # repo root is the default source, and the packages it lists get installed.
+    SUDO="" APT_PACKAGES_DEFAULT_FILE="$REPO_ROOT/apt_packages.txt" PATH="$fake_bin" \
+        run install_base_deps
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Installing base deps: pandoc."* ]]
-    grep -Fxq 'update -y' "$TEST_HOME/apt-get-invocations"
-    grep -Fxq 'install -y --no-install-recommends pandoc' "$TEST_HOME/apt-get-invocations"
-}
-
-@test "install_base_deps installs xz-utils when xz is missing (Hermes Node runtime)" {
-    local fake_bin="$TEST_HOME/fake-base-deps-xz-bin"
-    mkdir -p "$fake_bin"
-
-    for cmd in curl python3 git tar gawk rg pandoc sudo; do
-        cat > "$fake_bin/$cmd" <<'SH'
-#!/bin/sh
-exit 0
-SH
-        chmod +x "$fake_bin/$cmd"
-    done
-    cat > "$fake_bin/env" <<'SH'
-#!/bin/sh
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        *=*) shift ;;
-        *) break ;;
-    esac
-done
-exec "$@"
-SH
-    chmod +x "$fake_bin/env"
-    cat > "$fake_bin/apt-get" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >> "$TEST_HOME/apt-get-xz-invocations"
-SH
-    chmod +x "$fake_bin/apt-get"
-
-    SUDO="" PATH="$fake_bin" run install_base_deps
-
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Installing base deps: xz-utils."* ]]
-    grep -Fxq 'install -y --no-install-recommends xz-utils' "$TEST_HOME/apt-get-xz-invocations"
+    [[ "$output" == *"Reading apt package list from $REPO_ROOT/apt_packages.txt."* ]]
+    # The autocuda pygraphviz build toolchain is part of the default list, so it
+    # gets installed alongside the rest.
+    grep -Eq 'install -y --no-install-recommends .*graphviz-dev.*build-essential' "$TEST_HOME/apt-get-invocations"
+    grep -Eq 'install -y --no-install-recommends .*ripgrep' "$TEST_HOME/apt-get-invocations"
 }
 
 @test "install_base_deps warns and skips when apt-get is unavailable" {
-    # Empty PATH → command -v fails for every external tool, including
-    # apt-get. Exercises the "bare host without apt-get" branch where the
-    # function must not blow up, just warn and return.
-    local empty_bin="$TEST_HOME/empty-bin"
-    mkdir -p "$empty_bin"
-    PATH="$empty_bin" run install_base_deps
+    # A PATH with coreutils (so the file read works) but no apt-get exercises
+    # the "bare host without apt-get" branch: warn and return, never install.
+    local fake_bin="$TEST_HOME/fake-base-deps-noapt-bin"
+    mkdir -p "$fake_bin"
+    ln -s "$(command -v cat)" "$fake_bin/cat"
+    printf '%s\n' 'curl' 'ripgrep' > "$TEST_HOME/apt-packages.txt"
+    export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
+
+    PATH="$fake_bin" run install_base_deps
     [ "$status" -eq 0 ]
     [[ "$output" == *"apt-get is not available"* ]]
     # Should NOT claim to be installing anything.
     [[ "$output" != *"Installing base deps:"* ]]
+}
+
+@test "install_base_deps warns and skips when passwordless sudo is unavailable" {
+    # Non-empty SUDO plus a `sudo -n true` that fails models a host where
+    # privilege escalation needs a password the unattended run cannot supply.
+    local fake_bin="$TEST_HOME/fake-base-deps-nosudo-bin"
+    make_apt_get_fakes "$fake_bin"
+    cat > "$fake_bin/sudo" <<'SH'
+#!/bin/sh
+# `sudo -n true` fails: no passwordless sudo.
+[ "$1" = "-n" ] && exit 1
+exit 0
+SH
+    chmod +x "$fake_bin/sudo"
+    printf '%s\n' 'curl' 'ripgrep' > "$TEST_HOME/apt-packages.txt"
+    export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
+
+    SUDO="sudo" PATH="$fake_bin" run install_base_deps
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"passwordless sudo is not available"* ]]
+    [[ "$output" != *"Installing base deps:"* ]]
+    [ ! -f "$TEST_HOME/apt-get-invocations" ]
+}
+
+@test "install_base_deps skips when the package list is empty" {
+    local fake_bin="$TEST_HOME/fake-base-deps-empty-bin"
+    make_apt_get_fakes "$fake_bin"
+    # Only comments and blanks: nothing to install, so no apt-get call.
+    printf '%s\n' '# Only a comment.' '' > "$TEST_HOME/apt-packages.txt"
+    export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
+
+    SUDO="" PATH="$fake_bin" run install_base_deps
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"apt package list is empty"* ]]
+    [ ! -f "$TEST_HOME/apt-get-invocations" ]
 }
 
 

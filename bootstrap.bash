@@ -97,6 +97,11 @@ AGENT_RULES_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
 ETC_ENV="/etc/environment"
 ETC_ENV_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
 ETC_ENV_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+# Path to the uv binary, resolved by ensure_uv and consumed by the uv tool
+# install steps.
+UV_BIN=""
+# Private autocuda package, installed best-effort as its own uv tool.
+AUTOCUDA_PRIVATE_REPO="brycelelbach-private/autocuda"
 DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-4-5"
 DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
@@ -182,52 +187,61 @@ need_sudo() {
 SUDO=$(need_sudo)
 
 # ---------------------------------------------------------------------------
-# 0. Install base dependencies (curl / python3 / git / tar / gawk / ripgrep /
-# pandoc / ca-certificates) via apt-get. Bare container images (e.g. ubuntu:22.04)
-# ship with apt-get but nothing else, so we can't assume curl or python3
-# exist.
-# Skip silently if everything's already present — the common case on a
-# host with a developer-ish baseline.
+# 0. Install the Debian base dependencies listed in apt_packages.txt via
+# apt-get. Bare container images (e.g. ubuntu:22.04) ship with apt-get but
+# nothing else, so we can't assume curl or python3 exist. apt no-ops packages
+# that are already installed, so the whole list is installed unconditionally.
+#
+# The list is taken from (in order): $AAB_APT_PACKAGES_FILE, then
+# ./apt_packages.txt when present, otherwise $AAB_APT_PACKAGES_URL.
 # ---------------------------------------------------------------------------
+APT_PACKAGES_DEFAULT_FILE="${PWD}/apt_packages.txt"
+APT_PACKAGES_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/apt_packages.txt"
 install_base_deps() {
-    local needed=()
-    command -v curl    >/dev/null 2>&1 || needed+=(curl)
-    command -v python3 >/dev/null 2>&1 || needed+=(python3)
-    command -v git     >/dev/null 2>&1 || needed+=(git)
-    command -v tar     >/dev/null 2>&1 || needed+=(tar)
-    # The Hermes installer downloads a Node.js runtime as a .tar.xz and pipes
-    # it through tar, which needs the xz binary; bare container images omit it.
-    command -v xz      >/dev/null 2>&1 || needed+=(xz-utils)
-    command -v gawk    >/dev/null 2>&1 || needed+=(gawk)
-    command -v rg      >/dev/null 2>&1 || needed+=(ripgrep)
-    # The autocuda agent plugin's report skills render their markdown
-    # reports to HTML by shelling out to pandoc (`autocuda report html`),
-    # which fails when pandoc is not on PATH.
-    command -v pandoc  >/dev/null 2>&1 || needed+=(pandoc)
-    # The Brev installer (install-latest.sh) invokes `sudo` unconditionally;
-    # bare container images ship without sudo, so we install it even when
-    # running as root. Sudo as uid 0 is a no-op passthrough.
-    command -v sudo    >/dev/null 2>&1 || needed+=(sudo)
-    # HTTPS curl / apt fetches from cli.github.com need the CA bundle.
-    # Bare ubuntu images include it, but verify defensively.
-    [ -f /etc/ssl/certs/ca-certificates.crt ] || needed+=(ca-certificates)
+    local packages_file="${AAB_APT_PACKAGES_FILE:-}"
+    local packages_url="${AAB_APT_PACKAGES_URL:-$APT_PACKAGES_DEFAULT_URL}"
+    local content=""
+    if [ -n "$packages_file" ] && [ -f "$packages_file" ]; then
+        content=$(cat "$packages_file")
+        log "Reading apt package list from ${packages_file}."
+    elif [ -z "$packages_file" ] && [ -f "$APT_PACKAGES_DEFAULT_FILE" ]; then
+        content=$(cat "$APT_PACKAGES_DEFAULT_FILE")
+        log "Reading apt package list from ${APT_PACKAGES_DEFAULT_FILE}."
+    elif content=$(curl -fsSL "$packages_url" 2>/dev/null); then
+        log "Fetched apt package list from ${packages_url}."
+    else
+        warn "Could not read apt package list (file=${packages_file:-unset}, url=${packages_url}); skipping base dep install."
+        return
+    fi
 
-    if [ ${#needed[@]} -eq 0 ]; then
+    # Strip comments and blanks into one package per line.
+    local -a packages=()
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        # trim
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [ -z "$line" ] && continue
+        packages+=("$line")
+    done <<< "$content"
+
+    if [ ${#packages[@]} -eq 0 ]; then
+        log "apt package list is empty; skipping base dep install."
         return
     fi
 
     if ! command -v apt-get >/dev/null 2>&1; then
-        warn "Missing base deps (${needed[*]}) and apt-get is not available; install them manually and re-run."
+        warn "Base deps (${packages[*]}) needed and apt-get is not available; install them manually and re-run."
         return
     fi
     if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
-        warn "Missing base deps (${needed[*]}) and passwordless sudo is not available; install them manually and re-run."
+        warn "Base deps (${packages[*]}) needed and passwordless sudo is not available; install them manually and re-run."
         return
     fi
 
-    log "Installing base deps: ${needed[*]}."
+    log "Installing base deps: ${packages[*]}."
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -y
-    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${needed[@]}"
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${packages[@]}"
 }
 
 # ---------------------------------------------------------------------------
@@ -455,6 +469,194 @@ ensure_gh() {
         $SUDO apt-get install -y gh
     else
         warn "apt-get not found — skipping gh install. Install manually from https://cli.github.com/."
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# 4b. Ensure uv (the Python package / interpreter installer) is available,
+# installing it via its official installer when absent. uv installs the CLI
+# tools below and carries its own Python, so the bootstrap never depends on a
+# system pip (a bare image ships python3 with no pip module). The shim lands in
+# ~/.local/bin. Idempotent: a present uv is left untouched.
+#
+# The official installer wires ~/.local/bin into the managed ~/.bashrc /
+# ~/.profile blocks, which only affect future shells — it is not on this live
+# bootstrap process's PATH. uv's own shim and the executables `uv tool install`
+# symlinks (ruff, pre-commit, autocuda) all land there, so we prepend it to the
+# live PATH here, regardless of whether uv was already installed, so the
+# install steps that follow in this process can find the tools they install.
+# ---------------------------------------------------------------------------
+ensure_uv() {
+    if command -v uv >/dev/null 2>&1; then
+        UV_BIN=$(command -v uv)
+    else
+        log "Installing uv (the Python installer) via the official installer."
+        curl -fsSL https://astral.sh/uv/install.sh | sh
+        if command -v uv >/dev/null 2>&1; then
+            UV_BIN=$(command -v uv)
+        elif [ -x "${HOME}/.local/bin/uv" ]; then
+            UV_BIN="${HOME}/.local/bin/uv"
+        else
+            UV_BIN=""
+            warn "uv not on PATH after install; the uv tool install steps will be skipped."
+        fi
+    fi
+
+    case ":${PATH}:" in
+        *":${HOME}/.local/bin:"*) ;;
+        *) export PATH="${HOME}/.local/bin:${PATH}" ;;
+    esac
+}
+
+# Build the `env` prefix that gives git a credential-bearing https rewrite for
+# private github.com fetches. With a GitHub token set, url.insteadOf rewrites
+# https://github.com/ to a token-authenticated URL so uv's git can clone
+# private repos without the token landing in a package spec (and thus in any
+# error message uv prints). Without a token the prefix is a bare `env`.
+_github_git_env() {
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+    if [ -n "$github_token" ]; then
+        printf '%s\0' env \
+            "GIT_CONFIG_COUNT=1" \
+            "GIT_CONFIG_KEY_0=url.https://x-access-token:${github_token}@github.com/.insteadOf" \
+            "GIT_CONFIG_VALUE_0=https://github.com/"
+    else
+        printf '%s\0' env
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# 4d. Install the CLI tools listed in uv_tools.txt with `uv tool install`. Each
+# tool gets its own isolated environment and its executables are symlinked into
+# ~/.local/bin, which the managed PATH and the live-PATH prepend in ensure_uv
+# both put ahead of the system dirs. This is the public, always-installable set
+# (ruff, pre-commit); the private autocuda package is installed separately
+# below. Idempotent: `uv tool install` is a no-op when the tool is already
+# installed at the requested version.
+#
+# The list is taken from (in order): $AAB_UV_TOOLS_FILE, then ./uv_tools.txt
+# when present, otherwise $AAB_UV_TOOLS_URL.
+# ---------------------------------------------------------------------------
+UV_TOOLS_DEFAULT_FILE="${PWD}/uv_tools.txt"
+UV_TOOLS_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/uv_tools.txt"
+install_uv_tools() {
+    ensure_uv
+    [ -n "${UV_BIN:-}" ] || { warn "uv unavailable; skipping uv tool install."; return; }
+
+    local tools_file="${AAB_UV_TOOLS_FILE:-}"
+    local tools_url="${AAB_UV_TOOLS_URL:-$UV_TOOLS_DEFAULT_URL}"
+    local content=""
+    if [ -n "$tools_file" ] && [ -f "$tools_file" ]; then
+        content=$(cat "$tools_file")
+        log "Reading uv tool list from ${tools_file}."
+    elif [ -z "$tools_file" ] && [ -f "$UV_TOOLS_DEFAULT_FILE" ]; then
+        content=$(cat "$UV_TOOLS_DEFAULT_FILE")
+        log "Reading uv tool list from ${UV_TOOLS_DEFAULT_FILE}."
+    elif content=$(curl -fsSL "$tools_url" 2>/dev/null); then
+        log "Fetched uv tool list from ${tools_url}."
+    else
+        warn "Could not read uv tool list (file=${tools_file:-unset}, url=${tools_url}); skipping uv tool install."
+        return
+    fi
+
+    # Strip comments and blanks into one tool specifier per line.
+    local -a tools=()
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        # trim
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [ -z "$line" ] && continue
+        tools+=("$line")
+    done <<< "$content"
+
+    if [ ${#tools[@]} -eq 0 ]; then
+        log "uv tool list is empty; skipping uv tool install."
+        return
+    fi
+
+    local tool
+    for tool in "${tools[@]}"; do
+        log "Installing ${tool} via uv tool install."
+        "$UV_BIN" tool install "$tool" 2>&1 | sed 's/^/  /' \
+            || warn "uv tool install ${tool} returned non-zero; install it manually if needed."
+    done
+}
+
+# ---------------------------------------------------------------------------
+# 4e. Install the private autocuda package as its own uv tool, best effort.
+# autocuda lives behind brycelelbach-private, so it is not in uv_tools.txt — an
+# installer without repository access must not fail here. `uv tool install`
+# bundles autocuda's declared dependencies (matplotlib, pandas, adjustText,
+# pygraphviz) into autocuda's own tool environment, so they need not be
+# pre-installed. The git+https fetch authenticates via the same url.insteadOf
+# token rewrite the plugin installers use; a missing token or no access logs a
+# warning and the bootstrap continues. pygraphviz needs the system Graphviz
+# headers and a C compiler (in apt_packages.txt), so a host lacking that
+# toolchain degrades here rather than failing the bootstrap.
+# ---------------------------------------------------------------------------
+install_private_autocuda() {
+    ensure_uv
+    [ -n "${UV_BIN:-}" ] || { warn "uv unavailable; skipping autocuda install."; return; }
+
+    local -a git_env=()
+    mapfile -d '' git_env < <(_github_git_env)
+
+    log "Installing the private autocuda package as a uv tool (best effort)."
+    "${git_env[@]}" "$UV_BIN" tool install \
+        "git+https://github.com/${AUTOCUDA_PRIVATE_REPO}" 2>&1 | sed 's/^/  /' \
+        || warn "Could not install autocuda (private repo without access, or its build toolchain is absent); continuing without it."
+}
+
+# ---------------------------------------------------------------------------
+# 4f. Register the autocuda plugin with the harnesses via the package's own
+# `autocuda install` console command, which registers the autocuda plugin
+# marketplace with Claude Code and Codex and copies the Codex worker subagent
+# definition. Runs after the harnesses are installed. A no-op warning when
+# autocuda is not on PATH (its private install was skipped); autocuda install
+# itself exits 0 and warns when a harness is missing, so this is safe to call
+# unconditionally once the harnesses are in place.
+#
+# autocuda install shells out to `claude plugin marketplace add` / `claude
+# plugin install`, which re-serialise ~/.claude/settings.json against Claude
+# Code's internal schema and drop top-level keys it doesn't enumerate (notably
+# `effortLevel`). Snapshot settings.json first and re-merge the AAB-managed
+# top-level keys after, mirroring install_claude_code_plugins, so the on-disk
+# shape stays a superset of what write_settings produced.
+# ---------------------------------------------------------------------------
+run_autocuda_install() {
+    if ! command -v autocuda >/dev/null 2>&1; then
+        warn "autocuda not on PATH (its private install was skipped); skipping autocuda install."
+        return
+    fi
+
+    local snapshot=""
+    if [ -f "$SETTINGS_FILE" ]; then
+        snapshot="${SETTINGS_FILE}.pre-autocuda-install.bak"
+        cp "$SETTINGS_FILE" "$snapshot"
+    fi
+
+    log "Registering the autocuda plugin via autocuda install."
+    autocuda install 2>&1 | sed 's/^/  /' \
+        || warn "autocuda install returned non-zero; register the autocuda plugin manually if needed."
+
+    if [ -n "$snapshot" ] && [ -f "$snapshot" ]; then
+        python3 - "$SETTINGS_FILE" "$snapshot" <<'PY'
+import json, sys
+live_path, snap_path = sys.argv[1], sys.argv[2]
+with open(live_path) as f:
+    live = json.load(f)
+with open(snap_path) as f:
+    snap = json.load(f)
+# Re-merge keys that AAB owns but Claude Code's plugin CLI strips on
+# re-serialise. Keep the live values for keys the CLI updated.
+for k in ("model", "effortLevel", "permissions", "skipDangerousModePermissionPrompt", "env"):
+    if k in snap and k not in live:
+        live[k] = snap[k]
+with open(live_path, "w") as f:
+    json.dump(live, f, indent=2)
+PY
+        rm -f "$snapshot"
     fi
 }
 
@@ -2289,6 +2491,9 @@ update_bashrc() {
             '# ensures the AAB launcher dir (~/.local/aab-bin) is ahead of' \
             '# ~/.local/bin on PATH, so the native auto-updater that owns' \
             '# ~/.local/bin/claude cannot shadow the AAB provider wrapper.' \
+            '# ~/.local/bin also carries the uv tool symlinks (ruff,' \
+            '# pre-commit, autocuda), so a bare `ruff` / `pre-commit` resolves' \
+            '# there ahead of the system dirs.' \
             '# DEBUG_SDK=1 turns on Claude Code debug logging, written to' \
             '# ~/.claude/debug/<uuid>.txt with latest symlinked to the current' \
             '# run and verbose tags enabled by the DEBUG_SDK gate.' \
@@ -2329,7 +2534,10 @@ update_profile() {
         printf '%s\n' \
             '# Keep the AAB launcher dir ahead of ~/.local/bin for login shells,' \
             '# whose ~/.profile re-prepends ~/.local/bin after sourcing ~/.bashrc.' \
-            '# This must be the last PATH mutation in the login-shell sequence.' \
+            '# The aab-bin prepend must be the last PATH mutation in the' \
+            '# login-shell sequence; ~/.local/bin (with the uv tool symlinks for' \
+            '# ruff / pre-commit / autocuda) stays ahead of the system dirs but' \
+            '# behind it.' \
             'export PATH="$HOME/.local/aab-bin:$PATH"'
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${PROFILE}"
@@ -2433,6 +2641,7 @@ main() {
     fi
     install_base_deps
     enable_user_linger
+    install_uv_tools
     install_claude
     install_codex
     install_hermes
@@ -2455,6 +2664,8 @@ main() {
     install_claude_launcher
     install_codex_launcher
     install_hermes_launcher
+    install_private_autocuda
+    run_autocuda_install
     update_bashrc
     update_profile
     update_etc_environment
