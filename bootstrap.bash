@@ -97,6 +97,9 @@ AGENT_RULES_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
 ETC_ENV="/etc/environment"
 ETC_ENV_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
 ETC_ENV_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+# Path to the uv binary, resolved by ensure_uv and consumed by the pip-package
+# plugin installer.
+UV_BIN=""
 DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-7"
 DEFAULT_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-4-5"
 DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
@@ -1445,17 +1448,46 @@ write_agent_rules() {
 }
 
 # ---------------------------------------------------------------------------
+# 9a. Ensure uv (the Python package / tool installer) is available, installing
+# it via its official installer when absent. uv provisions its own Python, so
+# this is also how the bootstrap gets a Python runtime for the pip-packaged
+# plugins below without depending on a system pip (bare images ship python3
+# with no pip module). The shim lands in ~/.local/bin, already on PATH.
+# Idempotent: a present uv is left untouched.
+# ---------------------------------------------------------------------------
+ensure_uv() {
+    if command -v uv >/dev/null 2>&1; then
+        UV_BIN=$(command -v uv)
+        return
+    fi
+    log "Installing uv (the Python tool installer) via the official installer."
+    curl -fsSL https://astral.sh/uv/install.sh | sh
+    if command -v uv >/dev/null 2>&1; then
+        UV_BIN=$(command -v uv)
+    elif [ -x "${HOME}/.local/bin/uv" ]; then
+        UV_BIN="${HOME}/.local/bin/uv"
+    else
+        UV_BIN=""
+        warn "uv not on PATH after install; the pip-package plugin install will be skipped."
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # 9b. Install pip-packaged agent plugins listed in agent_pip_packages.txt.
 #
-# Each line is a `pip install` target (a `git+https://…` URL, a PyPI name,
-# anything pip accepts). These packages carry an agent plugin plus its
-# Python runtime: installing one puts its CLI on PATH (the path Codex needs,
-# since it doesn't add a plugin's bin/ to PATH), pulls the plugin's Python
-# dependencies, and — via the package's own `<name> install-plugins`
-# console command, run here — registers the plugin with Claude Code and
-# Codex and drops any Codex subagent definitions into ~/.codex/agents/.
-# This is why the bootstrap no longer hand-installs autocuda's Python deps
-# or its Codex subagent TOML: the package owns that.
+# Each line is a `uv tool install` target (a `git+https://…` URL, a PyPI name,
+# anything uv accepts). These packages carry an agent plugin plus its Python
+# runtime: installing one puts its CLI on PATH (the path Codex needs, since it
+# doesn't add a plugin's bin/ to PATH) in an isolated uv-managed environment,
+# pulls the plugin's Python dependencies, and — via the package's own
+# `<name> install-plugins` console command, run here — registers the plugin
+# with Claude Code and Codex and drops any Codex subagent definitions into
+# ~/.codex/agents/. This is why the bootstrap no longer hand-installs
+# autocuda's Python deps or its Codex subagent TOML: the package owns that.
+#
+# uv tool install is used rather than `python3 -m pip install` because uv
+# provisions its own Python and sidesteps the PEP 668 externally-managed
+# guard, so no system pip is required.
 #
 # The list is taken from (in order): $AAB_AGENT_PIP_PACKAGES_FILE, then
 # ./agent_pip_packages.txt when present, otherwise $AAB_AGENT_PIP_PACKAGES_URL.
@@ -1463,7 +1495,8 @@ write_agent_rules() {
 PIP_PACKAGES_DEFAULT_FILE="${PWD}/agent_pip_packages.txt"
 PIP_PACKAGES_DEFAULT_URL="https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/agent_pip_packages.txt"
 install_agent_pip_packages() {
-    command -v python3 >/dev/null 2>&1 || { warn "python3 required for pip package install; skipping."; return; }
+    ensure_uv
+    [ -n "${UV_BIN:-}" ] || { warn "uv unavailable; skipping pip package install."; return; }
 
     local packages_file="${AAB_AGENT_PIP_PACKAGES_FILE:-}"
     local packages_url="${AAB_AGENT_PIP_PACKAGES_URL:-$PIP_PACKAGES_DEFAULT_URL}"
@@ -1497,25 +1530,26 @@ install_agent_pip_packages() {
     fi
 
     # Private git+https targets need an authenticated fetch. When a GitHub
-    # token is set, hand pip a credential-bearing https rewrite via git's
+    # token is set, hand uv's git a credential-bearing https rewrite via
     # url.insteadOf so it can clone private repos without the token landing
-    # in the package spec (and thus in any error message pip prints).
+    # in the package spec (and thus in any error message uv prints).
     local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
-    local -a pip_env=(env)
+    local -a git_env=(env)
     if [ -n "$github_token" ]; then
-        pip_env=(env "GIT_CONFIG_COUNT=1" \
+        git_env=(env "GIT_CONFIG_COUNT=1" \
             "GIT_CONFIG_KEY_0=url.https://x-access-token:${github_token}@github.com/.insteadOf" \
             "GIT_CONFIG_VALUE_0=https://github.com/")
     fi
 
-    # Install into the user site so no root or venv is required; `pip` is
-    # whatever `python3 -m pip` resolves to. `--upgrade` makes re-runs pick
-    # up new package versions (the bootstrap is meant to be idempotent).
+    # uv tool install drops each package's console scripts into ~/.local/bin
+    # (already on PATH) inside an isolated, uv-provisioned environment — no
+    # root, system pip, or venv to manage. `--upgrade` makes re-runs pick up
+    # new package versions (the bootstrap is meant to be idempotent).
     local spec
     for spec in "${specs[@]}"; do
-        log "pip install ${spec}"
-        "${pip_env[@]}" python3 -m pip install --user --upgrade "$spec" 2>&1 | sed 's/^/  /' || {
-            warn "pip install ${spec} returned non-zero; skipping its plugin registration."
+        log "uv tool install ${spec}"
+        "${git_env[@]}" "$UV_BIN" tool install --upgrade "$spec" 2>&1 | sed 's/^/  /' || {
+            warn "uv tool install ${spec} returned non-zero; skipping its plugin registration."
             continue
         }
         # The package exposes its plugin-registration command as the package's

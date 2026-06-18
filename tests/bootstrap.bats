@@ -49,7 +49,8 @@ setup() {
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           OPENAI_API_KEY GH_TOKEN GITHUB_TOKEN \
-          AAB_AGENT_PLUGINS_FILE AAB_AGENT_PLUGINS_URL
+          AAB_AGENT_PLUGINS_FILE AAB_AGENT_PLUGINS_URL \
+          AAB_AGENT_PIP_PACKAGES_FILE AAB_AGENT_PIP_PACKAGES_URL
     # shellcheck disable=SC1091
     source "$REPO_ROOT/bootstrap.bash"
 }
@@ -1677,6 +1678,64 @@ import json
 d = json.load(open("$SETTINGS_FILE"))
 assert d["enabledPlugins"]["widget@acme-m"] is True, d
 PY
+}
+
+# ---------------------------------------------------------------------------
+# install_agent_pip_packages: cover the uv-based install path — each spec is
+# installed via `uv tool install` and the package's `<name> install-plugins`
+# console command is run, plus graceful degradation when uv is unavailable.
+# ---------------------------------------------------------------------------
+
+@test "install_agent_pip_packages installs each spec via uv tool and runs its plugin registration" {
+    local fake_bin="$TEST_HOME/fake-pip-pkg-bin"
+    mkdir -p "$fake_bin"
+    # A uv stub that records its args and, on `tool install`, drops the named
+    # console script onto PATH so the registration branch is exercised.
+    cat > "$fake_bin/uv" <<SH
+#!/bin/sh
+printf '%s\n' "\$*" >> "$TEST_HOME/uv-invocations"
+if [ "\$1" = "tool" ] && [ "\$2" = "install" ]; then
+    cat > "$fake_bin/widget" <<'CONSOLE'
+#!/bin/sh
+printf '%s\n' "\$*" >> "$TEST_HOME/widget-invocations"
+CONSOLE
+    chmod +x "$fake_bin/widget"
+fi
+exit 0
+SH
+    chmod +x "$fake_bin/uv"
+    PATH="$fake_bin:$PATH"
+
+    echo "git+https://github.com/acme/widget" > "$TEST_HOME/pip-packages.txt"
+    export AAB_AGENT_PIP_PACKAGES_FILE="$TEST_HOME/pip-packages.txt"
+
+    run install_agent_pip_packages
+    [ "$status" -eq 0 ]
+    # Installed via uv tool install --upgrade, not python3 -m pip.
+    grep -Fxq 'tool install --upgrade git+https://github.com/acme/widget' "$TEST_HOME/uv-invocations"
+    # Console script derived to 'widget' and its install-plugins command ran.
+    grep -Fxq 'install-plugins' "$TEST_HOME/widget-invocations"
+}
+
+@test "install_agent_pip_packages warns and skips when uv cannot be provisioned" {
+    # No uv on PATH and no network to fetch the installer: ensure_uv leaves
+    # UV_BIN empty and the function degrades gracefully rather than erroring.
+    local fake_bin="$TEST_HOME/fake-pip-nouv-bin"
+    mkdir -p "$fake_bin"
+    # Stub curl so the uv installer fetch is a no-op that installs nothing.
+    cat > "$fake_bin/curl" <<'SH'
+#!/bin/sh
+exit 0
+SH
+    chmod +x "$fake_bin/curl"
+    PATH="$fake_bin:/usr/bin:/bin"
+
+    echo "git+https://github.com/acme/widget" > "$TEST_HOME/pip-packages.txt"
+    export AAB_AGENT_PIP_PACKAGES_FILE="$TEST_HOME/pip-packages.txt"
+
+    run install_agent_pip_packages
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN:"*"uv"* ]]
 }
 
 # ---------------------------------------------------------------------------

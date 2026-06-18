@@ -499,4 +499,17 @@ else
     pass "User lingering enabled for $linger_user."
 fi
 
+# 15. uv is available after bootstrap. The section-9b pip-packaged plugin
+# installer runs `uv tool install`, and ensure_uv provisions uv (which carries
+# its own Python) so the install does not depend on a system pip — a bare
+# image's python3 ships without one. Asserted directly so the suite cannot pass
+# while that install silently no-ops because uv never landed on PATH. Scoped to
+# uv availability, not a successful plugin install: while the packaging repos
+# resolve from each project's main, an unpackaged main degrades gracefully by
+# design — that is not a failure here.
+command -v uv >/dev/null 2>&1 \
+    || fail "uv not on PATH after bootstrap; the section-9b pip-package install would no-op."
+uv --version >/dev/null 2>&1 || fail "uv is present but does not run after bootstrap."
+pass "uv available for the pip-package install path."
+
 echo "All e2e assertions passed."

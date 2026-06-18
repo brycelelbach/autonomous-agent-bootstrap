@@ -1,7 +1,7 @@
 # Pip-packaged agent plugins installed by bootstrap.bash (section 9b).
 #
-# One `pip install` target per line — a `git+https://…` URL, a PyPI name,
-# or anything `pip install` accepts. Each package carries an agent plugin
+# One `uv tool install` target per line — a `git+https://…` URL, a PyPI name,
+# or anything `uv tool install` accepts. Each package carries an agent plugin
 # plus its Python runtime: installing it puts the plugin's CLI on PATH,
 # pulls the plugin's Python dependencies, and (via the package's own
 # `<name> install-plugins` console command, which bootstrap.bash runs after
