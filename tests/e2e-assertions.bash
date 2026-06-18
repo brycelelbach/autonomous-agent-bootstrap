@@ -523,12 +523,14 @@ pre-commit --version >/dev/null 2>&1 || fail "pre-commit is present but does not
 pass "ruff (0.15.12) and pre-commit installed as uv tools, on PATH and runnable."
 
 # The managed ~/.bashrc block puts ~/.local/bin (with the uv tool symlinks)
-# ahead of the system dirs, so a fresh login resolves a bare ruff to the uv tool.
+# ahead of the system dirs. The block sits after ~/.bashrc's interactive-only
+# guard, so an interactive login shell — how a user's shell actually resolves
+# commands — is what picks it up; assert with `bash -lic`.
 grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC" \
     || fail "$BASHRC managed block does not put ~/.local/bin on PATH."
-resolved_ruff="$(env -i HOME="$HOME" PATH="/usr/bin:/bin" bash -lc 'command -v ruff' 2>/dev/null || true)"
+resolved_ruff="$(bash -lic 'command -v ruff' 2>/dev/null || true)"
 [ "$resolved_ruff" = "$LOCAL_BIN/ruff" ] \
-    || fail "a login shell resolves ruff to '${resolved_ruff:-nothing}', not $LOCAL_BIN/ruff."
+    || fail "an interactive login shell resolves ruff to '${resolved_ruff:-nothing}', not $LOCAL_BIN/ruff."
 pass "managed PATH resolves a bare ruff to the uv tool in ~/.local/bin."
 
 # 16. The private autocuda package is installed as its own uv tool: the apt
