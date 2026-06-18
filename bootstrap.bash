@@ -113,7 +113,7 @@ DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL="deepseek/deepseek-v4-pro"
 DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
 DEFAULT_CODEX_SERVICE_TIER="priority"
-DEFAULT_CODEX_AGENT_MAX_THREADS="16"
+DEFAULT_CODEX_AGENT_MAX_THREADS="64"
 # Gateway base URL and model have no default — the operator points Hermes at
 # their own inference gateway. An unset value leaves Hermes unconfigured
 # (it warns), exactly like an unset API key.
