@@ -499,4 +499,55 @@ else
     pass "User lingering enabled for $linger_user."
 fi
 
+# 15. The uv_tools.txt CLI tools are installed as isolated uv tools: each tool's
+# executables are symlinked from ~/.local/bin into its environment under
+# ~/.local/share/uv/tools/, and the managed PATH puts ~/.local/bin ahead of the
+# system dirs. Asserted directly so the suite cannot pass while the uv tool
+# install silently no-ops.
+UV_TOOLS_DIR="${HOME}/.local/share/uv/tools"
+LOCAL_BIN="${HOME}/.local/bin"
+
+for tool in ruff pre-commit; do
+    [ -x "$LOCAL_BIN/$tool" ] || fail "$tool not on ~/.local/bin after bootstrap ($LOCAL_BIN/$tool missing)."
+    command -v "$tool" >/dev/null 2>&1 || fail "$tool not on PATH after bootstrap."
+    # The ~/.local/bin entry is a uv tool symlink into the tool's own env.
+    tool_real="$(readlink -f "$LOCAL_BIN/$tool")"
+    case "$tool_real" in
+        "$UV_TOOLS_DIR"/*) ;;
+        *) fail "$tool at $LOCAL_BIN/$tool resolves to $tool_real, not a uv tool env under $UV_TOOLS_DIR." ;;
+    esac
+done
+ruff --version 2>&1 | grep -Fq "0.15.12" \
+    || fail "ruff is not the ruff-pre-commit hook version 0.15.12."
+pre-commit --version >/dev/null 2>&1 || fail "pre-commit is present but does not run."
+pass "ruff (0.15.12) and pre-commit installed as uv tools, on PATH and runnable."
+
+# The managed ~/.bashrc block puts ~/.local/bin (with the uv tool symlinks)
+# ahead of the system dirs, so a fresh login resolves a bare ruff to the uv tool.
+grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC" \
+    || fail "$BASHRC managed block does not put ~/.local/bin on PATH."
+resolved_ruff="$(env -i HOME="$HOME" PATH="/usr/bin:/bin" bash -lc 'command -v ruff' 2>/dev/null || true)"
+[ "$resolved_ruff" = "$LOCAL_BIN/ruff" ] \
+    || fail "a login shell resolves ruff to '${resolved_ruff:-nothing}', not $LOCAL_BIN/ruff."
+pass "managed PATH resolves a bare ruff to the uv tool in ~/.local/bin."
+
+# 16. The private autocuda package is installed as its own uv tool: the apt
+# package list provides the Graphviz headers and compiler its pygraphviz
+# dependency builds against, so the install succeeds and `autocuda install`
+# runs after the harnesses are in place. The token-bearing fetch needs repo
+# access, so a host without it degrades to a warning instead — guard the
+# assertion on the binary being present rather than forcing a failure offline.
+if [ -x "$LOCAL_BIN/autocuda" ]; then
+    autocuda_real="$(readlink -f "$LOCAL_BIN/autocuda")"
+    case "$autocuda_real" in
+        "$UV_TOOLS_DIR"/*) ;;
+        *) fail "autocuda at $LOCAL_BIN/autocuda resolves to $autocuda_real, not a uv tool env under $UV_TOOLS_DIR." ;;
+    esac
+    command -v autocuda >/dev/null 2>&1 || fail "autocuda on ~/.local/bin but not resolvable on PATH."
+    autocuda --help >/dev/null 2>&1 || fail "autocuda is present but does not run."
+    pass "autocuda installed as a uv tool, on PATH and runnable."
+else
+    pass "autocuda not installed (private repo without access); best-effort install correctly degraded."
+fi
+
 echo "All e2e assertions passed."

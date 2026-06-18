@@ -14,17 +14,18 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - `hermes` plus the `hermes-gateway` launcher
 6. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 7. **gh CLI**, installed from the official `cli.github.com` apt repo.
-8. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
-9. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
-10. **Global git-identity enforcement** — the git-identity agent rule above, backed by a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
-11. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code, Codex, and Hermes.
-12. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
+8. **CLI tools as uv tools** — `uv` (the Python installer) plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. The list pins `ruff` to match the `ruff-pre-commit` hook and adds `pre-commit`. The private `autocuda` package is then installed best-effort as its own uv tool (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin with Claude Code and Codex and copies the Codex worker subagent. The Debian packages the bootstrap installs with `apt-get` are listed in [`apt_packages.txt`](./apt_packages.txt).
+9. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
+10. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
+11. **Global git-identity enforcement** — the git-identity agent rule above, backed by a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
+12. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code, Codex, and Hermes.
+13. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
 
 ## Requirements
 
 - Ubuntu/Debian host with `bash` and `apt-get`
 - Passwordless `sudo`, or run as root
-- A bare `ubuntu:22.04` image is valid; the bootstrap installs `curl`, `python3`, `git`, `tar`, `xz-utils`, `gawk`, `ripgrep`, `pandoc`, `sudo`, `ca-certificates`, and `gh`
+- A bare `ubuntu:22.04` image is valid; the bootstrap installs the [`apt_packages.txt`](./apt_packages.txt) base deps (`curl`, `python3`, `git`, `tar`, `xz-utils`, `gawk`, `ripgrep`, `pandoc`, `graphviz`, `graphviz-dev`, `pkg-config`, `build-essential`, `sudo`, `ca-certificates`) and `gh`
 
 ## Quick Start
 
@@ -188,6 +189,10 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key for git commit/tag signing. |
 | `AAB_AGENT_PLUGINS_FILE` | Path to a local plugin marketplace list. |
 | `AAB_AGENT_PLUGINS_URL` | URL for the plugin marketplace list when no local file is used. |
+| `AAB_APT_PACKAGES_FILE` | Path to a local list of Debian packages to install with `apt-get`. |
+| `AAB_APT_PACKAGES_URL` | URL for the Debian-package list when no local file is used. |
+| `AAB_UV_TOOLS_FILE` | Path to a local list of CLI tools to install with `uv tool install`. |
+| `AAB_UV_TOOLS_URL` | URL for the uv-tool list when no local file is used. |
 
 ## What the Script Touches
 
