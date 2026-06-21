@@ -2130,7 +2130,6 @@ case "$provider" in
         export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL:-$default_haiku_model}"
         export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL:-$default_sonnet_model}"
         export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL:-$default_opus_model}"
-        export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
         ;;
     third-party-deepseek)
         [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL:-}" ] && export ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL"
@@ -2148,7 +2147,6 @@ case "$provider" in
         export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL:-$default_haiku_model}"
         export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL:-$default_sonnet_model}"
         export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL:-$default_opus_model}"
-        export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
         # Pin the auto-compact window to DeepSeek's full 1M context. Compaction
         # then fires ~33K below it (~967K), the same window-minus-reserve margin
         # a first-party 1M model uses.
@@ -2167,7 +2165,6 @@ case "$provider" in
         export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL:-$default_haiku_model}"
         export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL:-$default_sonnet_model}"
         export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL:-$default_opus_model}"
-        export CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1
         # Pin the auto-compact window to Nemotron's full 262,144 context.
         # Compaction fires ~33K below it (~229K), the same window-minus-reserve
         # margin a first-party model uses, leaving headroom under the hard limit
