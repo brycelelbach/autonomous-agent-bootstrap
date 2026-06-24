@@ -619,7 +619,14 @@ write_settings() {
     # "The socket connection was closed unexpectedly"). API_TIMEOUT_MS
     # widens the per-request ceiling to 30 minutes, and
     # CLAUDE_CODE_MAX_RETRIES raises the backoff-retry count above its
-    # default of 10.
+    # default of 10. CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 removes the
+    # print-mode (-p) ceiling on how long Claude Code waits for still-running
+    # background tasks before exiting: by default a headless turn that has
+    # spawned background work (e.g. long-lived sub-agents/workers) prints
+    # "Background tasks still running after 600s; terminating" and exits after
+    # ten minutes, killing that work. Unattended orchestrators that fan out to
+    # background agents and then block for their completion must wait
+    # indefinitely instead.
     #
     # CLAUDE_CODE_ENABLE_TELEMETRY=1 plus OTEL_LOGS_EXPORTER=console turns on
     # OpenTelemetry usage/event logging to the console for these unattended
@@ -654,6 +661,7 @@ write_settings() {
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
     "API_FORCE_IDLE_TIMEOUT": "0",
     "API_TIMEOUT_MS": "1800000",
+    "CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": "0",
     "CLAUDE_CODE_MAX_RETRIES": "15",
     "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
     "OTEL_LOGS_EXPORTER": "console"
