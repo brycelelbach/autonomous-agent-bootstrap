@@ -197,10 +197,11 @@ All variables are optional unless you select a provider that needs its credentia
 | `/var/lib/systemd/linger/<user>` | Created by `loginctl enable-linger <user>` so the per-user systemd bus stays up across sessions. Skipped on hosts without a systemd user manager. |
 | `~/.brev/credentials.json` | Written by `brev login --api-key ... --org-id ...` when Brev credentials are configured. |
 | `~/.brev/onboarding_step.json` | Written to skip the Brev tutorial. |
-| `~/.gitconfig` | git identity, GitHub credential helper, `core.hooksPath` for identity enforcement, and optional SSH signing config. |
+| `~/.gitconfig` | git identity, GitHub credential helper, `core.hooksPath` for identity enforcement and the pre-commit secret scan, and optional SSH signing config. |
+| `~/.local/bin/gitleaks` | The pinned gitleaks binary the pre-commit secret scan runs. Installed on linux x86_64 / arm64; skipped elsewhere (the hook falls back to a built-in shell scan). See [Secret Scanning](#secret-scanning). |
 | `~/.ssh/id_aab_auth`, `~/.ssh/config` | Written only when `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` is set. |
 | `~/.ssh/id_aab_signing` | Written only when `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` is set. |
-| `~/.aab/git-hooks/` | Global git hook dispatcher and per-hook-name symlinks that enforce the configured commit identity. `core.hooksPath` points here. See [Git Identity Enforcement](#git-identity-enforcement). |
+| `~/.aab/git-hooks/` | Global git hook dispatcher and per-hook-name symlinks that enforce the configured commit identity and scan staged commits for secrets. `core.hooksPath` points here. See [Git Identity Enforcement](#git-identity-enforcement) and [Secret Scanning](#secret-scanning). |
 | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` | Managed block carrying the global agent rules (operating principles + git-identity rule); other content is preserved. |
 
 ## SSH Keys
@@ -226,13 +227,27 @@ Set the encoded private key on the relevant AAB variable, and upload the public 
 The bootstrap configures a global git author, email, and (optionally) a commit-signing key, but unattended agents routinely commit under their own identity anyway — via `git -c user.email=...`, `git commit --author=...`, `GIT_AUTHOR_*` / `GIT_COMMITTER_*` environment variables, or a repo-local `git config user.email`. Two layers keep commits on the configured identity:
 
 1. **An agent rule** is written to each harness's global instruction file — `~/.claude/CLAUDE.md` for Claude Code and `~/.codex/AGENTS.md` for Codex — both of which are loaded in every repository. The rule tells the agent to always commit with the configured identity and to leave the global git config alone. It shares a managed block (`# >>> autonomous-agent-bootstrap >>>` … `# <<< autonomous-agent-bootstrap <<<`) with the global [operating principles](#what-it-sets-up), so re-running the bootstrap replaces the block in place and any other content in those files is preserved.
-2. **A global git hook** makes the rule non-optional. The bootstrap installs a dispatcher at `~/.aab/git-hooks/aab-git-hook`, symlinks it under each managed hook name, and points `core.hooksPath` at that directory. On `pre-commit` the dispatcher compares the commit's resolved author and committer identity (`git var GIT_AUTHOR_IDENT` / `GIT_COMMITTER_IDENT`) against the global `user.name` / `user.email`, and rejects the commit on a mismatch. When the global config requires signing (`commit.gpgsign=true`), it also rejects commits that disable signing via config or swap the signing key. The expected values are read from `--global`, which a per-invocation `-c`, an environment variable, or a repo-local config cannot override.
+2. **A global git hook** makes the rule non-optional. The bootstrap installs a dispatcher at `~/.aab/git-hooks/aab-git-hook`, symlinks it under each managed hook name, and points `core.hooksPath` at that directory. On `pre-commit` the dispatcher compares the commit's resolved author and committer identity (`git var GIT_AUTHOR_IDENT` / `GIT_COMMITTER_IDENT`) against the global `user.name` / `user.email`, and rejects the commit on a mismatch. When the global config requires signing (`commit.gpgsign=true`), it also rejects commits that disable signing via config or swap the signing key. The expected values are read from `--global`, which a per-invocation `-c`, an environment variable, or a repo-local config cannot override. The same `pre-commit` hook also runs a [secret scan](#secret-scanning) over the staged changes.
 
 Because a global `core.hooksPath` replaces — rather than supplements — a repository's own `.git/hooks`, the dispatcher chains through to the repo's hook of the same name after its own checks pass, so projects that ship their own hooks (Husky, `pre-commit`, lint-staged, …) keep working.
 
 The enforcement is intentionally scoped to identity and signing. It does not try to defeat the deliberate per-commit escape hatches git provides — `git commit --no-verify` skips all hooks, and `--no-gpg-sign` skips signing — which remain available for the rare legitimate case.
 
 If no global `user.name` / `user.email` is configured, the hook is a no-op: there is nothing to enforce against, so all commits pass.
+
+## Secret Scanning
+
+The same global `pre-commit` hook scans every commit's staged changes for secrets **before** the commit lands, so a credential never reaches a git object an agent might push. (This exists because an unattended agent once committed a live GitHub admin token into a repo — nothing scanned the diff locally.) Because it rides the global `core.hooksPath` dispatcher, it covers **every** repository the agent clones or creates, including ones cloned after the bootstrap ran.
+
+The scan runs after the identity check passes. It has two engines:
+
+1. **gitleaks (preferred).** The bootstrap installs the [gitleaks](https://github.com/gitleaks/gitleaks) binary (a single static MIT-licensed executable that scans entirely offline) at `~/.local/bin/gitleaks`, pinned to the same version — `8.18.4` — that the CI secret-scan job and the `--secrets` test use, and verified against its published SHA-256 before it is installed. The hook resolves gitleaks by name on `PATH` (falling back to the absolute install path) and runs `gitleaks protect --staged --redact --no-banner`; a finding fails the commit, with the secret value redacted from the output. The binary is only installed on linux x86_64 / arm64; on any other OS or architecture the install step is skipped cleanly.
+
+2. **Built-in shell fallback.** If gitleaks is not available (install skipped on an unsupported platform, offline, or a checksum mismatch), the hook greps the staged diff's added lines for the highest-value credential shapes so a commit is never left wholly unscanned: GitHub tokens (`ghp_` / `gho_` / `ghs_` / `ghr_…`, `github_pat_…`), URL-embedded credentials (`https://user:pass@…`, `x-access-token:…`), AWS access-key ids (`AKIA…`), OpenAI / Anthropic-style `sk-…` keys, Google `AIza…` keys, Slack `xox…` tokens, PEM `-----BEGIN … PRIVATE KEY-----` blocks, and JWTs.
+
+**Bypass.** When a flagged "secret" is a deliberate fixture or test vector, set `GITLEAKS_ALLOW=1` in the environment for that commit (`GITLEAKS_ALLOW=1 git commit …`), or use `git commit --no-verify` to skip every hook. Both are documented escape hatches; prefer `GITLEAKS_ALLOW=1`, which skips only the secret scan and keeps identity enforcement in force.
+
+`./test.bash --secrets` remains the separate, full-history gitleaks scan run in CI; the pre-commit hook is the faster, staged-only gate that runs on every commit.
 
 ## Running the Tests
 

@@ -401,6 +401,38 @@ git init -q "$hook_repo"
 rm -rf "$hook_repo"
 pass "git hook allows the configured identity and blocks overrides."
 
+# 12c-secrets. gitleaks is installed at the pinned version and the pre-commit
+# hook blocks a commit that stages a secret while allowing a clean one. Runs in
+# a throwaway repo so the scan is exercised end-to-end through the real hook.
+GITLEAKS_BIN="${HOME}/.local/bin/gitleaks"
+[ -x "$GITLEAKS_BIN" ] || fail "gitleaks not installed at $GITLEAKS_BIN."
+gl_ver=$("$GITLEAKS_BIN" version 2>/dev/null | tr -d 'v[:space:]')
+[ "$gl_ver" = "8.18.4" ] \
+    || fail "gitleaks at $GITLEAKS_BIN is version '$gl_ver', expected 8.18.4."
+secret_repo=$(mktemp -d)
+git init -q "$secret_repo"
+(
+    cd "$secret_repo"
+    # Clean content commits.
+    echo "no secrets here" > ok.txt
+    git add ok.txt
+    git commit -q -m "clean" \
+        || { echo "FAIL: clean commit was rejected by the secret scan." >&2; exit 1; }
+    # A staged GitHub token is blocked. Build the literal at runtime so this
+    # assertions file does not itself contain a scannable token.
+    printf 'token=%s%s\n' "ghp_" "0000000000000000000000000000000000AB" > leak.txt
+    git add leak.txt
+    if git commit -q -m "leak" 2>/dev/null; then
+        echo "FAIL: commit staging a GitHub token was NOT blocked." >&2
+        exit 1
+    fi
+    # The documented escape hatch lets the same commit through.
+    GITLEAKS_ALLOW=1 git commit -q -m "allowed leak" \
+        || { echo "FAIL: GITLEAKS_ALLOW=1 did not bypass the secret scan." >&2; exit 1; }
+) || { rm -rf "$secret_repo"; exit 1; }
+rm -rf "$secret_repo"
+pass "gitleaks installed; pre-commit secret scan blocks a staged token and honors GITLEAKS_ALLOW."
+
 # 12d. The agent instruction files carry the agent rules in a managed block, so
 # Claude Code (~/.claude/CLAUDE.md) and Codex (~/.codex/AGENTS.md) both see them
 # in every repository: the operating principles plus the git-identity rule.
