@@ -2078,6 +2078,173 @@ RH
     [[ "$output" == *"signing is required"* ]]
 }
 
+# ---------------------------------------------------------------------------
+# Pre-commit secret scan. The dispatcher blocks a commit that stages a secret,
+# preferring gitleaks and falling back to a built-in shell grep. The unit suite
+# does not download the gitleaks binary, so these tests run against the shell
+# fallback by ensuring no gitleaks is resolvable (clean PATH, no
+# ~/.local/bin/gitleaks under the per-test HOME) — except the one test that
+# stubs a gitleaks on PATH to prove the preferred branch is taken. Each uses
+# _setup_enforced_repo so the global identity matches and the identity check
+# passes, letting execution reach the secret scan.
+# ---------------------------------------------------------------------------
+
+# A clean tree commits even with the secret scan active (fallback path).
+@test "secret-scan (fallback): a commit with no secret is allowed" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    echo "nothing sensitive here" > clean.txt && git add clean.txt
+    PATH="/usr/bin:/bin" run git commit -m "clean"
+    [ "$status" -eq 0 ]
+}
+
+# A staged GitHub PAT is blocked by the shell fallback.
+@test "secret-scan (fallback): a staged GitHub token is blocked" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    # Split the literal so this test file itself does not trip a secret scan.
+    printf 'token=%s%s\n' "ghp_" "0000000000000000000000000000000000AB" > leak.txt
+    git add leak.txt
+    PATH="/usr/bin:/bin" run git commit -m "leak"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Commit blocked"* ]]
+    [[ "$output" == *"GitHub token"* ]]
+}
+
+# URL-embedded credentials are blocked by the shell fallback.
+@test "secret-scan (fallback): URL-embedded credentials are blocked" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    echo 'clone https://user:hunter2pass@github.com/o/r.git' > url.txt
+    git add url.txt
+    PATH="/usr/bin:/bin" run git commit -m "url creds"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Commit blocked"* ]]
+}
+
+# An AWS access-key id is blocked by the shell fallback.
+@test "secret-scan (fallback): an AWS access key is blocked" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    # Concatenate so the file does not contain a contiguous key literal.
+    printf 'k=%s%s\n' "AKIA" "IOSFODNN7EXAMPLE" > aws.txt
+    git add aws.txt
+    PATH="/usr/bin:/bin" run git commit -m "aws"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Commit blocked"* ]]
+}
+
+# A private-key header is blocked by the shell fallback.
+@test "secret-scan (fallback): a private key header is blocked" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    echo '-----BEGIN RSA PRIVATE KEY-----' > key.txt
+    git add key.txt
+    PATH="/usr/bin:/bin" run git commit -m "privkey"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Commit blocked"* ]]
+}
+
+# The GITLEAKS_ALLOW env var is the documented escape hatch: with it set, a
+# staged secret commits. (The literal assignment is annotated below so the
+# repo's own gitleaks scan does not flag this test as a finding.)
+@test "secret-scan: the GITLEAKS_ALLOW env var bypasses the scan" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    printf 'token=%s%s\n' "ghp_" "0000000000000000000000000000000000AB" > leak.txt
+    git add leak.txt
+    PATH="/usr/bin:/bin" GITLEAKS_ALLOW=1 run git commit -m "allowed leak"  # gitleaks:allow
+    [ "$status" -eq 0 ]
+}
+
+# --no-verify skips every hook, including the secret scan.
+@test "secret-scan: --no-verify bypasses the scan" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    printf 'token=%s%s\n' "ghp_" "0000000000000000000000000000000000AB" > leak.txt
+    git add leak.txt
+    PATH="/usr/bin:/bin" run git commit --no-verify -m "bypass"
+    [ "$status" -eq 0 ]
+}
+
+# When gitleaks IS resolvable, the dispatcher uses it (not the shell fallback).
+# Stub a gitleaks on PATH that fails only for `protect`, and assert the commit
+# is blocked with the gitleaks-path message.
+@test "secret-scan (gitleaks): a resolvable gitleaks is preferred and can block" {
+    local repo
+    repo=$(_setup_enforced_repo)
+    cd "$repo"
+    local stubdir="$TEST_HOME/stubbin"
+    mkdir -p "$stubdir"
+    cat > "$stubdir/gitleaks" <<'STUB'
+#!/usr/bin/env bash
+# Minimal gitleaks stub: `protect` reports a finding (exit 1); anything else ok.
+case "${1:-}" in
+    protect) echo "stub gitleaks: leak found" >&2; exit 1 ;;
+    version) echo "8.18.4" ;;
+    *) exit 0 ;;
+esac
+STUB
+    chmod +x "$stubdir/gitleaks"
+    # A file with NO secret pattern: the shell fallback would PASS it, so a block
+    # here proves the gitleaks branch (not the fallback) made the decision.
+    echo "totally innocuous content" > innocuous.txt && git add innocuous.txt
+    PATH="$stubdir:/usr/bin:/bin" run git commit -m "via gitleaks stub"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"gitleaks found a secret"* ]]
+}
+
+# install_gitleaks is idempotent: a gitleaks already at the pinned version is
+# left untouched and no download is attempted. We fake one at GITLEAKS_BIN that
+# prints the pinned version, point PATH at nothing else, and assert the call is
+# a quiet no-op that preserves the existing binary's content.
+@test "install_gitleaks is a no-op when the pinned version is already installed" {
+    mkdir -p "$(dirname "$GITLEAKS_BIN")"
+    cat > "$GITLEAKS_BIN" <<STUB
+#!/usr/bin/env bash
+[ "\${1:-}" = version ] && echo "$GITLEAKS_VERSION"
+STUB
+    chmod +x "$GITLEAKS_BIN"
+    local before
+    before=$(cat "$GITLEAKS_BIN")
+    run install_gitleaks
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"already installed"* ]]
+    # Untouched: same content (a re-download would replace it with a real ELF).
+    [ "$(cat "$GITLEAKS_BIN")" = "$before" ]
+}
+
+# install_gitleaks skips cleanly (no error, no install) on an unsupported CPU
+# arch, leaving the hook's shell fallback as the protection. Stub `uname` so the
+# function sees an arch with no pinned build.
+@test "install_gitleaks skips gracefully on an unsupported architecture" {
+    local stubdir="$TEST_HOME/unamestub"
+    mkdir -p "$stubdir"
+    cat > "$stubdir/uname" <<'STUB'
+#!/usr/bin/env bash
+case "${1:-}" in
+    -s) echo Linux ;;
+    -m) echo riscv64 ;;
+    *) echo Linux ;;
+esac
+STUB
+    chmod +x "$stubdir/uname"
+    rm -f "$GITLEAKS_BIN"
+    # Clean PATH (stub + base dirs only) so a host-wide gitleaks — e.g. CI's
+    # /usr/local/bin install — does not short-circuit before the arch check.
+    PATH="$stubdir:/usr/bin:/bin" run install_gitleaks
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"no pinned build for riscv64"* ]]
+    [ ! -e "$GITLEAKS_BIN" ]
+}
+
 @test "write_agent_rules writes a managed block to CLAUDE.md and AGENTS.md" {
     write_agent_rules
     [ -f "$CLAUDE_MEMORY_FILE" ]
