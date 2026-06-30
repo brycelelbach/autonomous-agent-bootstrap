@@ -2481,3 +2481,52 @@ EOF
     load_config_file "$TEST_HOME/aab.conf"
     [ "$AAB_GIT_AUTHOR_EMAIL" = "from-file@example.com" ]
 }
+
+# Stub curl so install_lifeboat "fetches" a fake script we control: a success
+# stub writes the requested -o target, a failing stub exits non-zero so the
+# best-effort degrade-to-warning path is exercised.
+setup_fake_lifeboat_curl() {
+    local mode="$1"  # ok | fail
+    export FAKE_LIFEBOAT_BIN="$TEST_HOME/fake-lifeboat-bin"
+    mkdir -p "$FAKE_LIFEBOAT_BIN"
+    cat > "$FAKE_LIFEBOAT_BIN/curl" <<SH
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "\$*" >> "$TEST_HOME/lifeboat-curl-invocations"
+output=""
+while [ "\$#" -gt 0 ]; do
+    case "\$1" in
+        -o|--output) output="\$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+if [ "$mode" = fail ]; then exit 22; fi
+[ -n "\$output" ] || exit 0
+printf '#!/usr/bin/env bash\necho fake-lifeboat\n' > "\$output"
+SH
+    chmod +x "$FAKE_LIFEBOAT_BIN/curl"
+    export PATH="$FAKE_LIFEBOAT_BIN:$PATH"
+}
+
+@test "install_lifeboat fetches the script to ~/.local/bin and marks it executable" {
+    setup_fake_lifeboat_curl ok
+    run install_lifeboat
+    [ "$status" -eq 0 ]
+    # Fetched from the public lifeboat repo, to a file (not piped to bash).
+    grep -Fq 'raw.githubusercontent.com/brycelelbach/lifeboat/main/lifeboat' \
+        "$TEST_HOME/lifeboat-curl-invocations"
+    grep -Fq -- '-o ' "$TEST_HOME/lifeboat-curl-invocations"
+    # Installed and executable; no leftover .tmp.
+    [ -x "$TEST_HOME/.local/bin/lifeboat" ]
+    [ ! -e "$TEST_HOME/.local/bin/lifeboat.tmp" ]
+}
+
+@test "install_lifeboat degrades to a warning when the fetch fails" {
+    setup_fake_lifeboat_curl fail
+    run install_lifeboat
+    # Best effort: the run continues (exit 0) and nothing is left behind.
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARN"* ]]
+    [ ! -e "$TEST_HOME/.local/bin/lifeboat" ]
+    [ ! -e "$TEST_HOME/.local/bin/lifeboat.tmp" ]
+}

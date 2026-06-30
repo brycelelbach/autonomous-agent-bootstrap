@@ -10,6 +10,9 @@ curl
 python3
 git
 tar
+# lifeboat (the home-directory backup tool) compresses with pigz when present,
+# falling back to gzip; pigz parallelises gzip across cores on big home dirs.
+pigz
 gawk
 ripgrep
 # The autocuda agent plugin's report skills render their markdown reports to
