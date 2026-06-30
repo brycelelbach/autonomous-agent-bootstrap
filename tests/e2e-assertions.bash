@@ -533,4 +533,32 @@ else
     pass "autocuda not installed (private repo without access); best-effort install correctly degraded."
 fi
 
+# 17. lifeboat (the home-directory backup tool) is fetched straight to
+# ~/.local/bin and marked executable. The fetch needs network access to the
+# public lifeboat repo, so a host without it degrades to a warning — guard the
+# assertion on the script being present rather than forcing a failure offline.
+# When present, it must be on PATH, run, and actually produce a backup.
+if [ -x "$LOCAL_BIN/lifeboat" ]; then
+    command -v lifeboat >/dev/null 2>&1 || fail "lifeboat on ~/.local/bin but not resolvable on PATH."
+    lifeboat --help >/dev/null 2>&1 || fail "lifeboat is present but does not run."
+    lb_src="$(mktemp -d)"; lb_out="$(mktemp -d)"
+    echo keep >"$lb_src/keep.cpp"
+    mkdir -p "$lb_src/build"; echo drop >"$lb_src/build/x.o"
+    SRC="$lb_src" OUT_DIR="$lb_out" lifeboat e2e host >/dev/null 2>&1 \
+        || fail "lifeboat did not complete a backup run."
+    lb_tgz="$(find "$lb_out" -maxdepth 1 -name 'e2e-host-*.tar.gz' | head -1)"
+    [ -n "$lb_tgz" ] || fail "lifeboat did not produce an e2e-host-*.tar.gz archive."
+    # Capture the listing once (no tar|grep pipe: grep -q can SIGPIPE tar, which
+    # pipefail would surface as a spurious failure), then match it offline.
+    lb_list="$(tar -tzf "$lb_tgz")"
+    grep -q 'keep\.cpp' <<<"$lb_list" || fail "lifeboat archive is missing kept source."
+    if grep -q '\.o$' <<<"$lb_list"; then
+        fail "lifeboat archive wrongly included a build artifact."
+    fi
+    rm -rf "$lb_src" "$lb_out"
+    pass "lifeboat installed at ~/.local/bin, on PATH, runnable, and backs up correctly."
+else
+    pass "lifeboat not installed (fetch unavailable offline); best-effort install correctly degraded."
+fi
+
 echo "All e2e assertions passed."
