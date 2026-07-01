@@ -1080,6 +1080,52 @@ SH
     ! grep -q '^export GH_TOKEN=' "$BASHRC"
 }
 
+@test "update_bashrc writes the dead-SSH-agent-socket guard" {
+    update_bashrc
+    grep -qF 'if [ -n "${SSH_AUTH_SOCK:-}" ]; then' "$BASHRC"
+    grep -qF 'unset SSH_AUTH_SOCK SSH_AGENT_PID' "$BASHRC"
+}
+
+@test "bashrc guard unsets SSH_AUTH_SOCK when the socket file is missing" {
+    update_bashrc
+    run env HOME="$HOME" SSH_AUTH_SOCK="$HOME/gone/agent.sock" \
+        bash -c '. "$HOME/.bashrc" >/dev/null 2>&1; printf %s "${SSH_AUTH_SOCK:-UNSET}"'
+    [ "$status" -eq 0 ]
+    [ "$output" = "UNSET" ]
+}
+
+@test "bashrc guard preserves a reachable SSH agent" {
+    update_bashrc
+    # Mock a live agent: ssh-add exits 0, and a real (orphaned) socket file
+    # exists so the guard reaches the probe rather than the missing-file branch.
+    mkdir -p "$HOME/mockbin"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/mockbin/ssh-add"
+    printf '#!/usr/bin/env bash\nshift; exec "$@"\n' > "$HOME/mockbin/timeout"
+    chmod +x "$HOME/mockbin/ssh-add" "$HOME/mockbin/timeout"
+    python3 -c "import socket; socket.socket(socket.AF_UNIX).bind('$HOME/live.sock')"
+    run env HOME="$HOME" PATH="$HOME/mockbin:$PATH" SSH_AUTH_SOCK="$HOME/live.sock" \
+        bash -c '. "$HOME/.bashrc" >/dev/null 2>&1; printf %s "${SSH_AUTH_SOCK:-UNSET}"'
+    [ "$status" -eq 0 ]
+    [ "$output" = "$HOME/live.sock" ]
+}
+
+@test "bashrc guard unsets a connectable-but-dead SSH agent socket" {
+    update_bashrc
+    # A forwarded socket whose owner is alive but whose agent is gone: ssh-add
+    # connects, then fails with a comms error and exit 1 — the same exit code a
+    # live-but-empty agent returns, so the guard must key off the message.
+    mkdir -p "$HOME/mockbin"
+    printf '#!/usr/bin/env bash\necho "error fetching identities: communication with agent failed" >&2\nexit 1\n' \
+        > "$HOME/mockbin/ssh-add"
+    printf '#!/usr/bin/env bash\nshift; exec "$@"\n' > "$HOME/mockbin/timeout"
+    chmod +x "$HOME/mockbin/ssh-add" "$HOME/mockbin/timeout"
+    python3 -c "import socket; socket.socket(socket.AF_UNIX).bind('$HOME/dead.sock')"
+    run env HOME="$HOME" PATH="$HOME/mockbin:$PATH" SSH_AUTH_SOCK="$HOME/dead.sock" \
+        bash -c '. "$HOME/.bashrc" >/dev/null 2>&1; printf %s "${SSH_AUTH_SOCK:-UNSET}"'
+    [ "$status" -eq 0 ]
+    [ "$output" = "UNSET" ]
+}
+
 @test "sourcing bootstrap.bash does NOT execute main" {
     # setup() already sourced the script. If main had run, it would have
     # attempted to install Claude Code via curl; instead the function is

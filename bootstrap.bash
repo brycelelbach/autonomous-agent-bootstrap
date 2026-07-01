@@ -2084,7 +2084,32 @@ update_bashrc() {
             'export PATH="$HOME/.local/bin:$PATH"' \
             'export PATH="$HOME/.local/aab-bin:$PATH"' \
             'export CLAUDE_CODE_SANDBOXED=1' \
-            'export DEBUG_SDK=1'
+            'export DEBUG_SDK=1' \
+            '# Neutralize a dead SSH agent socket. A forwarded SSH_AUTH_SOCK from' \
+            '# an SSH login that has since disconnected lingers as a dead socket,' \
+            '# and tmux re-injects it into every new pane. Nothing here consumes' \
+            '# the agent — commit signing reads the on-disk key directly and' \
+            '# GitHub auth is an HTTPS token — but a dead socket makes ssh-add and' \
+            '# git signing probes fail or hang, which reads like broken signing.' \
+            '# Keep the socket only when a live agent actually answers within 1s;' \
+            '# a comms failure, a hang, or a missing socket file all mean it is' \
+            '# gone. This re-runs per interactive shell, so it also catches the' \
+            '# socket tmux re-injects on each new pane.' \
+            'if [ -n "${SSH_AUTH_SOCK:-}" ]; then' \
+            '    if [ ! -S "$SSH_AUTH_SOCK" ]; then' \
+            '        unset SSH_AUTH_SOCK SSH_AGENT_PID' \
+            '    elif command -v ssh-add >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then' \
+            '        _aab_ssh_probe=$(timeout 1 ssh-add -l 2>&1); _aab_ssh_rc=$?' \
+            '        case $_aab_ssh_rc in' \
+            '            0) ;;' \
+            '            *) case $_aab_ssh_probe in' \
+            '                   *"no identities"*) ;;' \
+            '                   *) unset SSH_AUTH_SOCK SSH_AGENT_PID ;;' \
+            '               esac ;;' \
+            '        esac' \
+            '        unset _aab_ssh_probe _aab_ssh_rc' \
+            '    fi' \
+            'fi'
         printf 'export CLAUDE_CODE_EFFORT_LEVEL="%s"\n' "$effort"
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${BASHRC}"
