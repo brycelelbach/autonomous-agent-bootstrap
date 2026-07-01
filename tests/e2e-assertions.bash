@@ -201,6 +201,22 @@ pass "CLAUDE_CODE_EFFORT_LEVEL=max exported."
 bash -n "$BASHRC" || fail "bashrc has syntax errors."
 pass "bashrc parses cleanly."
 
+# 9a. The dead-SSH-agent-socket guard clears a stale SSH_AUTH_SOCK. A forwarded
+# socket left by a disconnected login (and re-injected by tmux into new panes)
+# would otherwise make ssh-add and git signing probes fail or hang. The distro
+# ~/.bashrc returns early for a non-interactive shell before it reaches the
+# appended managed block, so extract the block between its markers and source
+# that directly — the guard runs unconditionally once reached.
+managed_block=$(mktemp)
+awk '/^# >>> autonomous-agent-bootstrap >>>$/{f=1} f{print} /^# <<< autonomous-agent-bootstrap <<<$/{f=0}' \
+    "$BASHRC" > "$managed_block"
+guard_out=$(env HOME="$HOME" SSH_AUTH_SOCK="$HOME/nonexistent-agent.sock" \
+    bash -c ". '$managed_block' >/dev/null 2>&1; printf %s \"\${SSH_AUTH_SOCK:-UNSET}\"")
+rm -f "$managed_block"
+[ "$guard_out" = "UNSET" ] \
+    || fail "bashrc did not unset a dead SSH_AUTH_SOCK (got '$guard_out')."
+pass "bashrc clears a dead SSH agent socket."
+
 # 9b. ~/.profile carries the launcher-dir prepend once and parses cleanly.
 grep -q 'export PATH="$HOME/.local/aab-bin:$PATH"' "$PROFILE" \
     || fail "launcher-dir PATH export missing from ~/.profile."
