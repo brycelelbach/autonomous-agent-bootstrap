@@ -253,6 +253,9 @@ PY
     [ -f "$CODEX_CONFIG" ]
     grep -q '^model = "gpt-5.5"$' "$CODEX_CONFIG"
     grep -q '^model_reasoning_effort = "xhigh"$' "$CODEX_CONFIG"
+    grep -q '^model_reasoning_summary = "detailed"$' "$CODEX_CONFIG"
+    grep -q '^hide_agent_reasoning = false$' "$CODEX_CONFIG"
+    grep -q '^show_raw_agent_reasoning = true$' "$CODEX_CONFIG"
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
     grep -q '^approval_policy = "never"$' "$CODEX_CONFIG"
     grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG"

@@ -120,6 +120,12 @@ grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG" \
     || fail "Codex sandbox_mode is not danger-full-access."
 grep -Fxq "model_reasoning_effort = \"${expected_codex_effort}\"" "$CODEX_CONFIG" \
     || fail "Codex reasoning effort is not ${expected_codex_effort}."
+grep -Fxq 'model_reasoning_summary = "detailed"' "$CODEX_CONFIG" \
+    || fail "Codex detailed reasoning summary is not enabled."
+grep -Fxq 'hide_agent_reasoning = false' "$CODEX_CONFIG" \
+    || fail "Codex agent reasoning is hidden."
+grep -Fxq 'show_raw_agent_reasoning = true' "$CODEX_CONFIG" \
+    || fail "Codex raw agent reasoning is not enabled."
 grep -Fxq "service_tier = \"${expected_codex_service_tier}\"" "$CODEX_CONFIG" \
     || fail "Codex service tier is not ${expected_codex_service_tier}."
 grep -q '^check_for_update_on_startup = false$' "$CODEX_CONFIG" \

@@ -890,6 +890,9 @@ TOML
 
     cat >> "${CODEX_CONFIG}" <<TOML
 model_reasoning_effort = "${effort}"
+model_reasoning_summary = "detailed"
+hide_agent_reasoning = false
+show_raw_agent_reasoning = true
 service_tier = "${service_tier}"
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
