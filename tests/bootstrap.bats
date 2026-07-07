@@ -1185,6 +1185,42 @@ SH
     [ "$output" = "UNSET" ]
 }
 
+@test "update_tmux_config enables mouse support and preserves existing settings" {
+    printf 'set -g history-limit 50000\nset -g mouse on\nset -g mouse off\n' > "$TMUX_CONFIG"
+
+    update_tmux_config
+
+    [ -f "$TMUX_CONFIG" ]
+    grep -Fxq 'set -g history-limit 50000' "$TMUX_CONFIG"
+    grep -Fxq 'set -g mouse off' "$TMUX_CONFIG"
+    [ "$(grep -Fxc 'set -g mouse on' "$TMUX_CONFIG")" -eq 2 ]
+    grep -Fxq "$TMUX_MARKER_BEGIN" "$TMUX_CONFIG"
+    grep -Fxq 'set -g mouse on' "$TMUX_CONFIG"
+    grep -Fxq "$TMUX_MARKER_END" "$TMUX_CONFIG"
+    local mouse_off_line mouse_on_line
+    mouse_off_line=$(grep -nFx 'set -g mouse off' "$TMUX_CONFIG" | cut -d: -f1)
+    mouse_on_line=$(grep -nFx 'set -g mouse on' "$TMUX_CONFIG" | tail -1 | cut -d: -f1)
+    [ "$mouse_on_line" -gt "$mouse_off_line" ]
+}
+
+@test "update_tmux_config is idempotent (single managed block, size stable)" {
+    update_tmux_config
+    local size1
+    size1=$(wc -c < "$TMUX_CONFIG")
+
+    update_tmux_config
+
+    local begin_count end_count mouse_count size2
+    begin_count=$(grep -Fxc "$TMUX_MARKER_BEGIN" "$TMUX_CONFIG")
+    end_count=$(grep -Fxc "$TMUX_MARKER_END" "$TMUX_CONFIG")
+    mouse_count=$(grep -Fxc 'set -g mouse on' "$TMUX_CONFIG")
+    size2=$(wc -c < "$TMUX_CONFIG")
+    [ "$begin_count" -eq 1 ]
+    [ "$end_count" -eq 1 ]
+    [ "$mouse_count" -eq 1 ]
+    [ "$size1" -eq "$size2" ]
+}
+
 @test "sourcing bootstrap.bash does NOT execute main" {
     # setup() already sourced the script. If main had run, it would have
     # attempted to install Claude Code via curl; instead the function is
@@ -1242,11 +1278,10 @@ SH
     chmod +x "$fake_bin/apt-get"
 }
 
-@test "install_base_deps installs exactly the packages listed in the file" {
+@test "install_base_deps adds required tmux to a custom package list" {
     local fake_bin="$TEST_HOME/fake-base-deps-bin"
     make_apt_get_fakes "$fake_bin"
-    # Comment and blank lines are stripped; the surviving packages are the whole
-    # install list — no per-package marker check, the list goes in unconditionally.
+    # Comments and blank lines are stripped, and missing required tmux is added.
     printf '%s\n' '# A comment.' 'curl' '' 'ripgrep' 'graphviz-dev' \
         > "$TEST_HOME/apt-packages.txt"
     export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
@@ -1255,9 +1290,23 @@ SH
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"Reading apt package list from $TEST_HOME/apt-packages.txt."* ]]
-    [[ "$output" == *"Installing base deps: curl ripgrep graphviz-dev."* ]]
+    [[ "$output" == *"Installing base deps: curl ripgrep graphviz-dev tmux."* ]]
     grep -Fxq 'update -y' "$TEST_HOME/apt-get-invocations"
-    grep -Fxq 'install -y --no-install-recommends curl ripgrep graphviz-dev' "$TEST_HOME/apt-get-invocations"
+    grep -Fxq 'install -y --no-install-recommends curl ripgrep graphviz-dev tmux' "$TEST_HOME/apt-get-invocations"
+}
+
+@test "install_base_deps does not add tmux when it is already installed" {
+    local fake_bin="$TEST_HOME/fake-base-deps-tmux-installed-bin"
+    make_apt_get_fakes "$fake_bin"
+    printf '#!/bin/sh\nexit 0\n' > "$fake_bin/tmux"
+    chmod +x "$fake_bin/tmux"
+    printf '%s\n' 'curl' > "$TEST_HOME/apt-packages.txt"
+    export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
+
+    SUDO="" PATH="$fake_bin" run install_base_deps
+
+    [ "$status" -eq 0 ]
+    grep -Fxq 'install -y --no-install-recommends curl' "$TEST_HOME/apt-get-invocations"
 }
 
 @test "install_base_deps reads ./apt_packages.txt by default" {
@@ -1274,6 +1323,7 @@ SH
     # gets installed alongside the rest.
     grep -Eq 'install -y --no-install-recommends .*graphviz-dev.*build-essential' "$TEST_HOME/apt-get-invocations"
     grep -Eq 'install -y --no-install-recommends .*ripgrep' "$TEST_HOME/apt-get-invocations"
+    grep -Eq 'install -y --no-install-recommends .*tmux' "$TEST_HOME/apt-get-invocations"
 }
 
 @test "install_base_deps warns and skips when apt-get is unavailable" {
@@ -1314,17 +1364,17 @@ SH
     [ ! -f "$TEST_HOME/apt-get-invocations" ]
 }
 
-@test "install_base_deps skips when the package list is empty" {
+@test "install_base_deps installs required tmux when the package list is empty" {
     local fake_bin="$TEST_HOME/fake-base-deps-empty-bin"
     make_apt_get_fakes "$fake_bin"
-    # Only comments and blanks: nothing to install, so no apt-get call.
+    # Only comments and blanks leave required tmux as the sole package.
     printf '%s\n' '# Only a comment.' '' > "$TEST_HOME/apt-packages.txt"
     export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
 
     SUDO="" PATH="$fake_bin" run install_base_deps
     [ "$status" -eq 0 ]
-    [[ "$output" == *"apt package list is empty"* ]]
-    [ ! -f "$TEST_HOME/apt-get-invocations" ]
+    [[ "$output" == *"Installing base deps: tmux."* ]]
+    grep -Fxq 'install -y --no-install-recommends tmux' "$TEST_HOME/apt-get-invocations"
 }
 
 

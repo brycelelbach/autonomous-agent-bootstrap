@@ -15,6 +15,7 @@ tar
 pigz
 gawk
 ripgrep
+tmux
 # The autocuda agent plugin's report skills render their markdown reports to
 # HTML by shelling out to pandoc (`autocuda report html`).
 pandoc

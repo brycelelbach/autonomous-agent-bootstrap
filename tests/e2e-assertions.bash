@@ -18,6 +18,7 @@ CODEX_AUTH="${HOME}/.codex/auth.json"
 BREV_ONBOARDING="${HOME}/.brev/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
 PROFILE="${HOME}/.profile"
+TMUX_CONFIG="${HOME}/.tmux.conf"
 AAB_ENV_FILE="${HOME}/.aab/.env"
 
 # 1. settings.json is well-formed and has the expected shape.
@@ -165,6 +166,27 @@ pass ".claude.json has hasCompletedOnboarding=true."
 [ -f "$BREV_ONBOARDING" ] || fail "brev onboarding_step.json not written."
 python3 -c "import json; json.load(open('$BREV_ONBOARDING'))"
 pass "brev onboarding_step.json is valid JSON."
+
+# 4b. tmux is installed and its managed config enables mouse support once.
+command -v tmux >/dev/null 2>&1 || fail "tmux not installed."
+[ -f "$TMUX_CONFIG" ] || fail "$TMUX_CONFIG not written."
+grep -Fxq 'set -g mouse on' "$TMUX_CONFIG" \
+    || fail "tmux mouse support is not enabled."
+tmux_begin_count=$(grep -Fxc '# >>> autonomous-agent-bootstrap >>>' "$TMUX_CONFIG")
+tmux_end_count=$(grep -Fxc '# <<< autonomous-agent-bootstrap <<<' "$TMUX_CONFIG")
+tmux_mouse_count=$(awk '
+    $0 == "# >>> autonomous-agent-bootstrap >>>" { managed=1; next }
+    $0 == "# <<< autonomous-agent-bootstrap <<<" { managed=0 }
+    managed && $0 == "set -g mouse on" { count++ }
+    END { print count + 0 }
+' "$TMUX_CONFIG")
+[ "$tmux_begin_count" -eq 1 ] \
+    || fail "Expected 1 tmux config begin marker, got $tmux_begin_count."
+[ "$tmux_end_count" -eq 1 ] \
+    || fail "Expected 1 tmux config end marker, got $tmux_end_count."
+[ "$tmux_mouse_count" -eq 1 ] \
+    || fail "Expected 1 tmux mouse setting, got $tmux_mouse_count."
+pass "tmux installed with mouse support enabled once."
 
 # 5. Managed bashrc block is present exactly once.
 grep -q '# >>> autonomous-agent-bootstrap >>>' "$BASHRC" \

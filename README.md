@@ -12,19 +12,22 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - `codex` plus explicit `codex-first-party` and `codex-third-party-openai` launchers
 5. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 6. **gh CLI**, installed from the official `cli.github.com` apt repo.
-7. **CLI tools as uv tools** — `uv` (the Python installer) plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. The list pins `ruff` to match the `ruff-pre-commit` hook and adds `pre-commit`. The private `autocuda` package is then installed best-effort as its own uv tool (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin with Claude Code and Codex and copies the Codex worker subagent. The Debian packages the bootstrap installs with `apt-get` are listed in [`apt_packages.txt`](./apt_packages.txt).
-8. **lifeboat** — a single-script home-directory backup tool fetched to `~/.local/bin/lifeboat`. It tars `$HOME`, keeping git history, source, and docs while dropping regenerable bulk (build artifacts, profiler dumps, caches, virtualenvs), to snapshot an agent's work before an ephemeral box is torn down. Compresses with `pigz` when present, falling back to `gzip`. Source: [`brycelelbach/lifeboat`](https://github.com/brycelelbach/lifeboat).
-9. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
-10. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
-11. **Global git-identity enforcement** — the git-identity agent rule above, backed by a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
-12. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code and Codex.
-13. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
+7. **tmux**, installed from the default Debian package list and configured with mouse support in a managed `~/.tmux.conf` block. Existing content outside the block is preserved.
+8. **CLI tools as uv tools** — `uv` (the Python installer) plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. The list pins `ruff` to match the `ruff-pre-commit` hook and adds `pre-commit`. The private `autocuda` package is then installed best-effort as its own uv tool (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin with Claude Code and Codex and copies the Codex worker subagent. The Debian packages the bootstrap installs with `apt-get` are listed in [`apt_packages.txt`](./apt_packages.txt).
+9. **lifeboat** — a single-script home-directory backup tool fetched to `~/.local/bin/lifeboat`. It tars `$HOME`, keeping git history, source, and docs while dropping regenerable bulk (build artifacts, profiler dumps, caches, virtualenvs), to snapshot an agent's work before an ephemeral box is torn down. Compresses with `pigz` when present, falling back to `gzip`. Source: [`brycelelbach/lifeboat`](https://github.com/brycelelbach/lifeboat).
+10. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
+11. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
+12. **Global git-identity enforcement** — the git-identity agent rule above, backed by a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
+13. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code and Codex.
+14. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
 
 ## Requirements
 
 - Ubuntu/Debian host with `bash` and `apt-get`
 - Passwordless `sudo`, or run as root
-- A bare `ubuntu:22.04` image is valid; the bootstrap installs the [`apt_packages.txt`](./apt_packages.txt) base deps (`curl`, `python3`, `git`, `tar`, `pigz`, `gawk`, `ripgrep`, `pandoc`, `graphviz`, `graphviz-dev`, `pkg-config`, `build-essential`, `sudo`, `ca-certificates`) and `gh`
+- A bare `ubuntu:22.04` image is valid; the bootstrap installs the [`apt_packages.txt`](./apt_packages.txt) base deps (`curl`, `python3`, `git`, `tar`, `pigz`, `gawk`, `ripgrep`, `tmux`, `pandoc`, `graphviz`, `graphviz-dev`, `pkg-config`, `build-essential`, `sudo`, `ca-certificates`) and `gh`
+
+On every run, the bootstrap passes the complete resolved package list to `apt-get`; packages that are already installed are a no-op. `AAB_APT_PACKAGES_FILE` or `AAB_APT_PACKAGES_URL` can replace the default list, but the bootstrap adds `tmux` when the command is missing and the custom list omits it.
 
 ## Quick Start
 
@@ -194,6 +197,7 @@ All variables are optional unless you select a provider that needs its credentia
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when first-party Codex API-key auth is configured. |
 | `~/.bashrc` | Managed block for PATH and non-secret unattended-mode exports only. |
 | `~/.profile` | Managed block that keeps `~/.local/aab-bin` ahead of `~/.local/bin` for login shells. |
+| `~/.tmux.conf` | Managed block that enables mouse support with `set -g mouse on`; content outside the block is preserved. Written even when tmux is not yet installed. |
 | `/etc/environment` | Existing AAB managed blocks are removed so credentials do not remain there. |
 | `/var/lib/systemd/linger/<user>` | Created by `loginctl enable-linger <user>` so the per-user systemd bus stays up across sessions. Skipped on hosts without a systemd user manager. |
 | `~/.brev/credentials.json` | Written by `brev login --api-key ... --org-id ...` when Brev credentials are configured. |
