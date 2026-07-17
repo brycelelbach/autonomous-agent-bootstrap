@@ -5,7 +5,7 @@
 # old block and append a fresh one. Credentials and provider model settings
 # are written to ~/.aab/.env instead of ~/.bashrc.
 # ---------------------------------------------------------------------------
-update_bashrc() {
+configure_bashrc() {
     touch "${BASHRC}"
     if grep -qF "${BASHRC_MARKER_BEGIN}" "${BASHRC}"; then
         local tmp
@@ -74,7 +74,7 @@ update_bashrc() {
 # tweak gets shadowed in login/SSH shells. Append the launcher-dir prepend at
 # the end of ~/.profile so ~/.local/aab-bin stays ahead of ~/.local/bin there
 # too. The managed block is replaced in place on re-run, so it never stacks.
-update_profile() {
+configure_profile() {
     touch "${PROFILE}"
     if grep -qF "${BASHRC_MARKER_BEGIN}" "${PROFILE}"; then
         local tmp

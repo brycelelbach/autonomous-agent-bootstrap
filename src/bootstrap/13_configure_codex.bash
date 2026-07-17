@@ -154,7 +154,7 @@ If a skill causes the current turn to pause or otherwise blocks the continuation
 CODEX_MODEL_INSTRUCTIONS
 }
 
-write_codex_model_instructions() {
+configure_codex_model_instructions() {
     mkdir -p "${CODEX_DIR}"
     if [[ -f "${CODEX_MODEL_INSTRUCTIONS_FILE}" ]]; then
         local backup
@@ -181,7 +181,7 @@ _toml_escape() {
     printf '%s' "$s"
 }
 
-write_codex_config() {
+configure_codex_config() {
     mkdir -p "${CODEX_DIR}"
     local preserved_plugin_config=""
     if [[ -f "${CODEX_CONFIG}" ]]; then
@@ -420,8 +420,7 @@ configure_codex_auth() {
 }
 
 configure_codex() {
-    write_codex_model_instructions
-    write_codex_config
+    configure_codex_model_instructions
+    configure_codex_config
     configure_codex_auth
 }
-

@@ -87,11 +87,11 @@ PY
     chmod 0600 "$SSH_CONFIG"
 }
 
-# write_auth_ssh_key: Decode $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 to
+# configure_auth_ssh_key: Decode $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_auth and wire it as the IdentityFile for github.com in
 # ~/.ssh/config. Does NOT touch git signing config. Silent no-op when the
 # env var is unset.
-write_auth_ssh_key() {
+configure_auth_ssh_key() {
     local encoded="${AAB_GH_AUTH_SSH_PRIVATE_KEY_B64:-}"
     local label="AAB_GH_AUTH_SSH_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
@@ -107,11 +107,11 @@ write_auth_ssh_key() {
     log "Wrote GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
 }
 
-# write_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
+# configure_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_signing and configure git to sign commits/tags with it.
 # Does NOT touch ~/.ssh/config — this key is for signing only. Silent
 # no-op when the env var is unset.
-write_signing_ssh_key() {
+configure_signing_ssh_key() {
     local encoded="${AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64:-}"
     local label="AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return

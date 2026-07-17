@@ -23,8 +23,8 @@ Always commit and tag with the git identity this machine is configured with, and
 RULES
 }
 
-write_agent_rules() {
-    _write_agent_rules_block() {
+configure_agent_rules() {
+    _configure_agent_rules_block() {
         local file="$1" dir
         dir=$(dirname -- "$file")
         mkdir -p "$dir"
@@ -52,8 +52,8 @@ write_agent_rules() {
         } >> "$file"
     }
 
-    _write_agent_rules_block "${CLAUDE_MEMORY_FILE}"
+    _configure_agent_rules_block "${CLAUDE_MEMORY_FILE}"
     log "Wrote agent rules to ${CLAUDE_MEMORY_FILE}."
-    _write_agent_rules_block "${CODEX_AGENTS_FILE}"
+    _configure_agent_rules_block "${CODEX_AGENTS_FILE}"
     log "Wrote agent rules to ${CODEX_AGENTS_FILE}."
 }

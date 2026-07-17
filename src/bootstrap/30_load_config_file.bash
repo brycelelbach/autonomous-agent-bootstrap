@@ -76,22 +76,22 @@ main() {
     install_lifeboat
     install_gh
     install_gitleaks
-    write_aab_env_file
+    configure_aab_env_file
     configure_brev
     configure_claude
     configure_codex
     configure_git
-    write_auth_ssh_key
-    write_signing_ssh_key
+    configure_auth_ssh_key
+    configure_signing_ssh_key
     configure_git_hooks
-    write_agent_rules
+    configure_agent_rules
     install_agent_plugins
-    write_claude_launchers
-    write_codex_launchers
+    configure_claude_launchers
+    configure_codex_launchers
     install_autocuda
-    enable_user_linger
-    update_bashrc
-    update_profile
+    configure_user_linger
+    configure_bashrc
+    configure_profile
     log "Done. Open a new shell (or 'source ~/.bashrc') so PATH updates take effect."
 }
 

@@ -7,7 +7,7 @@
 # configures and commit under their own name/email via `git -c user.email=...`,
 # `git commit --author=...`, GIT_AUTHOR_*/GIT_COMMITTER_* env vars, or a
 # repo-local `git config user.email`. The agent rules written by
-# write_agent_rules() ask them not to; this hook makes the ask
+# configure_agent_rules() ask them not to; this hook makes the ask
 # non-optional.
 #
 # The same pre-commit hook also runs a staged-diff secret scan (gitleaks, with

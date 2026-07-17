@@ -489,7 +489,7 @@ fi
 pass "$ETC_ENV has no AAB provider or credential state."
 
 # 14. User lingering is enabled so the per-user systemd bus survives across
-# sessions. The conditions here mirror enable_user_linger's own skip branches:
+# sessions. The conditions here mirror configure_user_linger's own skip branches:
 # a host with no systemd user manager (bare container) or a non-root user
 # without passwordless sudo is a correct skip, not a failure.
 linger_user="$(id -un)"

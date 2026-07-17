@@ -7,7 +7,7 @@
 # open. `loginctl enable-linger` is the one-time setup for that. Skip cleanly on
 # hosts without a systemd user manager (bare containers) or without sudo.
 # ---------------------------------------------------------------------------
-enable_user_linger() {
+configure_user_linger() {
     local user
     user=$(id -un)
 
