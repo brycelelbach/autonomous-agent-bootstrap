@@ -356,22 +356,32 @@ set -euo pipefail
 
 real_bin="${AAB_PI_REAL_BIN:-$HOME/.local/bin/pi-aab-real}"
 env_file="${AAB_ENV_FILE:-$HOME/.aab/.env}"
+observability_env_file="${AAB_PI_OBSERVABILITY_ENV_FILE:-$HOME/.aab/shell/pi-observability.env}"
 if [ -f "$env_file" ]; then
     set -a
     . "$env_file"
     set +a
 fi
+# shellcheck source=/dev/null
+[ ! -f "$observability_env_file" ] || . "$observability_env_file"
 
 if [ ! -x "$real_bin" ]; then
     printf '[bootstrap] WARN: Pi real binary not executable: %s\n' "$real_bin" >&2
     exit 127
 fi
-if [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
+
+case "${1:-}" in
+    install|remove|uninstall|update|list|config)
+        exec "$real_bin" "$@"
+        ;;
+esac
+
+if [ -n "$profile_name" ] && [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
     printf '[bootstrap] WARN: Pi profile %s requires AAB_INFERENCE_GATEWAY_URL.\n' "$profile_name" >&2
     exit 1
 fi
 
-export AAB_PI_PROFILE="$profile_name"
+[ -z "$profile_name" ] || export AAB_PI_PROFILE="$profile_name"
 [ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
 [ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
 [ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
@@ -388,9 +398,11 @@ for arg in "$@"; do
 done
 
 extra_args=()
-[ "$has_provider" -eq 1 ] || extra_args+=(--provider aab-gateway)
-[ "$has_model" -eq 1 ] || extra_args+=(--model "$profile_model")
-[ "$has_thinking" -eq 1 ] || extra_args+=(--thinking "$profile_effort")
+if [ -n "$profile_name" ]; then
+    [ "$has_provider" -eq 1 ] || extra_args+=(--provider aab-gateway)
+    [ "$has_model" -eq 1 ] || extra_args+=(--model "$profile_model")
+    [ "$has_thinking" -eq 1 ] || extra_args+=(--thinking "$profile_effort")
+fi
 exec "$real_bin" "${extra_args[@]}" "$@"
 BASH
     } > "$tmp"
@@ -415,8 +427,8 @@ configure_pi_launchers() {
         "${HOME}/.local/bin/pi-*"
 
     if [ -z "$(_model_profile_lines "$profiles")" ]; then
-        ln -sfn "$real_bin" "$pi_bin"
-        log "Wrote unconfigured Pi launcher at ${pi_bin}."
+        _write_pi_launcher "" "" "" "$pi_bin"
+        log "Wrote unconfigured Pi launcher with observability at ${pi_bin}."
         return
     fi
 

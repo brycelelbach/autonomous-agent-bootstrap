@@ -6,24 +6,24 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 1. **Claude Code** via the official native installer, configured for unattended use with `bypassPermissions`, a deny-only managed-settings policy for interactive human-in-the-loop tools, sandbox mode, debug logging, skipped onboarding, pre-approved first-party API-key fingerprints when provided, `CLAUDE_CODE_ATTRIBUTION_HEADER=0` so the per-request attribution block does not invalidate the prompt cache on third-party gateways, and OpenTelemetry usage logging to the console (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_LOGS_EXPORTER=console`) with prompt, tool, and raw-body content logging left disabled.
 2. **Codex CLI** via OpenAI's standalone installer, configured with `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, trusted project roots, live web search, shell env inheritance, service tier, reasoning effort, detailed and raw reasoning traces, OpenTelemetry event recording with external exporters disabled and prompt logging off, and `[agents].max_threads`. A complete AAB-managed model-instructions prompt is installed at `~/.codex/codex-instructions.md` and selected globally with the absolute `model_instructions_file` path in `~/.codex/config.toml`.
-3. **Pi** via its official standalone Linux release, configured with an AAB-generated OpenAI Responses gateway provider when Pi profiles are present.
+3. **Pi** from its pinned official npm package on a pinned Node.js runtime, configured with an AAB-generated OpenAI Responses gateway provider, unattended retry/trust defaults, the packages in [`pi_plugins.txt`](./pi_plugins.txt), a tool-registry audit extension, per-process JSONL debug logs, and OpenTelemetry traces, metrics, and logs exported to the console by default.
 4. **AAB env file** at `~/.aab/.env` for model profiles, selectors, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
 5. **Profile launcher families** in `~/.local/bin`, with source-explicit Claude and Codex aliases such as `claude-third-party-deepseek-v4` and `codex-first-party-gpt-5.5`, plus Pi aliases such as `pi-opus-4.8`. Pi omits `third-party` because every Pi profile uses the inference gateway.
 6. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 7. **gh CLI**, installed as a pinned, checksum-verified standalone release.
-8. **CLI tools as uv tools** — `uv` plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. Built-in tool names resolve to the versions in [`src/bootstrap/00_versions.bash`](./src/bootstrap/00_versions.bash). The private `autocuda` package is installed best-effort from the immutable ref in the same version file (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin with Claude Code and Codex and copies the Codex worker subagent. Ubuntu package versions remain in [`apt_packages.txt`](./apt_packages.txt), and agent plugins remain in [`agent_plugins.txt`](./agent_plugins.txt).
+8. **CLI tools as uv tools** — `uv` plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. Built-in tool names resolve to the versions in [`src/bootstrap/00_versions.bash`](./src/bootstrap/00_versions.bash). The private `autocuda` package is installed best-effort from the immutable ref in the same version file (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin and worker with Claude Code, Codex, and Pi. Ubuntu package versions remain in [`apt_packages.txt`](./apt_packages.txt), agent plugins remain in [`agent_plugins.txt`](./agent_plugins.txt), and Pi packages remain in [`pi_plugins.txt`](./pi_plugins.txt).
 9. **lifeboat** — a single-script home-directory backup tool fetched to `~/.local/bin/lifeboat`. It tars `$HOME`, keeping git history, source, and docs while dropping regenerable bulk (build artifacts, profiler dumps, caches, virtualenvs), to snapshot an agent's work before an ephemeral box is torn down. Compresses with `pigz` when present, falling back to `gzip`. Source: [`brycelelbach/lifeboat`](https://github.com/brycelelbach/lifeboat).
 10. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
 11. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
 12. **Global git-identity enforcement** — the git-identity agent rule above, backed by a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
-13. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code and Codex.
+13. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code and Codex, plus exact-version Pi packages listed in [`pi_plugins.txt`](./pi_plugins.txt). Pi uses upstream `nicobailon/pi-subagents`; Autocuda contributes its Pi-native worker through its own package manifest.
 14. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
 
 ## Requirements
 
 - Ubuntu 22.04 host with `bash` and `apt-get`
 - Passwordless `sudo`, or run as root
-- A bare `ubuntu:22.04` image is valid; the bootstrap installs the version-pinned [`apt_packages.txt`](./apt_packages.txt) dependencies in one centralized step, then installs a checksum-verified standalone `gh` release.
+- A bare `ubuntu:22.04` image is valid; the bootstrap installs the version-pinned [`apt_packages.txt`](./apt_packages.txt) dependencies in one centralized step, then installs pinned Node.js and checksum-verified standalone `gh` releases.
 
 ## Quick Start
 
@@ -53,7 +53,7 @@ The bootstrap also accepts the same exported variables through its optional sour
 
 ## Generated Bootstrap
 
-`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/bootstrap/`. All non-apt, non-plugin package versions and immutable refs live in `src/bootstrap/00_versions.bash`; update that file when upgrading an installer. Claude configuration lives in `src/bootstrap/13_configure_claude.bash`, while Codex configuration lives in `src/bootstrap/15_configure_codex.bash`. After editing a module, run:
+`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/bootstrap/`. All non-apt, non-plugin package versions and immutable refs live in `src/bootstrap/00_versions.bash`; update that file when upgrading an installer. Claude, Codex, and Pi configuration live in `src/bootstrap/13_configure_claude.bash`, `src/bootstrap/13_configure_codex.bash`, and `src/bootstrap/13_configure_pi.bash`; Pi's non-shell assets live together in `src/pi/`. After editing a module, run:
 
 ```bash
 python3 tools/compile_bootstrap.py
@@ -145,6 +145,7 @@ All variables are optional unless a configured third-party profile needs the inf
 | `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key for GitHub SSH auth. |
 | `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key for git commit/tag signing. |
 | `AAB_AGENT_PLUGINS_FILE` | Optional local replacement for the plugin marketplace list compiled into `bootstrap.bash`. |
+| `AAB_PI_PLUGINS_FILE` | Optional local replacement for the Pi package list compiled into `bootstrap.bash`. |
 | `AAB_APT_PACKAGES_FILE` | Path to a local list of version-pinned Ubuntu package specifications to install with `apt-get`. |
 | `AAB_APT_PACKAGES_URL` | URL for the Debian-package list when no local file is used. |
 | `AAB_UV_TOOLS_FILE` | Path to a local list of CLI tools to install with `uv tool install`. |
@@ -164,10 +165,15 @@ All variables are optional unless a configured third-party profile needs the inf
 | `~/.local/bin/codex-first-party-*` | One first-party Codex launcher per configured versioned profile. |
 | `~/.local/bin/codex-third-party-*` | One inference-gateway Codex launcher per configured versioned profile. |
 | `~/.local/bin/codex-aab-real` | Link or moved copy of the real Codex binary. |
-| `~/.local/bin/pi` | Pi launcher file for the selected profile, or the native Pi link when no profiles are configured. |
+| `~/.local/bin/pi` | Pi launcher file for the selected profile, or an unconfigured launcher when no profiles are configured. Every launcher scopes Pi logging and OpenTelemetry variables to the Pi process. |
 | `~/.local/bin/pi-*` | One gateway-backed Pi launcher per configured versioned profile; aliases omit `third-party`. |
-| `~/.local/bin/pi-aab-real`, `~/.local/share/aab/pi/` | Official standalone Pi binary and its runtime assets. |
+| `~/.local/bin/pi-aab-real`, `~/.local/lib/node_modules/@earendil-works/pi-coding-agent/` | Pinned official npm Pi CLI and its runtime assets. |
+| `~/.local/share/aab/node/`, `~/.local/bin/{node,npm,npx,corepack}` | Pinned official Node.js runtime used by Pi and Pi package installation. |
+| `~/.pi/agent/settings.json` | Pi unattended defaults, selected gateway model, audit extension, and installed package registry. Machine identifiers and changelog state are not copied. |
 | `~/.pi/agent/models.json` | Generated AAB inference-gateway provider and model catalog when Pi profiles are configured. |
+| `~/.pi/agent/extensions/list-tools.ts` | Pi extension that prints the exact configured tool registry in table, verbose, or JSON form. |
+| `~/.pi/agent/npm/pi-observability-preload.cjs`, `~/.pi/agent/debug/` | Launcher-only console capture that writes one structured JSONL debug file per Pi process. |
+| `~/.aab/shell/pi-observability.env` | Pi-only telemetry defaults and `NODE_OPTIONS` preloads. Standard `OTEL_*` variables can override the console exporters. |
 | `~/.claude/settings.json` | Rewritten with unattended Claude defaults and plugin entries; existing file is backed up. |
 | `~/.claude.json` | Merged with onboarding and optional API-key approval state; existing file is backed up. |
 | `~/.codex/config.toml` | Rewritten with unattended Codex defaults, the absolute global `model_instructions_file` path, and selected profile config while preserving Codex plugin tables; existing file is backed up. |

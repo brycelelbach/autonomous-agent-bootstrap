@@ -73,6 +73,7 @@ main() {
     install_uv_tools
     install_claude
     install_codex
+    install_node
     install_pi
     install_brev
     install_lifeboat
@@ -83,12 +84,15 @@ main() {
     configure_claude
     configure_codex
     configure_pi_models
+    configure_pi_settings
+    configure_pi_observability
     configure_git
     configure_auth_ssh_key
     configure_signing_ssh_key
     configure_git_hooks
     configure_agent_rules
     install_agent_plugins
+    install_pi_plugins
     configure_claude_launchers
     configure_codex_launchers
     configure_pi_launchers

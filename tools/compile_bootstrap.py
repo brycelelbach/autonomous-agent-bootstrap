@@ -13,6 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "src" / "bootstrap"
 OUTPUT = ROOT / "bootstrap.bash"
 AGENT_PLUGINS = ROOT / "agent_plugins.txt"
+PI_PLUGINS = ROOT / "pi_plugins.txt"
+PI_ASSET_DIR = ROOT / "src" / "pi"
+PI_OBSERVABILITY_ENV = PI_ASSET_DIR / "observability.env"
+PI_OBSERVABILITY_PRELOAD = PI_ASSET_DIR / "observability-preload.cjs"
+PI_LIST_TOOLS_EXTENSION = PI_ASSET_DIR / "list-tools.ts"
 
 GENERATED_HEADER = """# -----------------------------------------------------------------------------
 # GENERATED FILE: do not edit directly.
@@ -42,10 +47,18 @@ def compile_bootstrap(
             parts.append(f"\n# >>> src/bootstrap/{path.name} >>>\n{text}# <<< src/bootstrap/{path.name} <<<\n")
     compiled = "".join(parts)
     agent_plugins = AGENT_PLUGINS.read_text().rstrip("\n")
+    pi_plugins = PI_PLUGINS.read_text().rstrip("\n")
+    pi_observability_env = PI_OBSERVABILITY_ENV.read_text().rstrip("\n")
+    pi_observability_preload = PI_OBSERVABILITY_PRELOAD.read_text().rstrip("\n")
+    pi_list_tools_extension = PI_LIST_TOOLS_EXTENSION.read_text().rstrip("\n")
     return (
         compiled.replace("__AAB_BOOTSTRAP_REPO__", bootstrap_repo)
         .replace("__AAB_BOOTSTRAP_REF__", bootstrap_ref)
         .replace("__AAB_AGENT_PLUGINS__", agent_plugins)
+        .replace("__AAB_PI_PLUGINS__", pi_plugins)
+        .replace("__AAB_PI_OBSERVABILITY_ENV__", pi_observability_env)
+        .replace("__AAB_PI_OBSERVABILITY_PRELOAD__", pi_observability_preload)
+        .replace("__AAB_PI_LIST_TOOLS_EXTENSION__", pi_list_tools_extension)
     )
 
 

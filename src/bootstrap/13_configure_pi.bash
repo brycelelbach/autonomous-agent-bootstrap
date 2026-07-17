@@ -1,6 +1,20 @@
 # ---------------------------------------------------------------------------
-# Configure Pi's generated inference-gateway model catalog.
+# Configure Pi's generated inference-gateway model catalog, unattended
+# defaults, audit extension, and launcher-only observability assets.
 # ---------------------------------------------------------------------------
+PI_OBSERVABILITY_ENV_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_ENV_EOF'
+__AAB_PI_OBSERVABILITY_ENV__
+AAB_PI_OBSERVABILITY_ENV_EOF
+)
+PI_OBSERVABILITY_PRELOAD_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_PRELOAD_EOF'
+__AAB_PI_OBSERVABILITY_PRELOAD__
+AAB_PI_OBSERVABILITY_PRELOAD_EOF
+)
+PI_LIST_TOOLS_EXTENSION_CONTENT=$(cat <<'AAB_PI_LIST_TOOLS_EXTENSION_EOF'
+__AAB_PI_LIST_TOOLS_EXTENSION__
+AAB_PI_LIST_TOOLS_EXTENSION_EOF
+)
+
 configure_pi_models() {
     local profiles line
     profiles=$(_profile_list_for pi third-party)
@@ -82,4 +96,113 @@ PY
     : > "$PI_MODELS_MARKER"
     chmod 600 "$PI_MODELS_MARKER"
     log "Wrote ${PI_MODELS_FILE} from AAB_PI_PROFILES."
+}
+
+configure_pi_settings() {
+    local profiles records line selected_provider="" selected_model=""
+    local -A profile=() selected=()
+    profiles=$(_profile_list_for pi third-party)
+    records=$(mktemp)
+    while IFS= read -r line; do
+        _parse_model_profile_line pi third-party "$line" profile
+        printf '%s\n' "${profile[model]}" >> "$records"
+    done < <(_model_profile_lines "$profiles")
+
+    if [ -s "$records" ]; then
+        resolve_model_profile pi selected
+        selected_provider="aab-gateway"
+        selected_model="${selected[model]}"
+    fi
+
+    mkdir -p "$PI_DIR" "$(dirname "$PI_LIST_TOOLS_EXTENSION")"
+    if [ -f "$PI_SETTINGS_FILE" ]; then
+        local backup
+        backup="${PI_SETTINGS_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
+        cp "$PI_SETTINGS_FILE" "$backup"
+        log "Backed up existing Pi settings.json -> ${backup}."
+    fi
+
+    local tmp
+    tmp=$(mktemp "${PI_SETTINGS_FILE}.tmp.XXXXXX")
+    python3 - "$PI_SETTINGS_FILE" "$records" "$PI_LIST_TOOLS_EXTENSION" \
+        "$selected_provider" "$selected_model" "$tmp" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+settings_path, models_path, extension_path, provider, model, output_path = sys.argv[1:]
+data = {}
+try:
+    with open(settings_path, encoding="utf-8") as handle:
+        loaded = json.load(handle)
+        if isinstance(loaded, dict):
+            data = loaded
+except (FileNotFoundError, json.JSONDecodeError):
+    pass
+
+data.update(
+    {
+        "defaultThinkingLevel": "high",
+        "defaultProjectTrust": "always",
+        "quietStartup": True,
+        "enableInstallTelemetry": True,
+        "enableAnalytics": True,
+        "warnings": {"anthropicExtraUsage": False},
+        "retry": {
+            "enabled": True,
+            "maxRetries": 15,
+            "provider": {"timeoutMs": 240000, "maxRetries": 0},
+        },
+        "extensions": [extension_path],
+        "packages": [],
+    }
+)
+
+if provider:
+    models = list(dict.fromkeys(Path(models_path).read_text().splitlines()))
+    data["defaultProvider"] = provider
+    data["defaultModel"] = model
+    data["enabledModels"] = models
+
+for machine_key in ("trackingId", "lastChangelogVersion"):
+    data.pop(machine_key, None)
+
+with open(output_path, "w", encoding="utf-8") as handle:
+    json.dump(data, handle, indent=2)
+    handle.write("\n")
+PY
+    rm -f "$records"
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$PI_SETTINGS_FILE"
+    log "Wrote ${PI_SETTINGS_FILE} with unattended Pi defaults."
+}
+
+_write_pi_embedded_asset() {
+    local path="$1" content="$2" mode="$3" tmp
+    mkdir -p "$(dirname "$path")"
+    tmp=$(mktemp "${path}.tmp.XXXXXX")
+    printf '%s\n' "$content" > "$tmp"
+    chmod "$mode" "$tmp"
+    mv -f "$tmp" "$path"
+}
+
+configure_pi_observability() {
+    _write_pi_embedded_asset "$PI_OBSERVABILITY_ENV_FILE" "$PI_OBSERVABILITY_ENV_CONTENT" 600
+    _write_pi_embedded_asset "$PI_OBSERVABILITY_PRELOAD" "$PI_OBSERVABILITY_PRELOAD_CONTENT" 600
+    _write_pi_embedded_asset "$PI_LIST_TOOLS_EXTENSION" "$PI_LIST_TOOLS_EXTENSION_CONTENT" 600
+
+    if ! command -v npm >/dev/null 2>&1; then
+        warn "npm is unavailable; Pi OpenTelemetry dependencies were not installed."
+        return
+    fi
+    log "Installing Pi OpenTelemetry instrumentation dependencies."
+    npm install --prefix "$PI_NPM_DIR" --save-exact --ignore-scripts --no-audit --no-fund \
+        '@opentelemetry/auto-instrumentations-node@0.78.0' \
+        '@opentelemetry/exporter-logs-otlp-http@0.220.0' \
+        '@opentelemetry/exporter-metrics-otlp-http@0.220.0' \
+        '@opentelemetry/exporter-trace-otlp-http@0.220.0' \
+        '@opentelemetry/instrumentation-http@0.220.0' \
+        '@opentelemetry/instrumentation-undici@0.30.0' \
+        '@opentelemetry/sdk-node@0.220.0'
+    log "Wrote Pi JSONL logging and OpenTelemetry launcher configuration."
 }
