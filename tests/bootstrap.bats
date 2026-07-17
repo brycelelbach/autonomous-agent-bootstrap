@@ -2533,29 +2533,32 @@ STUB
     [ ! -e "$GITLEAKS_BIN" ]
 }
 
-@test "configure_agent_rules writes a managed block to CLAUDE.md and AGENTS.md" {
+@test "configure_agent_rules writes clean rules to CLAUDE.md and AGENTS.md" {
     configure_agent_rules
     [ -f "$CLAUDE_MEMORY_FILE" ]
     [ -f "$CODEX_AGENTS_FILE" ]
-    grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE"
-    grep -qF "$AGENT_RULES_MARKER_END" "$CLAUDE_MEMORY_FILE"
+    [ -f "$AGENT_RULES_STATE_FILE" ]
+    [ "$(stat -c '%a' "$AGENT_RULES_STATE_FILE")" = "600" ]
+    ! grep -qF '# >>> autonomous-agent-bootstrap >>>' "$CLAUDE_MEMORY_FILE"
+    ! grep -qF '# <<< autonomous-agent-bootstrap <<<' "$CLAUDE_MEMORY_FILE"
     grep -q "Operating principles" "$CLAUDE_MEMORY_FILE"
     grep -q "Act autonomously without seeking operator input" "$CLAUDE_MEMORY_FILE"
     grep -q "Always use the configured git identity" "$CLAUDE_MEMORY_FILE"
-    grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CODEX_AGENTS_FILE"
+    ! grep -qF '# >>> autonomous-agent-bootstrap >>>' "$CODEX_AGENTS_FILE"
     grep -q "Operating principles" "$CODEX_AGENTS_FILE"
     grep -q "Always use the configured git identity" "$CODEX_AGENTS_FILE"
+    grep -q "Operating principles" "$AGENT_RULES_STATE_FILE"
 }
 
-@test "configure_agent_rules is idempotent (single managed block, size stable)" {
+@test "configure_agent_rules is idempotent (single rule set, size stable)" {
     configure_agent_rules
     local size1
     size1=$(wc -c < "$CLAUDE_MEMORY_FILE")
     configure_agent_rules
-    local begin_count size2
-    begin_count=$(grep -cF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE")
+    local rules_count size2
+    rules_count=$(grep -c '^## Operating principles$' "$CLAUDE_MEMORY_FILE")
     size2=$(wc -c < "$CLAUDE_MEMORY_FILE")
-    [ "$begin_count" -eq 1 ]
+    [ "$rules_count" -eq 1 ]
     [ "$size1" -eq "$size2" ]
 }
 
@@ -2565,7 +2568,19 @@ STUB
     configure_agent_rules
     grep -q '^# My memory$' "$CLAUDE_MEMORY_FILE"
     grep -q '^Keep this line\.$' "$CLAUDE_MEMORY_FILE"
-    grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE"
+    ! grep -qF '# >>> autonomous-agent-bootstrap >>>' "$CLAUDE_MEMORY_FILE"
+}
+
+@test "configure_agent_rules replaces the sidecar-tracked rule text" {
+    mkdir -p "$(dirname "$CLAUDE_MEMORY_FILE")" "$AAB_DIR"
+    printf '# My memory\n\n## Old generated rules\n\nOld rule.\n' > "$CLAUDE_MEMORY_FILE"
+    printf '## Old generated rules\n\nOld rule.\n' > "$AGENT_RULES_STATE_FILE"
+
+    configure_agent_rules
+
+    grep -q '^# My memory$' "$CLAUDE_MEMORY_FILE"
+    ! grep -q '^## Old generated rules$' "$CLAUDE_MEMORY_FILE"
+    grep -q '^## Operating principles$' "$CLAUDE_MEMORY_FILE"
 }
 
 # ---------------------------------------------------------------------------

@@ -525,24 +525,28 @@ git init -q "$secret_repo"
 rm -rf "$secret_repo"
 pass "gitleaks installed; pre-commit secret scan blocks a staged token and honors GITLEAKS_ALLOW."
 
-# 12d. The agent instruction files carry the agent rules in a managed block, so
-# Claude Code (~/.claude/CLAUDE.md) and Codex (~/.codex/AGENTS.md) both see them
-# in every repository: the operating principles plus the git-identity rule.
+# 12d. The agent instruction files carry the clean agent rules, so Claude Code
+# (~/.claude/CLAUDE.md) and Codex (~/.codex/AGENTS.md) both see them in every
+# repository without AAB management comments in their prompts.
 CLAUDE_MEMORY_FILE="${HOME}/.claude/CLAUDE.md"
 CODEX_AGENTS_FILE="${HOME}/.codex/AGENTS.md"
 for rule_file in "$CLAUDE_MEMORY_FILE" "$CODEX_AGENTS_FILE"; do
     [ -f "$rule_file" ] || fail "agent rule file $rule_file not written."
-    grep -q '# >>> autonomous-agent-bootstrap >>>' "$rule_file" \
-        || fail "agent rule file $rule_file missing managed-block begin marker."
-    begin_count=$(grep -c '^# >>> autonomous-agent-bootstrap >>>$' "$rule_file")
-    [ "$begin_count" -eq 1 ] \
-        || fail "agent rule file $rule_file has $begin_count managed blocks, expected 1."
+    ! grep -q '^# >>> autonomous-agent-bootstrap >>>$' "$rule_file" \
+        || fail "agent rule file $rule_file contains an AAB begin marker."
+    ! grep -q '^# <<< autonomous-agent-bootstrap <<<$' "$rule_file" \
+        || fail "agent rule file $rule_file contains an AAB end marker."
+    rules_count=$(grep -c '^## Operating principles$' "$rule_file")
+    [ "$rules_count" -eq 1 ] \
+        || fail "agent rule file $rule_file has $rules_count rule sets, expected 1."
     grep -q 'Operating principles' "$rule_file" \
         || fail "agent rule file $rule_file missing the operating-principles heading."
     grep -q 'Always use the configured git identity' "$rule_file" \
         || fail "agent rule file $rule_file missing the git-identity rule heading."
 done
-pass "agent instruction files carry the agent rules exactly once."
+[ -f "$HOME/.aab/agent-rules.snapshot" ] \
+    || fail "agent-rule ownership sidecar not written."
+pass "agent instruction files carry clean agent rules exactly once."
 
 # 13. /etc/environment does not carry AAB secrets or provider config.
 ETC_ENV=/etc/environment

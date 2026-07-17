@@ -2,11 +2,11 @@
 # 9d. Write the global agent rules to every harness's instruction file. Claude
 # Code reads ~/.claude/CLAUDE.md and Codex reads ~/.codex/AGENTS.md for every
 # session in every repository, so the rules land regardless of what a project's
-# own CLAUDE.md / AGENTS.md says. The block carries the operating principles for
+# own CLAUDE.md / AGENTS.md says. The rules carry the operating principles for
 # an unattended agent in this sandbox, followed by the git-identity rule (also
-# enforced by the hook installed above). The rules are wrapped in a managed
-# block so re-runs replace them in place rather than stacking, and pre-existing
-# user content in either file is preserved.
+# enforced by the hook installed above). A sidecar stores the exact generated
+# text so re-runs can replace it without adding management comments to the
+# instruction files. Pre-existing user content in either file is preserved.
 # ---------------------------------------------------------------------------
 _render_agent_rules() {
     cat <<'RULES'
@@ -24,36 +24,58 @@ RULES
 }
 
 configure_agent_rules() {
-    _configure_agent_rules_block() {
-        local file="$1" dir
+    local current_rules previous_rules
+    current_rules=$(mktemp)
+    previous_rules=$(mktemp)
+    _render_agent_rules > "$current_rules"
+    if [ -f "$AGENT_RULES_STATE_FILE" ]; then
+        cp "$AGENT_RULES_STATE_FILE" "$previous_rules"
+    else
+        : > "$previous_rules"
+    fi
+
+    _configure_agent_rules_file() {
+        local file="$1" dir tmp
         dir=$(dirname -- "$file")
         mkdir -p "$dir"
         touch "$file"
-        if grep -qF "${AGENT_RULES_MARKER_BEGIN}" "$file"; then
-            local tmp
-            tmp=$(mktemp)
-            awk -v begin="${AGENT_RULES_MARKER_BEGIN}" -v end="${AGENT_RULES_MARKER_END}" '
-                $0 == begin { skip=1; next }
-                $0 == end   { skip=0; next }
-                !skip { print }
-            ' "$file" > "$tmp"
-            # Drop trailing blank lines left behind so the file size stays
-            # stable across re-runs.
-            while [ -s "$tmp" ] && [ -z "$(tail -n 1 "$tmp")" ]; do
-                sed -i '$ d' "$tmp"
-            done
-            mv "$tmp" "$file"
-        fi
+        tmp=$(mktemp)
+        python3 - "$file" "$previous_rules" "$current_rules" "$tmp" <<'PY'
+import sys
+from pathlib import Path
+
+target_path, previous_path, current_path, output_path = sys.argv[1:]
+text = Path(target_path).read_text(encoding="utf-8")
+previous = Path(previous_path).read_text(encoding="utf-8")
+current = Path(current_path).read_text(encoding="utf-8")
+for managed in dict.fromkeys((previous, current)):
+    if not managed:
+        continue
+    index = text.rfind(managed)
+    if index >= 0:
+        text = text[:index] + text[index + len(managed):]
+        break
+
+text = text.rstrip("\r\n")
+if text:
+    text += "\n"
+Path(output_path).write_text(text, encoding="utf-8")
+PY
+        mv "$tmp" "$file"
         {
             [ -s "$file" ] && printf '\n'
-            printf '%s\n' "${AGENT_RULES_MARKER_BEGIN}"
-            _render_agent_rules
-            printf '%s\n' "${AGENT_RULES_MARKER_END}"
+            cat "$current_rules"
         } >> "$file"
     }
 
-    _configure_agent_rules_block "${CLAUDE_MEMORY_FILE}"
+    _configure_agent_rules_file "${CLAUDE_MEMORY_FILE}"
     log "Wrote agent rules to ${CLAUDE_MEMORY_FILE}."
-    _configure_agent_rules_block "${CODEX_AGENTS_FILE}"
+    _configure_agent_rules_file "${CODEX_AGENTS_FILE}"
     log "Wrote agent rules to ${CODEX_AGENTS_FILE}."
+
+    mkdir -p "$AAB_DIR"
+    chmod 700 "$AAB_DIR"
+    chmod 600 "$current_rules"
+    mv "$current_rules" "$AGENT_RULES_STATE_FILE"
+    rm -f "$previous_rules"
 }
