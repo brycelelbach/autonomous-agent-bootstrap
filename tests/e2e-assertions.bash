@@ -21,6 +21,10 @@ PROFILE="${HOME}/.profile"
 AAB_ENV_FILE="${HOME}/.aab/.env"
 CLAUDE_SHELL_CONFIG_FILE="${HOME}/.aab/shell/claude.env"
 PI_MODELS_FILE="${HOME}/.pi/agent/models.json"
+PI_SETTINGS_FILE="${HOME}/.pi/agent/settings.json"
+PI_OBSERVABILITY_ENV_FILE="${HOME}/.aab/shell/pi-observability.env"
+PI_OBSERVABILITY_PRELOAD="${HOME}/.pi/agent/npm/pi-observability-preload.cjs"
+PI_LIST_TOOLS_EXTENSION="${HOME}/.pi/agent/extensions/list-tools.ts"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
@@ -332,6 +336,10 @@ case "$codex_plugins" in
 esac
 pass "Codex agent plugins installed."
 command -v pi >/dev/null 2>&1 || fail "pi not on PATH after bootstrap."
+command -v node >/dev/null 2>&1 || fail "node not on PATH after bootstrap."
+command -v npm >/dev/null 2>&1 || fail "npm not on PATH after bootstrap."
+node --version 2>&1 | grep -Fxq "v${NODE_VERSION}" \
+    || fail "Node.js is not the pinned version ${NODE_VERSION}."
 [ -x "$HOME/.local/bin/pi-${expected_pi_profile[name]}" ] \
     || fail "Pi selected profile launcher missing."
 [ ! -e "$HOME/.local/bin/pi-third-party-${expected_pi_profile[name]}" ] \
@@ -340,7 +348,61 @@ command -v pi >/dev/null 2>&1 || fail "pi not on PATH after bootstrap."
 grep -Fq '"aab-gateway"' "$PI_MODELS_FILE" || fail "Pi AAB gateway provider missing."
 "$HOME/.local/bin/pi-aab-real" --version 2>&1 | grep -Fq "$PI_VERSION" \
     || fail "Pi is not the pinned version $PI_VERSION."
-pass "Pi profile launcher installed without a third-party alias segment."
+[ -f "$PI_SETTINGS_FILE" ] || fail "Pi settings.json not written."
+[ -f "$PI_OBSERVABILITY_ENV_FILE" ] || fail "Pi observability environment file not written."
+[ -f "$PI_OBSERVABILITY_PRELOAD" ] || fail "Pi observability preload not written."
+[ -f "$PI_LIST_TOOLS_EXTENSION" ] || fail "Pi list-tools extension not written."
+[ -f "$HOME/.pi/agent/npm/node_modules/@opentelemetry/auto-instrumentations-node/build/src/register.js" ] \
+    || fail "Pi OpenTelemetry auto-instrumentation is not installed."
+python3 - "$PI_SETTINGS_FILE" "$PI_LIST_TOOLS_EXTENSION" "$REPO_ROOT/pi_plugins.txt" \
+    "${expected_pi_profile[model]}" <<'PY'
+import json
+import sys
+
+settings_path, extension_path, plugins_path, expected_model = sys.argv[1:]
+with open(settings_path, encoding="utf-8") as handle:
+    data = json.load(handle)
+assert data["defaultProvider"] == "aab-gateway", data
+assert data["defaultModel"] == expected_model, data
+assert data["defaultThinkingLevel"] == "high", data
+assert data["defaultProjectTrust"] == "always", data
+assert data["quietStartup"] is True, data
+assert data["enableInstallTelemetry"] is True, data
+assert data["enableAnalytics"] is True, data
+assert data["warnings"] == {"anthropicExtraUsage": False}, data
+assert data["retry"] == {
+    "enabled": True,
+    "maxRetries": 15,
+    "provider": {"timeoutMs": 240000, "maxRetries": 0},
+}, data
+assert data["extensions"] == [extension_path], data
+assert "trackingId" not in data and "lastChangelogVersion" not in data, data
+expected_packages = []
+with open(plugins_path, encoding="utf-8") as handle:
+    for raw_line in handle:
+        line = raw_line.split("#", 1)[0].strip()
+        if line:
+            expected_packages.append(line)
+missing = [source for source in expected_packages if source not in data["packages"]]
+assert not missing, (missing, data["packages"])
+PY
+grep -Fq 'export OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi trace exporter does not default to console."
+grep -Fq 'export OTEL_METRICS_EXPORTER="${OTEL_METRICS_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi metrics exporter does not default to console."
+grep -Fq 'export OTEL_LOGS_EXPORTER="${OTEL_LOGS_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi log exporter does not default to console."
+grep -Fq 'PI_DEBUG_LOG_FILE' "$PI_OBSERVABILITY_PRELOAD" \
+    || fail "Pi JSONL debug preload is incomplete."
+grep -Fq 'pi.registerFlag("list-tools"' "$PI_LIST_TOOLS_EXTENSION" \
+    || fail "Pi list-tools extension is incomplete."
+mkdir -p "$HOME/.pi/agent/debug"
+debug_logs_before=$(find "$HOME/.pi/agent/debug" -maxdepth 1 -type f -name 'pi-*.jsonl' 2>/dev/null | wc -l)
+pi list >/dev/null 2>&1 || fail "Pi package list failed through the profile launcher."
+debug_logs_after=$(find "$HOME/.pi/agent/debug" -maxdepth 1 -type f -name 'pi-*.jsonl' 2>/dev/null | wc -l)
+[ "$debug_logs_after" -gt "$debug_logs_before" ] \
+    || fail "Pi launcher did not create a JSONL debug log."
+pass "Pi profile, packages, audit extension, JSONL logging, and OpenTelemetry are configured."
 if [ "$expected_codex_source" = "first-party" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
     AAB_EXPECTED_CODEX_API_KEY="$OPENAI_API_KEY" \
@@ -561,7 +623,14 @@ if [ -x "$LOCAL_BIN/autocuda" ]; then
     esac
     command -v autocuda >/dev/null 2>&1 || fail "autocuda on ~/.local/bin but not resolvable on PATH."
     autocuda --help >/dev/null 2>&1 || fail "autocuda is present but does not run."
-    pass "autocuda installed as a uv tool, on PATH and runnable."
+    [ -L "$HOME/.local/share/autocuda/pi-package" ] \
+        || fail "autocuda did not expose its bundled Pi package."
+    autocuda_pi_packages=$(pi list 2>&1) || fail "Pi package list failed after autocuda installation."
+    case "$autocuda_pi_packages" in
+        *autocuda/pi-package*) ;;
+        *) fail "autocuda Pi package is not registered." ;;
+    esac
+    pass "autocuda installed as a uv tool and registered with Pi."
 else
     pass "autocuda not installed (private repo without access); best-effort install correctly degraded."
 fi

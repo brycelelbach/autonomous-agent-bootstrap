@@ -21,7 +21,7 @@ setup() {
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           OPENAI_API_KEY GH_TOKEN GITHUB_TOKEN \
-          AAB_AGENT_PLUGINS_FILE \
+          AAB_AGENT_PLUGINS_FILE AAB_PI_PLUGINS_FILE \
           AAB_APT_PACKAGES_FILE AAB_APT_PACKAGES_URL \
           AAB_UV_TOOLS_FILE AAB_UV_TOOLS_URL
     # shellcheck disable=SC1091
@@ -58,7 +58,7 @@ teardown() {
 @test "non-apt package versions are centralized" {
     local package_variable definitions
     for package_variable in \
-        CLAUDE_CODE_VERSION CODEX_VERSION PI_VERSION BREV_VERSION \
+        CLAUDE_CODE_VERSION CODEX_VERSION NODE_VERSION PI_VERSION BREV_VERSION \
         LIFEBOAT_REF GH_VERSION UV_VERSION RUFF_VERSION \
         PRE_COMMIT_VERSION AUTOCUDA_REF GITLEAKS_VERSION; do
         [ -n "${!package_variable}" ]
@@ -71,6 +71,16 @@ teardown() {
 @test "agent plugin defaults are compiled into bootstrap.bash" {
     [ "$AGENT_PLUGINS_DEFAULT_CONTENT" = "$(cat "$REPO_ROOT/agent_plugins.txt")" ]
     [[ "$AGENT_PLUGINS_DEFAULT_CONTENT" != *"__AAB_AGENT_PLUGINS__"* ]]
+}
+
+@test "Pi package and asset defaults are compiled into bootstrap.bash" {
+    [ "$PI_PLUGINS_DEFAULT_CONTENT" = "$(cat "$REPO_ROOT/pi_plugins.txt")" ]
+    [ "$PI_OBSERVABILITY_ENV_CONTENT" = "$(cat "$REPO_ROOT/src/pi/observability.env")" ]
+    [ "$PI_OBSERVABILITY_PRELOAD_CONTENT" = "$(cat "$REPO_ROOT/src/pi/observability-preload.cjs")" ]
+    [ "$PI_LIST_TOOLS_EXTENSION_CONTENT" = "$(cat "$REPO_ROOT/src/pi/list-tools.ts")" ]
+    [[ "$PI_PLUGINS_DEFAULT_CONTENT" != *"__AAB_PI_PLUGINS__"* ]]
+    grep -Fq 'git:github.com/nicobailon/pi-subagents@' "$REPO_ROOT/pi_plugins.txt"
+    ! grep -Fq 'robobryce/pi-subagents' "$REPO_ROOT/pi_plugins.txt"
 }
 
 @test "Claude profiles inherit unspecified tier models from the primary model" {
@@ -969,8 +979,11 @@ SH
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$TEST_HOME/pi-launcher-args"
 printf '%s\n' "\${AAB_PI_PROFILE:-}" > "$TEST_HOME/pi-launcher-profile"
+printf '%s\n' "\${OTEL_SERVICE_NAME:-}" > "$TEST_HOME/pi-launcher-otel-service"
 SH
     chmod +x "$HOME/.local/bin/pi-aab-real"
+    mkdir -p "$(dirname "$PI_OBSERVABILITY_ENV_FILE")"
+    printf '%s\n' 'export OTEL_SERVICE_NAME=pi-test-service' > "$PI_OBSERVABILITY_ENV_FILE"
 
     AAB_PI_PROFILES="opus-4.8 model=anthropic/claude-opus-4-8 effort=max context=200000 max_tokens=32000" \
         AAB_PI_PROFILE="opus-4.8" \
@@ -996,6 +1009,12 @@ SH
     grep -Fxq 'anthropic/claude-opus-4-8' "$TEST_HOME/pi-launcher-args"
     grep -Fxq -- '--thinking' "$TEST_HOME/pi-launcher-args"
     grep -Fxq 'max' "$TEST_HOME/pi-launcher-args"
+    [ "$(cat "$TEST_HOME/pi-launcher-otel-service")" = "pi-test-service" ]
+
+    "$HOME/.local/bin/pi-opus-4.8" install npm:example@1.0.0
+    [ "$(sed -n '1p' "$TEST_HOME/pi-launcher-args")" = "install" ]
+    [ "$(sed -n '2p' "$TEST_HOME/pi-launcher-args")" = "npm:example@1.0.0" ]
+    [ "$(wc -l < "$TEST_HOME/pi-launcher-args")" -eq 2 ]
     python3 - <<PY
 import json
 d = json.load(open("$PI_MODELS_FILE"))
@@ -1030,10 +1049,88 @@ SH
 
     AAB_PI_PROFILES="" configure_pi_launchers
 
-    [ -L "$HOME/.local/bin/pi" ]
-    [ "$(readlink "$HOME/.local/bin/pi")" = "$HOME/.local/bin/pi-aab-real" ]
+    [ -f "$HOME/.local/bin/pi" ]
+    [ ! -L "$HOME/.local/bin/pi" ]
+    grep -Fq 'Autonomous-agent-bootstrap Pi launcher' "$HOME/.local/bin/pi"
     [ ! -e "$HOME/.local/bin/pi-opus-4.8" ]
     [ -x "$HOME/.local/bin/pi-aab-real" ]
+}
+
+@test "configure_pi_settings writes machine-independent unattended defaults" {
+    AAB_PI_PROFILES=$'opus-4.8 model=anthropic/claude-opus-4-8 effort=high\ndeepseek-v4 model=deepseek-v4-pro effort=high' \
+        AAB_PI_PROFILE="deepseek-v4" \
+        AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
+        configure_pi_settings
+
+    python3 - "$PI_SETTINGS_FILE" "$PI_LIST_TOOLS_EXTENSION" <<'PY'
+import json
+import sys
+
+settings_path, extension_path = sys.argv[1:]
+with open(settings_path, encoding="utf-8") as handle:
+    data = json.load(handle)
+assert data["defaultProvider"] == "aab-gateway", data
+assert data["defaultModel"] == "deepseek-v4-pro", data
+assert data["defaultThinkingLevel"] == "high", data
+assert data["defaultProjectTrust"] == "always", data
+assert data["quietStartup"] is True, data
+assert data["enableInstallTelemetry"] is True, data
+assert data["enableAnalytics"] is True, data
+assert data["warnings"] == {"anthropicExtraUsage": False}, data
+assert data["retry"] == {
+    "enabled": True,
+    "maxRetries": 15,
+    "provider": {"timeoutMs": 240000, "maxRetries": 0},
+}, data
+assert data["enabledModels"] == ["anthropic/claude-opus-4-8", "deepseek-v4-pro"], data
+assert data["extensions"] == [extension_path], data
+assert data["packages"] == [], data
+assert "trackingId" not in data and "lastChangelogVersion" not in data, data
+PY
+}
+
+@test "configure_pi_observability installs launcher-only logging assets and pinned OTEL dependencies" {
+    local fake_bin="$TEST_HOME/fake-npm-bin"
+    mkdir -p "$fake_bin"
+    cat > "$fake_bin/npm" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "$TEST_HOME/npm-invocations"
+SH
+    chmod +x "$fake_bin/npm"
+
+    PATH="$fake_bin:$PATH" configure_pi_observability
+
+    [ -f "$PI_OBSERVABILITY_ENV_FILE" ]
+    [ -f "$PI_OBSERVABILITY_PRELOAD" ]
+    [ -f "$PI_LIST_TOOLS_EXTENSION" ]
+    grep -Fq 'OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE"
+    grep -Fq 'pi-observability-preload.cjs' "$PI_OBSERVABILITY_ENV_FILE"
+    grep -Fq 'PI_DEBUG_LOG_FILE' "$PI_OBSERVABILITY_PRELOAD"
+    grep -Fq 'pi.registerFlag("list-tools"' "$PI_LIST_TOOLS_EXTENSION"
+    grep -Fq '@opentelemetry/auto-instrumentations-node@0.78.0' "$TEST_HOME/npm-invocations"
+    grep -Fq '@opentelemetry/sdk-node@0.220.0' "$TEST_HOME/npm-invocations"
+}
+
+@test "install_pi_plugins installs every non-comment source without profile flags" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/pi-aab-real" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TEST_HOME/pi-package-invocations"
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real"
+    cat > "$TEST_HOME/pi-plugins.txt" <<'EOF'
+# Test packages.
+npm:one@1.0.0
+
+git:github.com/example/two@0123456789abcdef
+EOF
+    export AAB_PI_PLUGINS_FILE="$TEST_HOME/pi-plugins.txt"
+
+    install_pi_plugins
+
+    grep -Fxq 'install npm:one@1.0.0 --no-approve' "$TEST_HOME/pi-package-invocations"
+    grep -Fxq 'install git:github.com/example/two@0123456789abcdef --no-approve' "$TEST_HOME/pi-package-invocations"
+    [ "$(wc -l < "$TEST_HOME/pi-package-invocations")" -eq 2 ]
 }
 
 setup_fake_codex() {
