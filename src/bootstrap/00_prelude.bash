@@ -105,8 +105,7 @@ GIT_HOOK_NAMES=(
 )
 CLAUDE_MEMORY_FILE="${CLAUDE_DIR}/CLAUDE.md"
 CODEX_AGENTS_FILE="${CODEX_DIR}/AGENTS.md"
-AGENT_RULES_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
-AGENT_RULES_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+AGENT_RULES_STATE_FILE="${AAB_DIR}/agent-rules.snapshot"
 # Path to the uv binary, resolved by install_uv and consumed by the uv tool
 # install steps.
 UV_BIN=""
