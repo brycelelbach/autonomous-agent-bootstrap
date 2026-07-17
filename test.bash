@@ -12,7 +12,7 @@
 #                            ~/.bashrc managed block, modifies global git
 #                            config, writes a synthetic Codex API-key login,
 #                            writes a Brev API-key login when AAB_BREV_*
-#                            vars are set, and installs claude / codex /
+#                            vars are set, and installs claude / codex / pi /
 #                            brev / gh.
 #                            Only run on a disposable machine.
 #   ./test.bash --docker     same as --e2e, but inside a fresh ubuntu:22.04
@@ -68,18 +68,21 @@ run_e2e() {
     need bash
     : "${AAB_GIT_AUTHOR_NAME:=CI Bot}"
     : "${AAB_GIT_AUTHOR_EMAIL:=ci@example.com}"
-    : "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:=claude-opus-4-7}"
-    : "${AAB_CLAUDE_CODE_EFFORT:=max}"
-    : "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:=first-party}"
-    : "${AAB_CODEX_INFERENCE_PROVIDER:=first-party}"
-    : "${AAB_CODEX_FIRST_PARTY_MODEL:=gpt-5.5}"
-    : "${AAB_CODEX_EFFORT:=xhigh}"
-    : "${AAB_CODEX_FIRST_PARTY_API_KEY:=codex-e2e-test-key}"
+    : "${AAB_CLAUDE_FIRST_PARTY_PROFILES:=opus-4.8 model=claude-opus-4-8 haiku=claude-haiku-4-5 sonnet=claude-sonnet-4-6 opus=claude-opus-4-8 effort=max}"
+    : "${AAB_CLAUDE_PROFILE:=first-party/opus-4.8}"
+    : "${AAB_CODEX_FIRST_PARTY_PROFILES:=gpt-5.5 effort=xhigh}"
+    : "${AAB_CODEX_PROFILE:=first-party/gpt-5.5}"
+    : "${AAB_PI_PROFILES:=opus-4.8 model=anthropic/claude-opus-4-8 effort=max context=200000 max_tokens=32000}"
+    : "${AAB_PI_PROFILE:=opus-4.8}"
+    : "${AAB_INFERENCE_GATEWAY_URL:=https://gateway.example.com/v1}"
+    : "${AAB_INFERENCE_GATEWAY_API_KEY:=gateway-e2e-test-key}"
+    : "${OPENAI_API_KEY:=codex-e2e-test-key}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
-           AAB_CLAUDE_CODE_FIRST_PARTY_MODEL AAB_CLAUDE_CODE_EFFORT \
-           AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
-           AAB_CODEX_INFERENCE_PROVIDER AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT \
-           AAB_CODEX_FIRST_PARTY_API_KEY
+           AAB_CLAUDE_FIRST_PARTY_PROFILES AAB_CLAUDE_PROFILE \
+           AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_PROFILE \
+           AAB_PI_PROFILES AAB_PI_PROFILE \
+           AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
+           OPENAI_API_KEY
 
     bash bootstrap.bash
     bash tests/e2e-assertions.bash
@@ -129,34 +132,7 @@ run_smoke() {
     local prompt="${AAB_SMOKE_PROMPT:-Reply with exactly ${expected}.}"
     local claude_output codex_output
 
-    local -a claude_env=(env)
-    if [ -n "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}" ]; then
-        claude_env+=(ANTHROPIC_API_KEY="$AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY")
-    fi
-    if [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-first-party}" = "third-party-anthropic" ]; then
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL:-}" ] \
-            && claude_env+=(ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL")
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY:-}" ] \
-            && claude_env+=(ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY")
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL:-}" ] \
-            && claude_env+=(ANTHROPIC_MODEL="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL")
-    elif [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-first-party}" = "third-party-deepseek" ]; then
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL:-}" ] \
-            && claude_env+=(ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL")
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY:-}" ] \
-            && claude_env+=(ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY")
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-}" ] \
-            && claude_env+=(ANTHROPIC_MODEL="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL")
-    elif [ "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-first-party}" = "third-party-nemotron" ]; then
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL:-}" ] \
-            && claude_env+=(ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL")
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY:-}" ] \
-            && claude_env+=(ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY")
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL:-}" ] \
-            && claude_env+=(ANTHROPIC_MODEL="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL")
-    fi
-
-    if ! claude_output=$(timeout 180s "${claude_env[@]}" claude --dangerously-skip-permissions -p "$prompt" 2>&1); then
+    if ! claude_output=$(timeout 180s claude --dangerously-skip-permissions -p "$prompt" 2>&1); then
         printf '%s\n' "$claude_output" | redact_secrets >&2
         echo "test.bash: Claude smoke test failed." >&2
         return 1
@@ -168,26 +144,12 @@ run_smoke() {
     fi
     echo "Claude smoke passed."
 
-    local -a codex_env=(env)
-    if [ "${AAB_CODEX_INFERENCE_PROVIDER:-first-party}" = "third-party-openai" ]; then
-        local codex_third_party_auth_token="${AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY:-}"
-        if [ -z "$codex_third_party_auth_token" ]; then
-            echo "test.bash: --smoke with AAB_CODEX_INFERENCE_PROVIDER=third-party-openai requires AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY." >&2
-            return 1
-        fi
-        codex_env+=(AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY="$codex_third_party_auth_token")
-    else
-        local codex_api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-${OPENAI_API_KEY:-}}"
-        if [ -n "$codex_api_key" ]; then
-            if [ "$codex_api_key" = "codex-e2e-test-key" ]; then
-                echo "test.bash: --smoke requires a real Codex API key, not the synthetic e2e key." >&2
-                return 1
-            fi
-            codex_env+=(OPENAI_API_KEY="$codex_api_key")
-        fi
+    if [ "${OPENAI_API_KEY:-}" = "codex-e2e-test-key" ]; then
+        echo "test.bash: --smoke requires real Codex authentication, not the synthetic e2e key." >&2
+        return 1
     fi
 
-    if ! codex_output=$(timeout 180s "${codex_env[@]}" codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$prompt" 2>&1); then
+    if ! codex_output=$(timeout 180s codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$prompt" 2>&1); then
         printf '%s\n' "$codex_output" | redact_secrets >&2
         echo "test.bash: Codex smoke test failed." >&2
         return 1

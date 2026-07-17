@@ -1,24 +1,23 @@
 # autonomous-agent-bootstrap
 
-A single idempotent bash script that turns a fresh Linux host into a ready-to-use Claude Code and Codex agent environment. Built for Brev VMs but works on any Ubuntu/Debian host.
+A single idempotent bash script that turns a fresh Linux host into a ready-to-use Claude Code, Codex, and Pi agent environment. Built for Brev VMs but works on any Ubuntu/Debian host.
 
 ## What It Sets Up
 
 1. **Claude Code** via the official native installer, configured for unattended use with `bypassPermissions`, a deny-only managed-settings policy for interactive human-in-the-loop tools, sandbox mode, debug logging, skipped onboarding, pre-approved first-party API-key fingerprints when provided, `CLAUDE_CODE_ATTRIBUTION_HEADER=0` so the per-request attribution block does not invalidate the prompt cache on third-party gateways, and OpenTelemetry usage logging to the console (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_LOGS_EXPORTER=console`) with prompt, tool, and raw-body content logging left disabled.
 2. **Codex CLI** via OpenAI's standalone installer, configured with `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, trusted project roots, live web search, shell env inheritance, service tier, reasoning effort, detailed and raw reasoning traces, OpenTelemetry event recording with external exporters disabled and prompt logging off, and `[agents].max_threads`. A complete AAB-managed model-instructions prompt is installed at `~/.codex/codex-instructions.md` and selected globally with the absolute `model_instructions_file` path in `~/.codex/config.toml`.
-3. **AAB env file** at `~/.aab/.env` for provider selection, model names, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
-4. **Wrapper families** in `~/.local/bin`, with the selected `claude` entrypoint installed as a regular launcher file in `~/.local/aab-bin` (kept ahead of `~/.local/bin` on PATH so the native auto-updater, which owns `~/.local/bin/claude`, cannot shadow the wrapper):
-   - `~/.local/aab-bin/claude` plus explicit `claude-first-party`, `claude-third-party-anthropic`, `claude-third-party-deepseek`, and `claude-third-party-nemotron` launchers
-   - `codex` plus explicit `codex-first-party` and `codex-third-party-openai` launchers
-5. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
-6. **gh CLI**, installed as a pinned, checksum-verified standalone release.
-7. **CLI tools as uv tools** — `uv` plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. Built-in tool names resolve to the versions in [`src/bootstrap/00_versions.bash`](./src/bootstrap/00_versions.bash). The private `autocuda` package is installed best-effort from the immutable ref in the same version file (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin with Claude Code and Codex and copies the Codex worker subagent. Ubuntu package versions remain in [`apt_packages.txt`](./apt_packages.txt), and agent plugins remain in [`agent_plugins.txt`](./agent_plugins.txt).
-8. **lifeboat** — a single-script home-directory backup tool fetched to `~/.local/bin/lifeboat`. It tars `$HOME`, keeping git history, source, and docs while dropping regenerable bulk (build artifacts, profiler dumps, caches, virtualenvs), to snapshot an agent's work before an ephemeral box is torn down. Compresses with `pigz` when present, falling back to `gzip`. Source: [`brycelelbach/lifeboat`](https://github.com/brycelelbach/lifeboat).
-9. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
-10. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
-11. **Global git-identity enforcement** — the git-identity agent rule above, backed by a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
-12. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code and Codex.
-13. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
+3. **Pi** via its official standalone Linux release, configured with an AAB-generated OpenAI Responses gateway provider when Pi profiles are present.
+4. **AAB env file** at `~/.aab/.env` for model profiles, selectors, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
+5. **Profile launcher families** in `~/.local/bin`, with source-explicit Claude and Codex aliases such as `claude-third-party-deepseek-v4` and `codex-first-party-gpt-5.5`, plus Pi aliases such as `pi-opus-4.8`. Pi omits `third-party` because every Pi profile uses the inference gateway.
+6. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
+7. **gh CLI**, installed as a pinned, checksum-verified standalone release.
+8. **CLI tools as uv tools** — `uv` plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. Built-in tool names resolve to the versions in [`src/bootstrap/00_versions.bash`](./src/bootstrap/00_versions.bash). The private `autocuda` package is installed best-effort from the immutable ref in the same version file (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin with Claude Code and Codex and copies the Codex worker subagent. Ubuntu package versions remain in [`apt_packages.txt`](./apt_packages.txt), and agent plugins remain in [`agent_plugins.txt`](./agent_plugins.txt).
+9. **lifeboat** — a single-script home-directory backup tool fetched to `~/.local/bin/lifeboat`. It tars `$HOME`, keeping git history, source, and docs while dropping regenerable bulk (build artifacts, profiler dumps, caches, virtualenvs), to snapshot an agent's work before an ephemeral box is torn down. Compresses with `pigz` when present, falling back to `gzip`. Source: [`brycelelbach/lifeboat`](https://github.com/brycelelbach/lifeboat).
+10. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
+11. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
+12. **Global git-identity enforcement** — the git-identity agent rule above, backed by a global git hook that rejects commits whose identity does not match the configured git config. See [Git Identity Enforcement](#git-identity-enforcement).
+13. **Agent plugins** listed in [`agent_plugins.txt`](./agent_plugins.txt), installed into Claude Code and Codex.
+14. **User lingering** via `loginctl enable-linger`, so the per-user systemd instance and its bus stay up across SSH sessions. Unattended workloads that wrap commands in `systemd-run --user --scope` need the user bus available even when no interactive session is open. Skipped cleanly on hosts without a systemd user manager (e.g. a bare container).
 
 ## Requirements
 
@@ -28,40 +27,33 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 ## Quick Start
 
-Create a config file with the settings you want, then run the bootstrap:
+Export the profiles and credentials you want, then run the bootstrap:
 
 ```bash
-cat > /tmp/aab.conf <<'CONF'
-AAB_CLAUDE_CODE_INFERENCE_PROVIDER=first-party
-AAB_CLAUDE_CODE_FIRST_PARTY_MODEL=claude-opus-4-7
-AAB_CLAUDE_CODE_EFFORT=max
-AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY=...
+export AAB_CLAUDE_FIRST_PARTY_PROFILES='opus-4.8 model=claude-opus-4-8 haiku=claude-haiku-4-5 sonnet=claude-sonnet-4-8 effort=high'
+export AAB_CLAUDE_PROFILE=first-party/opus-4.8
 
-AAB_CODEX_INFERENCE_PROVIDER=first-party
-AAB_CODEX_FIRST_PARTY_MODEL=gpt-5.5
-AAB_CODEX_FIRST_PARTY_API_KEY=...
-AAB_CODEX_EFFORT=xhigh
-AAB_CODEX_SERVICE_TIER=priority
-AAB_CODEX_AGENT_MAX_THREADS=64
+export AAB_CODEX_FIRST_PARTY_PROFILES='gpt-5.5 effort=xhigh'
+export AAB_CODEX_PROFILE=first-party/gpt-5.5
 
-AAB_BREV_API_KEY=...
-AAB_BREV_ORG_ID=...
-AAB_GH_TOKEN=...
-AAB_GIT_AUTHOR_NAME=Your Name
-AAB_GIT_AUTHOR_EMAIL=you@example.com
-CONF
+# Optional. If omitted, first-party launchers use existing interactive login.
+export ANTHROPIC_API_KEY=...
+export OPENAI_API_KEY=...
 
-curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/generated/bootstrap.bash | bash -s -- /tmp/aab.conf
+export AAB_GIT_AUTHOR_NAME='Your Name'
+export AAB_GIT_AUTHOR_EMAIL=you@example.com
+
+curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/generated/bootstrap.bash | bash
 source ~/.bashrc
 claude -p "Say hello from Claude Code"
 codex exec "Say hello from Codex"
 ```
 
-You can also pass the same keys as exported environment variables or pipe config on stdin. The file is sourced as bash, so quote values containing shell metacharacters.
+The bootstrap also accepts the same exported variables through its optional sourced config-file or stdin mechanisms.
 
 ## Generated Bootstrap
 
-`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/bootstrap/`. All non-apt, non-plugin package versions and immutable refs live in `src/bootstrap/00_versions.bash`; update that file when upgrading an installer. Claude configuration lives in `src/bootstrap/13_configure_claude.bash`, while Codex configuration lives in `src/bootstrap/13_configure_codex.bash`. After editing a module, run:
+`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/bootstrap/`. All non-apt, non-plugin package versions and immutable refs live in `src/bootstrap/00_versions.bash`; update that file when upgrading an installer. Claude configuration lives in `src/bootstrap/13_configure_claude.bash`, while Codex configuration lives in `src/bootstrap/15_configure_codex.bash`. After editing a module, run:
 
 ```bash
 python3 tools/compile_bootstrap.py
@@ -69,102 +61,80 @@ python3 tools/compile_bootstrap.py
 
 `./test.bash --lint` runs `python3 tools/compile_bootstrap.py --check`, so CI fails if `bootstrap.bash` is stale. The `Publish generated bootstrap` workflow compiles every pushed branch and publishes a curlable artifact branch in the same repository: `main` publishes to `generated`, and any other branch publishes to `generated/<branch-name>`. Forks publish to their own generated branches with the same workflow because the compiled script stamps the fork repository and generated ref into its side-file URLs.
 
-## Provider Selection
+## Model Profiles
 
-`AAB_CLAUDE_CODE_INFERENCE_PROVIDER` controls which wrapper behavior the unqualified `claude` launcher uses:
-
-- `first-party`
-- `third-party-anthropic`
-- `third-party-deepseek`
-- `third-party-nemotron`
-
-`AAB_CODEX_INFERENCE_PROVIDER` controls which wrapper behavior the unqualified `codex` launcher uses:
-
-- `first-party`
-- `third-party-openai`
-
-The explicit wrappers are always installed, so you can run `claude-third-party-deepseek` or `codex-third-party-openai` directly regardless of the default launcher. To change the unqualified `claude` or `codex` command, update your config and re-run the bootstrap. AAB writes the unqualified commands as regular executable wrapper files, not shell aliases, so `type claude` should resolve to `~/.local/aab-bin/claude` and `type codex` to `~/.local/bin/codex`.
-
-### Third-Party Claude Examples
+Each profile variable contains one profile per line. A line starts with the versioned alias suffix followed by whitespace-separated `key=value` fields. Blank lines and lines beginning with `#` are ignored.
 
 ```bash
-AAB_CLAUDE_CODE_INFERENCE_PROVIDER=third-party-anthropic
-AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL=https://gateway.example.com
-AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY=...
-AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL=aws/anthropic/bedrock-claude-opus-4-7
-AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL=aws/anthropic/claude-haiku-4-5-v1
-AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL=aws/anthropic/bedrock-claude-sonnet-4-6
-AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL=aws/anthropic/bedrock-claude-opus-4-7
+export AAB_CLAUDE_FIRST_PARTY_PROFILES='
+opus-4.8 model=claude-opus-4-8 haiku=claude-haiku-4-5 sonnet=claude-sonnet-4-8 effort=high
+'
+
+export AAB_CLAUDE_THIRD_PARTY_PROFILES='
+deepseek-v4 model=deepseek-v4-pro haiku=deepseek-v4-flash effort=high context=1000000
+opus-4.8 model=bedrock/claude-opus-4-8 haiku=azure/claude-haiku-4-5 sonnet=bedrock/claude-sonnet-4-8 effort=high
+'
+
+export AAB_CODEX_FIRST_PARTY_PROFILES='
+gpt-5.5 effort=xhigh
+'
+
+export AAB_CODEX_THIRD_PARTY_PROFILES='
+gpt-5.5 effort=xhigh
+'
+
+export AAB_PI_PROFILES='
+opus-4.8 model=anthropic/claude-opus-4-8 effort=high
+'
 ```
+
+`model` defaults to the profile name. `effort` is passed through to the harness. Claude's `haiku`, `sonnet`, and `opus` slots each inherit `model`, so the DeepSeek profile above expands to `deepseek-v4-flash`, `deepseek-v4-pro`, and `deepseek-v4-pro` without repeating the Pro model. Optional Claude fields are `subagent` and `context`; optional Pi metadata fields are `context` and `max_tokens`.
+
+First-party and third-party profiles coexist for Claude and Codex. These selectors only control the unqualified commands:
 
 ```bash
-AAB_CLAUDE_CODE_INFERENCE_PROVIDER=third-party-deepseek
-AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL=https://deepseek-gateway.example.com
-AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY=...
-AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL=deepseek-reasoner
-AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL=deepseek-chat
-AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL=deepseek-chat
-AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL=deepseek-reasoner
+export AAB_CLAUDE_PROFILE=third-party/deepseek-v4
+export AAB_CODEX_PROFILE=first-party/gpt-5.5
+export AAB_PI_PROFILE=opus-4.8
 ```
+
+Every configured profile gets an explicit launcher:
+
+- `claude-first-party-opus-4.8`
+- `claude-third-party-deepseek-v4`
+- `codex-first-party-gpt-5.5`
+- `codex-third-party-gpt-5.5`
+- `pi-opus-4.8`
+
+Pi profiles are always third-party, so Pi aliases never include `third-party`.
+
+All third-party profiles share one inference gateway:
 
 ```bash
-AAB_CLAUDE_CODE_INFERENCE_PROVIDER=third-party-nemotron
-AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL=https://inference-api.nvidia.com
-AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY=...
-AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL=nvidia/nvidia/nemotron-3-ultra
-AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL=nvidia/nvidia/nemotron-3-ultra
-AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL=nvidia/nvidia/nemotron-3-ultra
-AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL=nvidia/nvidia/nemotron-3-ultra
+export AAB_INFERENCE_GATEWAY_URL=https://gateway.example.com/v1
+export AAB_INFERENCE_GATEWAY_API_KEY=...
 ```
 
-### Third-Party Codex Example
-
-```bash
-AAB_CODEX_INFERENCE_PROVIDER=third-party-openai
-AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL=https://inference-api.nvidia.com/v1
-AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY=...
-AAB_CODEX_THIRD_PARTY_OPENAI_MODEL=openai/openai/gpt-5.5
-```
+First-party profiles use `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` when present. If a key is absent, the launcher leaves the harness's interactive device/login state untouched.
 
 ## Environment Variables
 
-All variables are optional unless you select a provider that needs its credential.
+All variables are optional unless a configured third-party profile needs the inference gateway.
 
 | Variable | Effect |
 | --- | --- |
-| `AAB_CLAUDE_CODE_INFERENCE_PROVIDER` | `first-party`, `third-party-anthropic`, `third-party-deepseek`, or `third-party-nemotron`. Selects the unqualified `claude` launcher behavior. Defaults to `first-party`. |
-| `AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY` | Anthropic first-party API key. Stored in `~/.aab/.env`; mapped to `ANTHROPIC_API_KEY` by `claude-first-party`. |
-| `AAB_CLAUDE_CODE_FIRST_PARTY_MODEL` | Claude first-party model. Defaults to `claude-opus-4-7`. |
-| `AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL` | First-party haiku-tier model. Defaults to `claude-haiku-4-5`. |
-| `AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL` | First-party sonnet-tier model. Defaults to `claude-sonnet-4-6`. |
-| `AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL` | First-party opus-tier model. Defaults to `claude-opus-4-7`. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL` | Anthropic-compatible third-party base URL for Claude. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY` | Third-party Anthropic-compatible API key. Mapped to `ANTHROPIC_AUTH_TOKEN`. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL` | Third-party Anthropic-compatible default model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL` | Third-party Anthropic-compatible haiku-tier model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL` | Third-party Anthropic-compatible sonnet-tier model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL` | Third-party Anthropic-compatible opus-tier model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL` | DeepSeek gateway base URL for Claude. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY` | DeepSeek gateway API key. Mapped to `ANTHROPIC_AUTH_TOKEN`. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL` | DeepSeek default model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL` | DeepSeek haiku-tier model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL` | DeepSeek sonnet-tier model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL` | DeepSeek opus-tier model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL` | Nemotron gateway base URL for Claude. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY` | Nemotron gateway API key. Mapped to `ANTHROPIC_AUTH_TOKEN`. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL` | Nemotron default model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL` | Nemotron haiku-tier model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL` | Nemotron sonnet-tier model. |
-| `AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL` | Nemotron opus-tier model. |
-| `AAB_CLAUDE_CODE_EFFORT` | Claude Code effort level. Defaults to `max`. |
-| `AAB_CLAUDE_CODE_SUBAGENT_MODEL` | Model for sub-agents and team teammates, which spawn as separate processes. Mapped to `CLAUDE_CODE_SUBAGENT_MODEL`. Defaults to the resolved `ANTHROPIC_MODEL` the main agent uses, so a third-party gateway receives a model id it recognizes instead of a canonical first-party one. |
-| `AAB_CODEX_INFERENCE_PROVIDER` | `first-party` or `third-party-openai`. Selects the unqualified `codex` launcher behavior. Defaults to `first-party`. |
-| `AAB_CODEX_FIRST_PARTY_API_KEY` | OpenAI API key for first-party Codex. Stored in `~/.aab/.env`, mapped to `OPENAI_API_KEY` by `codex-first-party`, and used for `codex login --with-api-key`. |
-| `AAB_CODEX_FIRST_PARTY_MODEL` | Codex first-party model. Defaults to `gpt-5.5`. |
-| `AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL` | OpenAI-compatible third-party base URL for Codex. Defaults to `https://inference-api.nvidia.com/v1`. |
-| `AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY` | OpenAI-compatible third-party API key for Codex. |
-| `AAB_CODEX_THIRD_PARTY_OPENAI_MODEL` | Codex third-party OpenAI-compatible model. Defaults to `openai/openai/gpt-5.5`. |
-| `AAB_CODEX_EFFORT` | Codex reasoning effort: `minimal`, `low`, `medium`, `high`, or `xhigh`. Defaults to `xhigh`. |
+| `AAB_CLAUDE_FIRST_PARTY_PROFILES` | Newline-delimited first-party Claude profiles. Defaults to the built-in versioned Opus profile. |
+| `AAB_CLAUDE_THIRD_PARTY_PROFILES` | Newline-delimited gateway-backed Claude profiles. |
+| `AAB_CLAUDE_PROFILE` | Selected `first-party/<name>` or `third-party/<name>` profile for the unqualified `claude` command. |
+| `AAB_CODEX_FIRST_PARTY_PROFILES` | Newline-delimited first-party Codex profiles. Defaults to the built-in versioned GPT profile. |
+| `AAB_CODEX_THIRD_PARTY_PROFILES` | Newline-delimited gateway-backed Codex profiles. |
+| `AAB_CODEX_PROFILE` | Selected `first-party/<name>` or `third-party/<name>` profile for the unqualified `codex` command. |
+| `AAB_PI_PROFILES` | Newline-delimited gateway-backed Pi profiles. |
+| `AAB_PI_PROFILE` | Selected profile name for the unqualified `pi` command. Defaults to the first configured Pi profile. |
+| `AAB_INFERENCE_GATEWAY_URL` | Shared base URL used by every third-party Claude/Codex profile and every Pi profile. |
+| `AAB_INFERENCE_GATEWAY_API_KEY` | Shared inference-gateway key. It is mapped to each harness without placing the key on a command line. |
+| `ANTHROPIC_API_KEY` | Optional first-party Anthropic key. If absent, Claude's existing interactive login is used. |
+| `OPENAI_API_KEY` | Optional first-party OpenAI key. If absent, Codex's existing interactive login is used. |
 | `AAB_CODEX_SERVICE_TIER` | Codex service tier: `priority`, `flex`, `default`, or `fast` as an alias for `priority`. Defaults to `priority`. |
 | `AAB_CODEX_AGENT_MAX_THREADS` | Maximum number of concurrently open Codex subagent threads. Defaults to `64`. |
 | `AAB_BREV_API_KEY` | Brev organization-scoped API key. Used with `AAB_BREV_ORG_ID`. |
@@ -184,21 +154,23 @@ All variables are optional unless you select a provider that needs its credentia
 
 | Path | How |
 | --- | --- |
-| `~/.aab/.env` | Rewritten with provider config, model names, and credentials. Mode `0600`; parent directory mode `0700`. |
-| `~/.local/aab-bin/claude` | Claude launcher file for the selected provider; on PATH ahead of `~/.local/bin`. |
+| `~/.aab/.env` | Rewritten with profile definitions, selectors, and credentials. Mode `0600`; parent directory mode `0700`. |
+| `~/.local/aab-bin/claude` | Claude launcher file for the selected profile; on PATH ahead of `~/.local/bin`. |
 | `~/.local/bin/claude` | Left as the native installer's binary so the auto-updater can repoint it. |
-| `~/.local/bin/claude-first-party` | Claude wrapper for first-party Anthropic. |
-| `~/.local/bin/claude-third-party-anthropic` | Claude wrapper for Anthropic-compatible third-party gateways. |
-| `~/.local/bin/claude-third-party-deepseek` | Claude wrapper for DeepSeek gateways. |
-| `~/.local/bin/claude-third-party-nemotron` | Claude wrapper for Nemotron gateways. |
+| `~/.local/bin/claude-first-party-*` | One first-party Claude launcher per configured versioned profile. |
+| `~/.local/bin/claude-third-party-*` | One inference-gateway Claude launcher per configured versioned profile. |
 | `~/.local/bin/claude-aab-real` | Symlink to `~/.local/bin/claude`, so wrappers exec whatever the updater installs. |
-| `~/.local/bin/codex` | Codex launcher file with the selected provider behavior. |
-| `~/.local/bin/codex-first-party` | Codex wrapper for first-party OpenAI. |
-| `~/.local/bin/codex-third-party-openai` | Codex wrapper for OpenAI-compatible third-party gateways. |
+| `~/.local/bin/codex` | Codex launcher file with the selected profile behavior. |
+| `~/.local/bin/codex-first-party-*` | One first-party Codex launcher per configured versioned profile. |
+| `~/.local/bin/codex-third-party-*` | One inference-gateway Codex launcher per configured versioned profile. |
 | `~/.local/bin/codex-aab-real` | Link or moved copy of the real Codex binary. |
+| `~/.local/bin/pi` | Pi launcher file for the selected profile, or the native Pi link when no profiles are configured. |
+| `~/.local/bin/pi-*` | One gateway-backed Pi launcher per configured versioned profile; aliases omit `third-party`. |
+| `~/.local/bin/pi-aab-real`, `~/.local/share/aab/pi/` | Official standalone Pi binary and its runtime assets. |
+| `~/.pi/agent/models.json` | Generated AAB inference-gateway provider and model catalog when Pi profiles are configured. |
 | `~/.claude/settings.json` | Rewritten with unattended Claude defaults and plugin entries; existing file is backed up. |
 | `~/.claude.json` | Merged with onboarding and optional API-key approval state; existing file is backed up. |
-| `~/.codex/config.toml` | Rewritten with unattended Codex defaults, the absolute global `model_instructions_file` path, and selected provider config while preserving Codex plugin tables; existing file is backed up. |
+| `~/.codex/config.toml` | Rewritten with unattended Codex defaults, the absolute global `model_instructions_file` path, and selected profile config while preserving Codex plugin tables; existing file is backed up. |
 | `~/.codex/codex-instructions.md` | Complete AAB-managed Codex model-instructions prompt; existing file is backed up. |
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when first-party Codex API-key auth is configured. |
 | `~/.bashrc` | Managed block for PATH and non-secret unattended-mode exports only. |

@@ -6,22 +6,22 @@
 #   python3 tools/compile_bootstrap.py
 # -----------------------------------------------------------------------------
 
-# Bootstrap fresh, non-interactive Claude Code and Codex installs on a Linux host.
+# Bootstrap fresh, non-interactive Claude Code, Codex, and Pi installs on Linux.
 #
 # The script installs Claude Code, Codex, Brev, gh, base packages, agent
 # plugins, git credentials, optional SSH keys, and unattended-mode config. It
 # writes AAB runtime configuration to ~/.aab/.env and installs wrapper families
 # that source that file:
 #
-#   claude plus claude-first-party, claude-third-party-anthropic,
-#   claude-third-party-deepseek, and claude-third-party-nemotron
-#   codex plus codex-first-party and codex-third-party-openai
+#   claude plus claude-first-party-<profile> and claude-third-party-<profile>
+#   codex plus codex-first-party-<profile> and codex-third-party-<profile>
+#   pi plus pi-<profile>
 #
-# AAB_CLAUDE_CODE_INFERENCE_PROVIDER selects the unqualified claude launcher:
-#   first-party, third-party-anthropic, third-party-deepseek, or third-party-nemotron.
+# AAB_CLAUDE_PROFILE and AAB_CODEX_PROFILE select the unqualified launchers.
+# Source remains part of each profile rather than being selected harness-wide.
 #
-# AAB_CODEX_INFERENCE_PROVIDER selects the unqualified codex launcher:
-#   first-party or third-party-openai.
+# AAB_PI_PROFILE selects the unqualified Pi launcher. Pi is always routed
+# through the shared inference gateway, so its aliases omit "third-party".
 #
 # Provider credentials and model names are kept out of ~/.bashrc and
 # /etc/environment. The managed ~/.bashrc block only puts ~/.local/bin on PATH
@@ -63,6 +63,10 @@ CLAUDE_SHELL_CONFIG_FILE="${AAB_SHELL_CONFIG_DIR}/claude.env"
 CODEX_DIR="${HOME}/.codex"
 CODEX_CONFIG="${CODEX_DIR}/config.toml"
 CODEX_MODEL_INSTRUCTIONS_FILE="${CODEX_DIR}/codex-instructions.md"
+PI_DIR="${HOME}/.pi/agent"
+PI_MODELS_FILE="${PI_DIR}/models.json"
+PI_MODELS_MARKER="${AAB_DIR}/pi-models-generated"
+PI_INSTALL_DIR="${HOME}/.local/share/aab/pi"
 BREV_DIR="${HOME}/.brev"
 BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
@@ -114,45 +118,20 @@ DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
 DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-8"
 DEFAULT_CLAUDE_CODE_EFFORT="max"
 DEFAULT_CODEX_MODEL="gpt-5.5"
-DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER="first-party"
-DEFAULT_CODEX_INFERENCE_PROVIDER="first-party"
-DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL="openai/openai/gpt-5.5"
-DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://inference-api.nvidia.com/v1"
-DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL="nvidia/nemotron-3-ultra"
-DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL="https://integrate.api.nvidia.com/v1"
-DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL="deepseek/deepseek-v4-pro"
-DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
+DEFAULT_PI_EFFORT="high"
 DEFAULT_CODEX_SERVICE_TIER="priority"
 DEFAULT_CODEX_AGENT_MAX_THREADS="64"
+DEFAULT_CLAUDE_FIRST_PARTY_PROFILES="opus-4.8 model=${DEFAULT_CLAUDE_CODE_MODEL} haiku=${DEFAULT_CLAUDE_CODE_HAIKU_MODEL} sonnet=${DEFAULT_CLAUDE_CODE_SONNET_MODEL} opus=${DEFAULT_CLAUDE_CODE_OPUS_MODEL} effort=${DEFAULT_CLAUDE_CODE_EFFORT}"
+DEFAULT_CLAUDE_THIRD_PARTY_PROFILES=""
+DEFAULT_CODEX_FIRST_PARTY_PROFILES="gpt-5.5 model=${DEFAULT_CODEX_MODEL} effort=${DEFAULT_CODEX_REASONING_EFFORT}"
+DEFAULT_CODEX_THIRD_PARTY_PROFILES=""
+DEFAULT_PI_PROFILES=""
+DEFAULT_CLAUDE_PROFILE="first-party/opus-4.8"
+DEFAULT_CODEX_PROFILE="first-party/gpt-5.5"
+DEFAULT_PI_PROFILE=""
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
-
-normalize_claude_code_inference_provider() {
-    local provider="${1:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}"
-    case "$provider" in
-        first-party|third-party-anthropic|third-party-deepseek|third-party-nemotron)
-            printf '%s' "$provider"
-            ;;
-        *)
-            warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-anthropic', 'third-party-deepseek', or 'third-party-nemotron'; defaulting to '${DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}'."
-            printf '%s' "$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER"
-            ;;
-    esac
-}
-
-normalize_codex_inference_provider() {
-    local provider="${1:-$DEFAULT_CODEX_INFERENCE_PROVIDER}"
-    case "$provider" in
-        first-party|third-party-openai|third-party-nemotron|third-party-deepseek)
-            printf '%s' "$provider"
-            ;;
-        *)
-            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-openai', 'third-party-nemotron', or 'third-party-deepseek'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
-            printf '%s' "$DEFAULT_CODEX_INFERENCE_PROVIDER"
-            ;;
-    esac
-}
 
 _write_shell_export() {
     local name="$1" value="${2:-}"
@@ -173,6 +152,10 @@ SUDO=$(need_sudo)
 # ---------------------------------------------------------------------------
 CLAUDE_CODE_VERSION="2.1.212"
 CODEX_VERSION="0.144.5"
+
+PI_VERSION="0.80.10"
+PI_SHA256_LINUX_X64="ab6604f6c3f3d050783e7abbbdd1f79b775b20f3969833ce9721740685d01e13"
+PI_SHA256_LINUX_ARM64="dfe4340063dfe27406fa64aac99d904726fac079197c4579b9e8155175d05272"
 
 BREV_VERSION="0.6.330"
 BREV_SHA256_LINUX_AMD64="5a6e70374db9be33f85f299161733b4a8409840d47638c781429b96e8d53704f"
@@ -397,6 +380,63 @@ install_brev() {
     log "Installed Brev CLI ${BREV_VERSION} to ${HOME}/.local/bin/brev."
 }
 # <<< src/bootstrap/05_install_brev.bash <<<
+
+# >>> src/bootstrap/05_install_pi.bash >>>
+# ---------------------------------------------------------------------------
+# Install / upgrade Pi from its official standalone Linux release.
+# ---------------------------------------------------------------------------
+install_pi() {
+    local machine asset sha256
+    machine=$(uname -m)
+    case "$machine" in
+        x86_64|amd64)
+            asset="pi-linux-x64.tar.gz"
+            sha256="$PI_SHA256_LINUX_X64"
+            ;;
+        aarch64|arm64)
+            asset="pi-linux-arm64.tar.gz"
+            sha256="$PI_SHA256_LINUX_ARM64"
+            ;;
+        *)
+            warn "Pi has no supported standalone Linux release for ${machine}; skipping installation."
+            return
+            ;;
+    esac
+
+    log "Installing Pi ${PI_VERSION} via official standalone release..."
+    local release_base="https://github.com/earendil-works/pi/releases/download/v${PI_VERSION}"
+    local tmpdir archive actual
+    tmpdir=$(mktemp -d)
+    archive="${tmpdir}/${asset}"
+
+    if ! curl -fsSL "${release_base}/${asset}" -o "$archive"; then
+        rm -rf "$tmpdir"
+        warn "Could not download Pi ${PI_VERSION} standalone release."
+        exit 1
+    fi
+
+    actual=$(sha256sum "$archive" | awk '{ print $1 }')
+    if [ "$actual" != "$sha256" ]; then
+        rm -rf "$tmpdir"
+        warn "Pi ${PI_VERSION} checksum verification failed for ${asset}."
+        exit 1
+    fi
+
+    tar -xzf "$archive" -C "$tmpdir"
+    if [ ! -x "${tmpdir}/pi/pi" ]; then
+        rm -rf "$tmpdir"
+        warn "Pi release archive did not contain an executable pi binary."
+        exit 1
+    fi
+
+    mkdir -p "$(dirname "$PI_INSTALL_DIR")" "${HOME}/.local/bin"
+    rm -rf "$PI_INSTALL_DIR"
+    mv "${tmpdir}/pi" "$PI_INSTALL_DIR"
+    rm -rf "$tmpdir"
+    ln -sfn "${PI_INSTALL_DIR}/pi" "${HOME}/.local/bin/pi-aab-real"
+    log "Installed Pi ${PI_VERSION} at ${PI_INSTALL_DIR}."
+}
+# <<< src/bootstrap/05_install_pi.bash <<<
 
 # >>> src/bootstrap/06_install_gitleaks.bash >>>
 # ---------------------------------------------------------------------------
@@ -1041,60 +1081,48 @@ PY
 
 # >>> src/bootstrap/12_configure_aab_env_file.bash >>>
 # ---------------------------------------------------------------------------
-# 6. Write ~/.aab/.env.
+# Persist shared model-profile and credential configuration in ~/.aab/.env.
 # ---------------------------------------------------------------------------
 configure_aab_env_file() {
     mkdir -p "${AAB_DIR}"
     chmod 700 "${AAB_DIR}"
 
-    local claude_provider
-    claude_provider=$(normalize_claude_code_inference_provider "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}")
-    local codex_provider
-    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
+    local claude_first_party_profiles claude_third_party_profiles
+    local codex_first_party_profiles codex_third_party_profiles pi_profiles
+    claude_first_party_profiles=$(_profile_list_for claude first-party)
+    claude_third_party_profiles=$(_profile_list_for claude third-party)
+    codex_first_party_profiles=$(_profile_list_for codex first-party)
+    codex_third_party_profiles=$(_profile_list_for codex third-party)
+    pi_profiles=$(_profile_list_for pi third-party)
+
+    local -A claude_profile=() codex_profile=() pi_profile=()
+    resolve_model_profile claude claude_profile
+    resolve_model_profile codex codex_profile
+    local pi_profile_name=""
+    if resolve_model_profile pi pi_profile; then
+        pi_profile_name="${pi_profile[name]}"
+    fi
 
     local tmp
     tmp=$(mktemp "${AAB_ENV_FILE}.tmp.XXXXXX")
     {
         printf '# Written by autonomous-agent-bootstrap. Re-run bootstrap.bash to update.\n'
-        _write_shell_export AAB_CLAUDE_CODE_INFERENCE_PROVIDER "$claude_provider"
-        _write_shell_export AAB_CLAUDE_CODE_EFFORT "${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
-        _write_shell_export AAB_CLAUDE_CODE_SUBAGENT_MODEL "${AAB_CLAUDE_CODE_SUBAGENT_MODEL:-}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-        _write_shell_export AAB_CODEX_INFERENCE_PROVIDER "$codex_provider"
-        _write_shell_export AAB_CODEX_FIRST_PARTY_API_KEY "${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
-        _write_shell_export AAB_CODEX_FIRST_PARTY_MODEL "${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL "${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY "${AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY:-}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_MODEL "${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL "${AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY "${AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY:-}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL "${AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL "${AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY "${AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY:-}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL "${AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL}"
-        _write_shell_export AAB_CODEX_EFFORT "${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
+        _write_shell_export AAB_CLAUDE_FIRST_PARTY_PROFILES "$claude_first_party_profiles"
+        _write_shell_export AAB_CLAUDE_THIRD_PARTY_PROFILES "$claude_third_party_profiles"
+        _write_shell_export AAB_CLAUDE_PROFILE "${claude_profile[source]}/${claude_profile[name]}"
+        _write_shell_export AAB_CODEX_FIRST_PARTY_PROFILES "$codex_first_party_profiles"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_PROFILES "$codex_third_party_profiles"
+        _write_shell_export AAB_CODEX_PROFILE "${codex_profile[source]}/${codex_profile[name]}"
+        _write_shell_export AAB_PI_PROFILES "$pi_profiles"
+        _write_shell_export AAB_PI_PROFILE "$pi_profile_name"
+        _write_shell_export AAB_INFERENCE_GATEWAY_URL "${AAB_INFERENCE_GATEWAY_URL:-}"
+        _write_shell_export AAB_INFERENCE_GATEWAY_API_KEY "${AAB_INFERENCE_GATEWAY_API_KEY:-}"
+        if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+            _write_shell_export ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"
+        fi
+        if [ -n "${OPENAI_API_KEY:-}" ]; then
+            _write_shell_export OPENAI_API_KEY "$OPENAI_API_KEY"
+        fi
         _write_shell_export AAB_CODEX_SERVICE_TIER "${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
         _write_shell_export AAB_CODEX_AGENT_MAX_THREADS "${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
         _write_shell_export AAB_GH_TOKEN "${AAB_GH_TOKEN:-}"
@@ -1103,9 +1131,279 @@ configure_aab_env_file() {
     } > "$tmp"
     chmod 600 "$tmp"
     mv -f "$tmp" "$AAB_ENV_FILE"
-    log "Wrote ${AAB_ENV_FILE} (claude_provider=${claude_provider}, codex_provider=${codex_provider})."
+    log "Wrote ${AAB_ENV_FILE} (claude_profile=${claude_profile[source]}/${claude_profile[name]}, codex_profile=${codex_profile[source]}/${codex_profile[name]}, pi_profile=${pi_profile_name:-none})."
 }
 # <<< src/bootstrap/12_configure_aab_env_file.bash <<<
+
+# >>> src/bootstrap/12_model_profiles.bash >>>
+# ---------------------------------------------------------------------------
+# Parse, validate, and resolve environment-defined model profiles.
+# ---------------------------------------------------------------------------
+_model_profile_lines() {
+    local profiles="$1" line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [ -z "$line" ] && continue
+        case "$line" in
+            \#*) continue ;;
+        esac
+        printf '%s\n' "$line"
+    done <<< "$profiles"
+}
+
+_profile_list_for() {
+    local harness="$1" source="$2"
+    case "${harness}/${source}" in
+        claude/first-party)
+            printf '%s' "${AAB_CLAUDE_FIRST_PARTY_PROFILES-$DEFAULT_CLAUDE_FIRST_PARTY_PROFILES}"
+            ;;
+        claude/third-party)
+            printf '%s' "${AAB_CLAUDE_THIRD_PARTY_PROFILES-$DEFAULT_CLAUDE_THIRD_PARTY_PROFILES}"
+            ;;
+        codex/first-party)
+            printf '%s' "${AAB_CODEX_FIRST_PARTY_PROFILES-$DEFAULT_CODEX_FIRST_PARTY_PROFILES}"
+            ;;
+        codex/third-party)
+            printf '%s' "${AAB_CODEX_THIRD_PARTY_PROFILES-$DEFAULT_CODEX_THIRD_PARTY_PROFILES}"
+            ;;
+        pi/third-party)
+            printf '%s' "${AAB_PI_PROFILES-$DEFAULT_PI_PROFILES}"
+            ;;
+        *)
+            warn "Unknown model-profile group '${harness}/${source}'."
+            return 1
+            ;;
+    esac
+}
+
+_parse_model_profile_line() {
+    local harness="$1" source="$2" line="$3" result_name="$4"
+    local -n result="$result_name"
+    local -a fields
+    local field key value
+    local -A seen_fields=()
+
+    read -r -a fields <<< "$line"
+    if [ "${#fields[@]}" -eq 0 ]; then
+        warn "Empty ${harness} ${source} model profile."
+        return 1
+    fi
+
+    result=()
+    result[harness]="$harness"
+    result[source]="$source"
+    result[name]="${fields[0]}"
+    result[model]="${fields[0]}"
+    result[context]=""
+    result["max_tokens"]=""
+    result[subagent]=""
+    case "$harness" in
+        claude)
+            result[effort]="$DEFAULT_CLAUDE_CODE_EFFORT"
+            ;;
+        codex)
+            result[effort]="$DEFAULT_CODEX_REASONING_EFFORT"
+            ;;
+        pi)
+            result[effort]="$DEFAULT_PI_EFFORT"
+            ;;
+        *)
+            warn "Unknown model-profile harness '${harness}'."
+            return 1
+            ;;
+    esac
+
+    if [[ ! "${result[name]}" =~ ^[a-z0-9][a-z0-9.-]*$ ]]; then
+        warn "Invalid ${harness} ${source} profile name '${result[name]}'; use lowercase letters, digits, dots, and hyphens."
+        return 1
+    fi
+
+    for field in "${fields[@]:1}"; do
+        case "$field" in
+            \#*) break ;;
+        esac
+        if [[ "$field" != *=* ]]; then
+            warn "Invalid field '${field}' in ${harness} ${source} profile '${result[name]}'; expected key=value."
+            return 1
+        fi
+        key="${field%%=*}"
+        value="${field#*=}"
+        if [ -z "$value" ]; then
+            warn "Empty field '${key}' in ${harness} ${source} profile '${result[name]}'."
+            return 1
+        fi
+        if [ -n "${seen_fields[$key]:-}" ]; then
+            warn "Duplicate field '${key}' in ${harness} ${source} profile '${result[name]}'."
+            return 1
+        fi
+        seen_fields[$key]=1
+
+        case "${harness}/${key}" in
+            claude/model|claude/effort|claude/context|claude/subagent|claude/haiku|claude/sonnet|claude/opus|codex/model|codex/effort|pi/model|pi/effort|pi/context|pi/max_tokens)
+                result[$key]="$value"
+                ;;
+            *)
+                warn "Unknown field '${key}' in ${harness} ${source} profile '${result[name]}'."
+                return 1
+                ;;
+        esac
+    done
+
+    case "${result[context]}" in
+        "") ;;
+        *[!0-9]*|0)
+            warn "context='${result[context]}' in ${harness} ${source} profile '${result[name]}' is not a positive integer."
+            return 1
+            ;;
+    esac
+    case "${result["max_tokens"]}" in
+        "") ;;
+        *[!0-9]*|0)
+            warn "max_tokens='${result["max_tokens"]}' in ${harness} ${source} profile '${result[name]}' is not a positive integer."
+            return 1
+            ;;
+    esac
+
+    if [ "$harness" = "claude" ]; then
+        result[haiku]="${result[haiku]:-${result[model]}}"
+        result[sonnet]="${result[sonnet]:-${result[model]}}"
+        result[opus]="${result[opus]:-${result[model]}}"
+        result[subagent]="${result[subagent]:-${result[model]}}"
+    fi
+}
+
+_validate_model_profile_list() {
+    local harness="$1" source="$2" profiles="$3" line
+    local -A profile=() seen_names=()
+    while IFS= read -r line; do
+        _parse_model_profile_line "$harness" "$source" "$line" profile || return 1
+        if [ -n "${seen_names[${profile[name]}]:-}" ]; then
+            warn "Duplicate ${harness} ${source} profile '${profile[name]}'."
+            return 1
+        fi
+        seen_names[${profile[name]}]=1
+    done < <(_model_profile_lines "$profiles")
+}
+
+validate_model_profiles() {
+    local harness source profiles
+    for harness in claude codex; do
+        for source in first-party third-party; do
+            profiles=$(_profile_list_for "$harness" "$source")
+            _validate_model_profile_list "$harness" "$source" "$profiles"
+        done
+    done
+    profiles=$(_profile_list_for pi third-party)
+    _validate_model_profile_list pi third-party "$profiles"
+}
+
+_find_model_profile() {
+    local harness="$1" source="$2" name="$3" result_name="$4"
+    local profiles line
+    local -A candidate=()
+    profiles=$(_profile_list_for "$harness" "$source")
+    while IFS= read -r line; do
+        _parse_model_profile_line "$harness" "$source" "$line" candidate || return 1
+        if [ "${candidate[name]}" = "$name" ]; then
+            _parse_model_profile_line "$harness" "$source" "$line" "$result_name"
+            return
+        fi
+    done < <(_model_profile_lines "$profiles")
+    return 1
+}
+
+_first_model_profile() {
+    local harness="$1" source="$2" result_name="$3"
+    local profiles line
+    profiles=$(_profile_list_for "$harness" "$source")
+    while IFS= read -r line; do
+        _parse_model_profile_line "$harness" "$source" "$line" "$result_name"
+        return
+    done < <(_model_profile_lines "$profiles")
+    return 1
+}
+
+resolve_model_profile() {
+    local harness="$1" result_name="$2"
+    local selection explicit_selection=0 source name
+
+    case "$harness" in
+        claude)
+            if [ "${AAB_CLAUDE_PROFILE+x}" = x ]; then
+                selection="$AAB_CLAUDE_PROFILE"
+                explicit_selection=1
+            else
+                selection="$DEFAULT_CLAUDE_PROFILE"
+            fi
+            ;;
+        codex)
+            if [ "${AAB_CODEX_PROFILE+x}" = x ]; then
+                selection="$AAB_CODEX_PROFILE"
+                explicit_selection=1
+            else
+                selection="$DEFAULT_CODEX_PROFILE"
+            fi
+            ;;
+        pi)
+            if [ "${AAB_PI_PROFILE+x}" = x ]; then
+                selection="$AAB_PI_PROFILE"
+                explicit_selection=1
+            else
+                selection="$DEFAULT_PI_PROFILE"
+            fi
+            if [ -n "$selection" ] && _find_model_profile pi third-party "$selection" "$result_name"; then
+                return 0
+            fi
+            if [ "$explicit_selection" -eq 1 ]; then
+                warn "AAB_PI_PROFILE='${selection}' does not name a configured Pi profile."
+                return 1
+            fi
+            _first_model_profile pi third-party "$result_name"
+            return
+            ;;
+        *)
+            warn "Unknown model-profile harness '${harness}'."
+            return 1
+            ;;
+    esac
+
+    if [[ "$selection" == */* ]]; then
+        source="${selection%%/*}"
+        name="${selection#*/}"
+    else
+        source=""
+        name="$selection"
+    fi
+    case "$source" in
+        first-party|third-party) ;;
+        *)
+            warn "AAB_${harness^^}_PROFILE='${selection}' must use first-party/<profile> or third-party/<profile>."
+            return 1
+            ;;
+    esac
+
+    if _find_model_profile "$harness" "$source" "$name" "$result_name"; then
+        return 0
+    fi
+    if [ "$explicit_selection" -eq 1 ]; then
+        warn "AAB_${harness^^}_PROFILE='${selection}' does not name a configured ${harness} profile."
+        return 1
+    fi
+    if _first_model_profile "$harness" first-party "$result_name"; then
+        return 0
+    fi
+    _first_model_profile "$harness" third-party "$result_name"
+}
+
+require_inference_gateway() {
+    local profile_label="$1"
+    if [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
+        warn "${profile_label} requires AAB_INFERENCE_GATEWAY_URL."
+        return 1
+    fi
+}
+# <<< src/bootstrap/12_model_profiles.bash <<<
 
 # >>> src/bootstrap/13_configure_brev.bash >>>
 # ---------------------------------------------------------------------------
@@ -1216,8 +1514,16 @@ configure_claude_settings() {
         cp "${SETTINGS_FILE}" "${backup}"
         log "Backed up existing settings.json -> ${backup}."
     fi
-    local model="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-    local effort="${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
+    local -A profile=()
+    resolve_model_profile claude profile
+    if [ "${profile[source]}" = "third-party" ]; then
+        require_inference_gateway "Claude profile '${profile[name]}'"
+    fi
+    local model="${profile[model]}"
+    local effort="${profile[effort]}"
+    local model_json effort_json
+    model_json=$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$model")
+    effort_json=$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$effort")
     # Belt-and-suspenders: bypassPermissions skips prompts for writes
     # under .claude/ already, but the explicit allow list also keeps
     # config / memory / agent / skill edits unprompted in 'default' or
@@ -1253,8 +1559,8 @@ configure_claude_settings() {
     # stay out of the telemetry stream.
     cat > "${SETTINGS_FILE}" <<JSON
 {
-  "model": "${model}",
-  "effortLevel": "${effort}",
+  "model": ${model_json},
+  "effortLevel": ${effort_json},
   "permissions": {
     "defaultMode": "bypassPermissions",
     "allow": [
@@ -1274,7 +1580,7 @@ configure_claude_settings() {
   "skipDangerousModePermissionPrompt": true,
   "env": {
     "CLAUDE_CODE_SANDBOXED": "1",
-    "CLAUDE_CODE_EFFORT_LEVEL": "${effort}",
+    "CLAUDE_CODE_EFFORT_LEVEL": ${effort_json},
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
     "API_FORCE_IDLE_TIMEOUT": "0",
     "API_TIMEOUT_MS": "1800000",
@@ -1285,16 +1591,15 @@ configure_claude_settings() {
   }
 }
 JSON
-    log "Wrote ${SETTINGS_FILE} (model=${model}, effort=${effort})."
+    log "Wrote ${SETTINGS_FILE} (profile=${profile[source]}/${profile[name]}, model=${model}, effort=${effort})."
     configure_claude_managed_settings
 }
-
 # Skip Claude Code's first-run theme prompt and pre-approve the
 # first-party API-key fingerprint when one is set. Both gates live in
 # ~/.claude.json, so preserve unrelated authentication and user fields.
 skip_claude_onboarding() {
     command -v python3 >/dev/null 2>&1 || { log "ERROR: python3 required to edit ~/.claude.json."; exit 1; }
-    python3 - "${CLAUDE_JSON}" "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}" <<'PY'
+    python3 - "${CLAUDE_JSON}" "${ANTHROPIC_API_KEY:-}" <<'PY'
 import json, os, shutil, sys, time
 path = sys.argv[1]
 api_key = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -1316,7 +1621,7 @@ if api_key:
     if fp not in approved:
         approved.append(fp)
     resp.setdefault("rejected", [])
-    print(f"[bootstrap] Pre-approved AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY fingerprint ...{fp}.")
+    print(f"[bootstrap] Pre-approved ANTHROPIC_API_KEY fingerprint ...{fp}.")
 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
@@ -1328,15 +1633,11 @@ PY
 # ~/.bashrc integration sources every file in ~/.aab/shell instead of
 # hard-coding harness settings in the shell integration module.
 configure_claude_shell() {
-    local effort="${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
     mkdir -p "${AAB_SHELL_CONFIG_DIR}"
-    {
-        printf '%s\n' \
-            '# Generated by autonomous-agent-bootstrap.' \
-            'export CLAUDE_CODE_SANDBOXED=1' \
-            'export DEBUG_SDK=1'
-        printf 'export CLAUDE_CODE_EFFORT_LEVEL=%q\n' "$effort"
-    } > "${CLAUDE_SHELL_CONFIG_FILE}"
+    printf '%s\n' \
+        '# Generated by autonomous-agent-bootstrap.' \
+        'export CLAUDE_CODE_SANDBOXED=1' \
+        'export DEBUG_SDK=1' > "${CLAUDE_SHELL_CONFIG_FILE}"
     chmod 0644 "${CLAUDE_SHELL_CONFIG_FILE}"
     log "Wrote Claude shell configuration to ${CLAUDE_SHELL_CONFIG_FILE}."
 }
@@ -1350,7 +1651,7 @@ configure_claude() {
 
 # >>> src/bootstrap/13_configure_codex.bash >>>
 # ---------------------------------------------------------------------------
-# 7. Write the global Codex model instructions. model_instructions_file
+# Configure global Codex model instructions. model_instructions_file
 # replaces Codex's built-in model instructions, so this is a complete prompt,
 # not an AGENTS.md-style additive rule file. It is embedded here so the
 # bootstrap remains usable as a single script piped from curl.
@@ -1523,7 +1824,7 @@ configure_codex_model_instructions() {
 }
 
 # ---------------------------------------------------------------------------
-# 7. Write ~/.codex/config.toml.
+# Write ~/.codex/config.toml.
 # ---------------------------------------------------------------------------
 _toml_escape() {
     local s="$1"
@@ -1547,37 +1848,16 @@ configure_codex_config() {
         ' "${CODEX_CONFIG}")
     fi
 
-    local codex_provider
-    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
-    local first_party_model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
-    local third_party_openai_model="${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL}"
-    local third_party_openai_base_url="${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL}"
-    local third_party_nemotron_model="${AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL}"
-    local third_party_nemotron_base_url="${AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL}"
-    local third_party_deepseek_model="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL}"
-    local third_party_deepseek_base_url="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL}"
-    local model="$first_party_model"
-    case "$codex_provider" in
-        third-party-openai)
-            model="$third_party_openai_model"
-            ;;
-        third-party-nemotron)
-            model="$third_party_nemotron_model"
-            ;;
-        third-party-deepseek)
-            model="$third_party_deepseek_model"
-            ;;
-    esac
-    local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
+    local -A profile=()
+    resolve_model_profile codex profile
+    if [ "${profile[source]}" = "third-party" ]; then
+        require_inference_gateway "Codex profile '${profile[name]}'"
+    fi
+
+    local model="${profile[model]}"
+    local effort="${profile[effort]}"
     local service_tier="${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
     local agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
-    case "$effort" in
-        minimal|low|medium|high|xhigh) ;;
-        *)
-            warn "AAB_CODEX_EFFORT='${effort}' is not one of minimal, low, medium, high, or xhigh; defaulting to ${DEFAULT_CODEX_REASONING_EFFORT}."
-            effort="$DEFAULT_CODEX_REASONING_EFFORT"
-            ;;
-    esac
     case "$service_tier" in
         priority|flex|default) ;;
         fast)
@@ -1602,41 +1882,29 @@ configure_codex_config() {
         agent_max_threads="$DEFAULT_CODEX_AGENT_MAX_THREADS"
     fi
 
-    local model_escaped model_instructions_file_escaped home_escaped cwd cwd_escaped third_party_openai_base_url_escaped third_party_nemotron_base_url_escaped third_party_deepseek_base_url_escaped
+    local model_escaped effort_escaped model_instructions_file_escaped
+    local home_escaped cwd cwd_escaped gateway_url_escaped
     model_escaped=$(_toml_escape "$model")
+    effort_escaped=$(_toml_escape "$effort")
     model_instructions_file_escaped=$(_toml_escape "$CODEX_MODEL_INSTRUCTIONS_FILE")
     home_escaped=$(_toml_escape "$HOME")
     cwd="${PWD:-$HOME}"
     cwd_escaped=$(_toml_escape "$cwd")
-    third_party_openai_base_url_escaped=$(_toml_escape "$third_party_openai_base_url")
-    third_party_nemotron_base_url_escaped=$(_toml_escape "$third_party_nemotron_base_url")
-    third_party_deepseek_base_url_escaped=$(_toml_escape "$third_party_deepseek_base_url")
+    gateway_url_escaped=$(_toml_escape "${AAB_INFERENCE_GATEWAY_URL:-}")
 
     cat > "${CODEX_CONFIG}" <<TOML
 model = "${model_escaped}"
 model_instructions_file = "${model_instructions_file_escaped}"
 TOML
 
-    case "$codex_provider" in
-        third-party-openai)
-            cat >> "${CODEX_CONFIG}" <<TOML
-model_provider = "third-party-openai"
+    if [ "${profile[source]}" = "third-party" ]; then
+        cat >> "${CODEX_CONFIG}" <<'TOML'
+model_provider = "aab-gateway"
 TOML
-            ;;
-        third-party-nemotron)
-            cat >> "${CODEX_CONFIG}" <<TOML
-model_provider = "third-party-nemotron"
-TOML
-            ;;
-        third-party-deepseek)
-            cat >> "${CODEX_CONFIG}" <<TOML
-model_provider = "third-party-deepseek"
-TOML
-            ;;
-    esac
+    fi
 
     cat >> "${CODEX_CONFIG}" <<TOML
-model_reasoning_effort = "${effort}"
+model_reasoning_effort = "${effort_escaped}"
 model_reasoning_summary = "detailed"
 hide_agent_reasoning = false
 show_raw_agent_reasoning = true
@@ -1661,41 +1929,13 @@ inherit = "all"
 ignore_default_excludes = true
 TOML
 
-    if [ "$codex_provider" = "third-party-openai" ]; then
+    if [ "${profile[source]}" = "third-party" ]; then
         cat >> "${CODEX_CONFIG}" <<TOML
 
-[model_providers."third-party-openai"]
-name = "Third Party OpenAI"
-base_url = "${third_party_openai_base_url_escaped}"
-env_key = "AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY"
-wire_api = "responses"
-request_max_retries = 4
-stream_max_retries = 5
-stream_idle_timeout_ms = 300000
-TOML
-    fi
-
-    if [ "$codex_provider" = "third-party-nemotron" ]; then
-        cat >> "${CODEX_CONFIG}" <<TOML
-
-[model_providers."third-party-nemotron"]
-name = "Third Party Nemotron"
-base_url = "${third_party_nemotron_base_url_escaped}"
-env_key = "AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY"
-wire_api = "responses"
-request_max_retries = 4
-stream_max_retries = 5
-stream_idle_timeout_ms = 300000
-TOML
-    fi
-
-    if [ "$codex_provider" = "third-party-deepseek" ]; then
-        cat >> "${CODEX_CONFIG}" <<TOML
-
-[model_providers."third-party-deepseek"]
-name = "Third Party DeepSeek"
-base_url = "${third_party_deepseek_base_url_escaped}"
-env_key = "AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY"
+[model_providers."aab-gateway"]
+name = "AAB Inference Gateway"
+base_url = "${gateway_url_escaped}"
+env_key = "AAB_INFERENCE_GATEWAY_API_KEY"
 wire_api = "responses"
 request_max_retries = 4
 stream_max_retries = 5
@@ -1727,7 +1967,7 @@ ${preserved_plugin_config}
 TOML
     fi
 
-    log "Wrote ${CODEX_CONFIG} (provider=${codex_provider}, model=${model}, effort=${effort}, service_tier=${service_tier}, agent_max_threads=${agent_max_threads}, approval=never, sandbox=danger-full-access)."
+    log "Wrote ${CODEX_CONFIG} (profile=${profile[source]}/${profile[name]}, model=${model}, effort=${effort}, service_tier=${service_tier}, agent_max_threads=${agent_max_threads}, approval=never, sandbox=danger-full-access)."
 }
 
 # ---------------------------------------------------------------------------
@@ -1740,15 +1980,8 @@ TOML
 # auth path.
 # ---------------------------------------------------------------------------
 configure_codex_auth() {
-    local api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
+    local api_key="${OPENAI_API_KEY:-}"
     [ -z "$api_key" ] && return
-
-    local codex_provider
-    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
-    if [ "$codex_provider" != "first-party" ]; then
-        log "Skipping Codex first-party API-key login because AAB_CODEX_INFERENCE_PROVIDER=${codex_provider}."
-        return
-    fi
 
     local codex_bin=""
     if [ -x "${HOME}/.local/bin/codex-aab-real" ]; then
@@ -1758,7 +1991,7 @@ configure_codex_auth() {
     elif [ -x "${HOME}/.local/bin/codex" ]; then
         codex_bin="${HOME}/.local/bin/codex"
     else
-        warn "codex binary not on PATH; cannot configure AAB_CODEX_FIRST_PARTY_API_KEY auth."
+        warn "codex binary not on PATH; cannot configure OPENAI_API_KEY auth."
         exit 1
     fi
 
@@ -1767,7 +2000,7 @@ configure_codex_auth() {
         exit 1
     fi
 
-    log "Configured Codex API-key auth from AAB_CODEX_FIRST_PARTY_API_KEY."
+    log "Configured Codex API-key auth from OPENAI_API_KEY."
 }
 
 configure_codex() {
@@ -1776,6 +2009,94 @@ configure_codex() {
     configure_codex_auth
 }
 # <<< src/bootstrap/13_configure_codex.bash <<<
+
+# >>> src/bootstrap/13_configure_pi.bash >>>
+# ---------------------------------------------------------------------------
+# Configure Pi's generated inference-gateway model catalog.
+# ---------------------------------------------------------------------------
+configure_pi_models() {
+    local profiles line
+    profiles=$(_profile_list_for pi third-party)
+    if [ -z "$(_model_profile_lines "$profiles")" ]; then
+        if [ -f "$PI_MODELS_MARKER" ]; then
+            rm -f "$PI_MODELS_FILE" "$PI_MODELS_MARKER"
+        fi
+        return
+    fi
+
+    require_inference_gateway "Pi profiles"
+    mkdir -p "$PI_DIR" "$AAB_DIR"
+    if [ -f "$PI_MODELS_FILE" ] && [ ! -f "$PI_MODELS_MARKER" ]; then
+        local backup
+        backup="${PI_MODELS_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
+        cp "$PI_MODELS_FILE" "$backup"
+        log "Backed up existing Pi models.json -> ${backup}."
+    fi
+
+    local records tmp
+    records=$(mktemp)
+    tmp=$(mktemp "${PI_MODELS_FILE}.tmp.XXXXXX")
+    local -A profile=()
+    while IFS= read -r line; do
+        _parse_model_profile_line pi third-party "$line" profile
+        printf '%s\t%s\t%s\t%s\t%s\n' \
+            "${profile[name]}" \
+            "${profile[model]}" \
+            "${profile[effort]}" \
+            "${profile[context]}" \
+            "${profile["max_tokens"]}" >> "$records"
+    done < <(_model_profile_lines "$profiles")
+
+    python3 - "$records" "$AAB_INFERENCE_GATEWAY_URL" "$tmp" <<'PY'
+import csv
+import json
+import sys
+
+records_path, base_url, output_path = sys.argv[1:]
+models = {}
+with open(records_path, encoding="utf-8", newline="") as handle:
+    for name, model_id, effort, context, max_tokens in csv.reader(handle, delimiter="\t"):
+        candidate = {
+            "id": model_id,
+            "name": name,
+            "reasoning": effort != "off",
+            "input": ["text"],
+            "contextWindow": int(context or "128000"),
+            "maxTokens": int(max_tokens or "16384"),
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+        }
+        existing = models.get(model_id)
+        if existing is None:
+            models[model_id] = candidate
+            continue
+        existing["reasoning"] = existing["reasoning"] or candidate["reasoning"]
+        existing["contextWindow"] = max(existing["contextWindow"], candidate["contextWindow"])
+        existing["maxTokens"] = max(existing["maxTokens"], candidate["maxTokens"])
+
+payload = {
+    "providers": {
+        "aab-gateway": {
+            "name": "AAB Inference Gateway",
+            "baseUrl": base_url,
+            "api": "openai-responses",
+            "apiKey": "$AAB_INFERENCE_GATEWAY_API_KEY",
+            "models": list(models.values()),
+        }
+    }
+}
+with open(output_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2)
+    handle.write("\n")
+PY
+
+    rm -f "$records"
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$PI_MODELS_FILE"
+    : > "$PI_MODELS_MARKER"
+    chmod 600 "$PI_MODELS_MARKER"
+    log "Wrote ${PI_MODELS_FILE} from AAB_PI_PROFILES."
+}
+# <<< src/bootstrap/13_configure_pi.bash <<<
 
 # >>> src/bootstrap/20_configure_git.bash >>>
 # ---------------------------------------------------------------------------
@@ -2263,11 +2584,11 @@ configure_agent_rules() {
 
 # >>> src/bootstrap/26_configure_launchers.bash >>>
 # ---------------------------------------------------------------------------
-# Write Claude and Codex launcher wrapper families.
+# Write profile-driven Claude, Codex, and Pi launcher families.
 # ---------------------------------------------------------------------------
 _is_aab_launcher_symlink_target() {
     case "$(basename "$1")" in
-        claude-first-party|claude-third-party-anthropic|claude-third-party-deepseek|claude-third-party-nemotron|codex-first-party|codex-third-party-openai|codex-third-party-nemotron|codex-third-party-deepseek)
+        claude-first-party-*|claude-third-party-*|claude-first-party|codex-first-party-*|codex-third-party-*|codex-first-party|pi-*)
             return 0
             ;;
         *)
@@ -2303,18 +2624,48 @@ _prepare_launcher_real_binary() {
     fi
 }
 
+_remove_aab_profile_launchers() {
+    local marker="$1"
+    shift
+    local pattern launcher
+    for pattern in "$@"; do
+        for launcher in $pattern; do
+            [ -f "$launcher" ] || continue
+            [ -L "$launcher" ] && continue
+            if grep -q "$marker" "$launcher" 2>/dev/null; then
+                rm -f "$launcher"
+            fi
+        done
+    done
+}
+
 _write_claude_launcher() {
-    local provider="$1" launcher="$2" tmp
+    local source="$1" name="$2" model="$3" haiku="$4" sonnet="$5" opus="$6"
+    local effort="$7" context="$8" subagent="$9" launcher="${10}" tmp
+    local resolved_model="$model" resolved_subagent="$subagent"
+    if [ -n "$context" ]; then
+        case "$resolved_model" in
+            *\[1m\]) ;;
+            *) resolved_model="${resolved_model}[1m]" ;;
+        esac
+        if [ "$resolved_subagent" = "$model" ]; then
+            resolved_subagent="$resolved_model"
+        fi
+    fi
+
     tmp=$(mktemp "${launcher}.tmp.XXXXXX")
     {
         printf '%s\n' '#!/usr/bin/env bash'
         printf '%s\n' '# Autonomous-agent-bootstrap Claude launcher.'
-        printf 'provider=%q\n' "$provider"
-        printf 'default_model=%q\n' "$DEFAULT_CLAUDE_CODE_MODEL"
-        printf 'default_haiku_model=%q\n' "$DEFAULT_CLAUDE_CODE_HAIKU_MODEL"
-        printf 'default_sonnet_model=%q\n' "$DEFAULT_CLAUDE_CODE_SONNET_MODEL"
-        printf 'default_opus_model=%q\n' "$DEFAULT_CLAUDE_CODE_OPUS_MODEL"
-        printf 'default_effort=%q\n' "$DEFAULT_CLAUDE_CODE_EFFORT"
+        printf 'profile_source=%q\n' "$source"
+        printf 'profile_name=%q\n' "$name"
+        printf 'profile_model=%q\n' "$resolved_model"
+        printf 'profile_haiku=%q\n' "$haiku"
+        printf 'profile_sonnet=%q\n' "$sonnet"
+        printf 'profile_opus=%q\n' "$opus"
+        printf 'profile_effort=%q\n' "$effort"
+        printf 'profile_context=%q\n' "$context"
+        printf 'profile_subagent=%q\n' "$resolved_subagent"
         cat <<'BASH'
 set -euo pipefail
 
@@ -2331,87 +2682,45 @@ if [ ! -x "$real_bin" ]; then
     exit 127
 fi
 
-export AAB_CLAUDE_CODE_INFERENCE_PROVIDER="$provider"
+export AAB_CLAUDE_PROFILE="${profile_source}/${profile_name}"
 export CLAUDE_CODE_SANDBOXED=1
 export DEBUG_SDK=1
-export CLAUDE_CODE_EFFORT_LEVEL="${AAB_CLAUDE_CODE_EFFORT:-$default_effort}"
+export CLAUDE_CODE_EFFORT_LEVEL="$profile_effort"
 [ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
 [ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
 [ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
 
-unset ANTHROPIC_API_KEY
 unset ANTHROPIC_BASE_URL
 unset ANTHROPIC_AUTH_TOKEN
 unset ANTHROPIC_MODEL
 unset ANTHROPIC_DEFAULT_HAIKU_MODEL
 unset ANTHROPIC_DEFAULT_SONNET_MODEL
 unset ANTHROPIC_DEFAULT_OPUS_MODEL
+unset CLAUDE_CODE_AUTO_COMPACT_WINDOW
 unset CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
 
-case "$provider" in
+case "$profile_source" in
     first-party)
-        [ -n "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}" ] && export ANTHROPIC_API_KEY="$AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY"
-        export ANTHROPIC_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$default_model}"
-        export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$default_haiku_model}"
-        export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-$default_sonnet_model}"
-        export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-$default_opus_model}"
         ;;
-    third-party-anthropic)
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL:-}" ] && export ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL"
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY:-}" ] && export ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY"
-        export ANTHROPIC_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL:-$default_model}"
-        export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL:-$default_haiku_model}"
-        export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL:-$default_sonnet_model}"
-        export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL:-$default_opus_model}"
-        ;;
-    third-party-deepseek)
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL:-}" ] && export ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL"
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY:-}" ] && export ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY"
-        # Claude Code resolves a model's context window to 200K unless the model
-        # name carries a "[1m]" suffix (or is a known first-party id). Without a
-        # known window, auto-compaction is also skipped in a local session, so
-        # the conversation grows until the provider's hard limit. Tag the model
-        # with "[1m]" so Claude Code resolves the full window and engages
-        # compaction; the suffix is stripped from the model name before the
-        # request, so the gateway still receives the real id (DeepSeek V4 Pro:
-        # 1M context window).
-        deepseek_model="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-$default_model}"
-        export ANTHROPIC_MODEL="${deepseek_model}[1m]"
-        export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL:-$default_haiku_model}"
-        export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL:-$default_sonnet_model}"
-        export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL:-$default_opus_model}"
-        # Pin the auto-compact window to DeepSeek's full 1M context. Compaction
-        # then fires ~33K below it (~967K), the same window-minus-reserve margin
-        # a first-party 1M model uses.
-        export CLAUDE_CODE_AUTO_COMPACT_WINDOW=1000000
-        ;;
-    third-party-nemotron)
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL:-}" ] && export ANTHROPIC_BASE_URL="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL"
-        [ -n "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY:-}" ] && export ANTHROPIC_AUTH_TOKEN="$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY"
-        # Tag the model with "[1m]" so Claude Code resolves the full configured
-        # window and engages auto-compaction (see the deepseek arm above); the
-        # suffix is stripped before the request, so the gateway receives the
-        # real id. Nemotron 3 Ultra's window is 262,144, below the 1M the tag
-        # unlocks, so the auto-compact window below is what actually applies.
-        nemotron_model="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL:-$default_model}"
-        export ANTHROPIC_MODEL="${nemotron_model}[1m]"
-        export ANTHROPIC_DEFAULT_HAIKU_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL:-$default_haiku_model}"
-        export ANTHROPIC_DEFAULT_SONNET_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL:-$default_sonnet_model}"
-        export ANTHROPIC_DEFAULT_OPUS_MODEL="${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL:-$default_opus_model}"
-        # Pin the auto-compact window to Nemotron's full 262,144 context.
-        # Compaction fires ~33K below it (~229K), the same window-minus-reserve
-        # margin a first-party model uses, leaving headroom under the hard limit
-        # (the failure this prevents hit ~268K with no compaction at all).
-        export CLAUDE_CODE_AUTO_COMPACT_WINDOW=262144
+    third-party)
+        unset ANTHROPIC_API_KEY
+        if [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
+            printf '[bootstrap] WARN: Claude profile %s requires AAB_INFERENCE_GATEWAY_URL.\n' "$profile_name" >&2
+            exit 1
+        fi
+        export ANTHROPIC_BASE_URL="$AAB_INFERENCE_GATEWAY_URL"
+        [ -n "${AAB_INFERENCE_GATEWAY_API_KEY:-}" ] && export ANTHROPIC_AUTH_TOKEN="$AAB_INFERENCE_GATEWAY_API_KEY"
         ;;
 esac
 
-# CLAUDE_CODE_SUBAGENT_MODEL pins the model for sub-agents and team teammates,
-# which spawn as separate Claude Code processes and otherwise resolve a
-# canonical first-party model id that a third-party gateway rejects. Default it
-# to the same resolved ANTHROPIC_MODEL the main agent uses (provider-correct,
-# carrying any "[1m]" suffix); AAB_CLAUDE_CODE_SUBAGENT_MODEL overrides.
-export CLAUDE_CODE_SUBAGENT_MODEL="${AAB_CLAUDE_CODE_SUBAGENT_MODEL:-$ANTHROPIC_MODEL}"
+export ANTHROPIC_MODEL="$profile_model"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="$profile_haiku"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="$profile_sonnet"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="$profile_opus"
+export CLAUDE_CODE_SUBAGENT_MODEL="$profile_subagent"
+if [ -n "$profile_context" ]; then
+    export CLAUDE_CODE_AUTO_COMPACT_WINDOW="$profile_context"
+fi
 
 has_skip=0
 for arg in "$@"; do
@@ -2438,48 +2747,56 @@ configure_claude_launchers() {
     local launcher_dir="${HOME}/.local/aab-bin"
     local claude_bin="${HOME}/.local/bin/claude"
     local real_bin="${HOME}/.local/bin/claude-aab-real"
-    local selected_provider
-    selected_provider=$(normalize_claude_code_inference_provider "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}")
+    local source profiles line launcher
+    local -A profile=() selected=()
 
     if [ ! -e "$claude_bin" ]; then
         warn "claude binary not found at ${claude_bin}; cannot write launcher wrappers."
         exit 1
     fi
 
-    # The native installer owns ~/.local/bin/claude and repoints it to each new
-    # version. Point the wrappers' exec target at that symlink (rather than a
-    # pinned version) so every wrapper runs whatever the updater currently
-    # installs. install_claude runs first in main(), so ~/.local/bin/claude is
-    # the native binary here, never one of our wrapper symlinks.
     ln -sfn "$claude_bin" "$real_bin"
-    _write_claude_launcher "first-party" "${HOME}/.local/bin/claude-first-party"
-    _write_claude_launcher "third-party-anthropic" "${HOME}/.local/bin/claude-third-party-anthropic"
-    _write_claude_launcher "third-party-deepseek" "${HOME}/.local/bin/claude-third-party-deepseek"
-    _write_claude_launcher "third-party-nemotron" "${HOME}/.local/bin/claude-third-party-nemotron"
+    mkdir -p "$launcher_dir" "${HOME}/.local/bin"
+    _remove_aab_profile_launchers \
+        'Autonomous-agent-bootstrap Claude launcher' \
+        "${HOME}/.local/bin/claude-first-party*" \
+        "${HOME}/.local/bin/claude-third-party-*"
 
-    # Put the selected `claude` entrypoint in a dedicated directory kept ahead of
-    # ~/.local/bin on PATH (see configure_bashrc / configure_profile), so the native
-    # auto-updater's ~/.local/bin/claude can't shadow the wrapper. The entrypoint
-    # is a regular launcher file rather than a symlink to a provider wrapper.
-    mkdir -p "$launcher_dir"
-    _write_claude_launcher "$selected_provider" "${launcher_dir}/claude"
-    log "Wrote Claude launcher wrappers (selected=${selected_provider}); entrypoint at ${launcher_dir}/claude."
+    for source in first-party third-party; do
+        profiles=$(_profile_list_for claude "$source")
+        while IFS= read -r line; do
+            _parse_model_profile_line claude "$source" "$line" profile
+            if [ "$source" = "third-party" ]; then
+                require_inference_gateway "Claude profile '${profile[name]}'"
+            fi
+            launcher="${HOME}/.local/bin/claude-${source}-${profile[name]}"
+            _write_claude_launcher \
+                "$source" "${profile[name]}" "${profile[model]}" \
+                "${profile[haiku]}" "${profile[sonnet]}" "${profile[opus]}" \
+                "${profile[effort]}" "${profile[context]}" "${profile[subagent]}" \
+                "$launcher"
+        done < <(_model_profile_lines "$profiles")
+    done
+
+    resolve_model_profile claude selected
+    _write_claude_launcher \
+        "${selected[source]}" "${selected[name]}" "${selected[model]}" \
+        "${selected[haiku]}" "${selected[sonnet]}" "${selected[opus]}" \
+        "${selected[effort]}" "${selected[context]}" "${selected[subagent]}" \
+        "${launcher_dir}/claude"
+    log "Wrote Claude profile launchers (selected=${selected[source]}/${selected[name]})."
 }
 
 _write_codex_launcher() {
-    local provider="$1" launcher="$2" tmp
+    local source="$1" name="$2" model="$3" effort="$4" launcher="$5" tmp
     tmp=$(mktemp "${launcher}.tmp.XXXXXX")
     {
         printf '%s\n' '#!/usr/bin/env bash'
         printf '%s\n' '# Autonomous-agent-bootstrap Codex launcher.'
-        printf 'provider=%q\n' "$provider"
-        printf 'default_model=%q\n' "$DEFAULT_CODEX_MODEL"
-        printf 'default_third_party_openai_model=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL"
-        printf 'default_third_party_openai_base_url=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL"
-        printf 'default_third_party_nemotron_model=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL"
-        printf 'default_third_party_nemotron_base_url=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL"
-        printf 'default_third_party_deepseek_model=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL"
-        printf 'default_third_party_deepseek_base_url=%q\n' "$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL"
+        printf 'profile_source=%q\n' "$source"
+        printf 'profile_name=%q\n' "$name"
+        printf 'profile_model=%q\n' "$model"
+        printf 'profile_effort=%q\n' "$effort"
         cat <<'BASH'
 set -euo pipefail
 
@@ -2497,10 +2814,10 @@ if [ ! -x "$real_bin" ]; then
 fi
 
 toml_escape() {
-    local s="$1"
-    s=${s//\\/\\\\}
-    s=${s//\"/\\\"}
-    printf '%s' "$s"
+    local value="$1"
+    value=${value//\\/\\\\}
+    value=${value//\"/\\\"}
+    printf '%s' "$value"
 }
 
 canonical_dir() {
@@ -2512,46 +2829,27 @@ canonical_dir() {
     fi
 }
 
-export AAB_CODEX_INFERENCE_PROVIDER="$provider"
+export AAB_CODEX_PROFILE="${profile_source}/${profile_name}"
 [ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
 [ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
 [ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
 
-model="${AAB_CODEX_FIRST_PARTY_MODEL:-$default_model}"
-config_args=()
-case "$provider" in
+model_escaped=$(toml_escape "$profile_model")
+effort_escaped=$(toml_escape "$profile_effort")
+config_args=(-c "model=\"${model_escaped}\"" -c "model_reasoning_effort=\"${effort_escaped}\"")
+case "$profile_source" in
     first-party)
-        [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ] && export OPENAI_API_KEY="$AAB_CODEX_FIRST_PARTY_API_KEY"
-        model="${AAB_CODEX_FIRST_PARTY_MODEL:-$default_model}"
-        model_escaped=$(toml_escape "$model")
-        config_args=(-c "model=\"${model_escaped}\"" -c 'model_provider="openai"')
+        config_args+=(-c 'model_provider="openai"')
         ;;
-    third-party-openai)
+    third-party)
         unset OPENAI_API_KEY
-        model="${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$default_third_party_openai_model}"
-        base_url="${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$default_third_party_openai_base_url}"
-        model_escaped=$(toml_escape "$model")
-        base_url_escaped=$(toml_escape "$base_url")
-        provider_override="model_providers={\"third-party-openai\"={name=\"Third Party OpenAI\",base_url=\"${base_url_escaped}\",env_key=\"AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
-        config_args=(-c "model=\"${model_escaped}\"" -c 'model_provider="third-party-openai"' -c "$provider_override")
-        ;;
-    third-party-nemotron)
-        unset OPENAI_API_KEY
-        model="${AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL:-$default_third_party_nemotron_model}"
-        base_url="${AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL:-$default_third_party_nemotron_base_url}"
-        model_escaped=$(toml_escape "$model")
-        base_url_escaped=$(toml_escape "$base_url")
-        provider_override="model_providers={\"third-party-nemotron\"={name=\"Third Party Nemotron\",base_url=\"${base_url_escaped}\",env_key=\"AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
-        config_args=(-c "model=\"${model_escaped}\"" -c 'model_provider="third-party-nemotron"' -c "$provider_override")
-        ;;
-    third-party-deepseek)
-        unset OPENAI_API_KEY
-        model="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL:-$default_third_party_deepseek_model}"
-        base_url="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL:-$default_third_party_deepseek_base_url}"
-        model_escaped=$(toml_escape "$model")
-        base_url_escaped=$(toml_escape "$base_url")
-        provider_override="model_providers={\"third-party-deepseek\"={name=\"Third Party DeepSeek\",base_url=\"${base_url_escaped}\",env_key=\"AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
-        config_args=(-c "model=\"${model_escaped}\"" -c 'model_provider="third-party-deepseek"' -c "$provider_override")
+        if [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
+            printf '[bootstrap] WARN: Codex profile %s requires AAB_INFERENCE_GATEWAY_URL.\n' "$profile_name" >&2
+            exit 1
+        fi
+        base_url_escaped=$(toml_escape "$AAB_INFERENCE_GATEWAY_URL")
+        provider_override="model_providers={\"aab-gateway\"={name=\"AAB Inference Gateway\",base_url=\"${base_url_escaped}\",env_key=\"AAB_INFERENCE_GATEWAY_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
+        config_args+=(-c 'model_provider="aab-gateway"' -c "$provider_override")
         ;;
 esac
 
@@ -2603,16 +2901,120 @@ BASH
 configure_codex_launchers() {
     local codex_bin="${HOME}/.local/bin/codex"
     local real_bin="${HOME}/.local/bin/codex-aab-real"
-    local selected_provider
-    selected_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
+    local source profiles line launcher
+    local -A profile=() selected=()
 
     _prepare_launcher_real_binary "codex" "$codex_bin" "$real_bin" "Autonomous-agent-bootstrap Codex launcher"
-    _write_codex_launcher "first-party" "${HOME}/.local/bin/codex-first-party"
-    _write_codex_launcher "third-party-openai" "${HOME}/.local/bin/codex-third-party-openai"
-    _write_codex_launcher "third-party-nemotron" "${HOME}/.local/bin/codex-third-party-nemotron"
-    _write_codex_launcher "third-party-deepseek" "${HOME}/.local/bin/codex-third-party-deepseek"
-    _write_codex_launcher "$selected_provider" "$codex_bin"
-    log "Wrote Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
+    _remove_aab_profile_launchers \
+        'Autonomous-agent-bootstrap Codex launcher' \
+        "${HOME}/.local/bin/codex-first-party*" \
+        "${HOME}/.local/bin/codex-third-party-*"
+
+    for source in first-party third-party; do
+        profiles=$(_profile_list_for codex "$source")
+        while IFS= read -r line; do
+            _parse_model_profile_line codex "$source" "$line" profile
+            if [ "$source" = "third-party" ]; then
+                require_inference_gateway "Codex profile '${profile[name]}'"
+            fi
+            launcher="${HOME}/.local/bin/codex-${source}-${profile[name]}"
+            _write_codex_launcher "$source" "${profile[name]}" "${profile[model]}" "${profile[effort]}" "$launcher"
+        done < <(_model_profile_lines "$profiles")
+    done
+
+    resolve_model_profile codex selected
+    _write_codex_launcher "${selected[source]}" "${selected[name]}" "${selected[model]}" "${selected[effort]}" "$codex_bin"
+    log "Wrote Codex profile launchers (selected=${selected[source]}/${selected[name]})."
+}
+
+_write_pi_launcher() {
+    local name="$1" model="$2" effort="$3" launcher="$4" tmp
+    tmp=$(mktemp "${launcher}.tmp.XXXXXX")
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        printf '%s\n' '# Autonomous-agent-bootstrap Pi launcher.'
+        printf 'profile_name=%q\n' "$name"
+        printf 'profile_model=%q\n' "$model"
+        printf 'profile_effort=%q\n' "$effort"
+        cat <<'BASH'
+set -euo pipefail
+
+real_bin="${AAB_PI_REAL_BIN:-$HOME/.local/bin/pi-aab-real}"
+env_file="${AAB_ENV_FILE:-$HOME/.aab/.env}"
+if [ -f "$env_file" ]; then
+    set -a
+    . "$env_file"
+    set +a
+fi
+
+if [ ! -x "$real_bin" ]; then
+    printf '[bootstrap] WARN: Pi real binary not executable: %s\n' "$real_bin" >&2
+    exit 127
+fi
+if [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
+    printf '[bootstrap] WARN: Pi profile %s requires AAB_INFERENCE_GATEWAY_URL.\n' "$profile_name" >&2
+    exit 1
+fi
+
+export AAB_PI_PROFILE="$profile_name"
+[ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
+[ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
+[ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
+
+has_provider=0
+has_model=0
+has_thinking=0
+for arg in "$@"; do
+    case "$arg" in
+        --provider|--provider=*) has_provider=1 ;;
+        --model|--model=*) has_model=1 ;;
+        --thinking|--thinking=*) has_thinking=1 ;;
+    esac
+done
+
+extra_args=()
+[ "$has_provider" -eq 1 ] || extra_args+=(--provider aab-gateway)
+[ "$has_model" -eq 1 ] || extra_args+=(--model "$profile_model")
+[ "$has_thinking" -eq 1 ] || extra_args+=(--thinking "$profile_effort")
+exec "$real_bin" "${extra_args[@]}" "$@"
+BASH
+    } > "$tmp"
+    chmod 755 "$tmp"
+    mv -f "$tmp" "$launcher"
+}
+
+configure_pi_launchers() {
+    local pi_bin="${HOME}/.local/bin/pi"
+    local real_bin="${HOME}/.local/bin/pi-aab-real"
+    local profiles line launcher
+    local -A profile=() selected=()
+
+    if [ ! -x "$real_bin" ]; then
+        warn "Pi real binary not executable at ${real_bin}; skipping profile launchers."
+        return
+    fi
+    profiles=$(_profile_list_for pi third-party)
+    _remove_aab_profile_launchers \
+        'Autonomous-agent-bootstrap Pi launcher' \
+        "${HOME}/.local/bin/pi" \
+        "${HOME}/.local/bin/pi-*"
+
+    if [ -z "$(_model_profile_lines "$profiles")" ]; then
+        ln -sfn "$real_bin" "$pi_bin"
+        log "Wrote unconfigured Pi launcher at ${pi_bin}."
+        return
+    fi
+
+    require_inference_gateway "Pi profiles"
+    while IFS= read -r line; do
+        _parse_model_profile_line pi third-party "$line" profile
+        launcher="${HOME}/.local/bin/pi-${profile[name]}"
+        _write_pi_launcher "${profile[name]}" "${profile[model]}" "${profile[effort]}" "$launcher"
+    done < <(_model_profile_lines "$profiles")
+
+    resolve_model_profile pi selected
+    _write_pi_launcher "${selected[name]}" "${selected[model]}" "${selected[effort]}" "$pi_bin"
+    log "Wrote Pi profile launchers (selected=${selected[name]})."
 }
 # <<< src/bootstrap/26_configure_launchers.bash <<<
 
@@ -2832,10 +3234,12 @@ main() {
     elif [ ! -t 0 ]; then
         load_config_stdin
     fi
+    validate_model_profiles
     install_base_deps
     install_uv_tools
     install_claude
     install_codex
+    install_pi
     install_brev
     install_lifeboat
     install_gh
@@ -2844,6 +3248,7 @@ main() {
     configure_brev
     configure_claude
     configure_codex
+    configure_pi_models
     configure_git
     configure_auth_ssh_key
     configure_signing_ssh_key
@@ -2852,6 +3257,7 @@ main() {
     install_agent_plugins
     configure_claude_launchers
     configure_codex_launchers
+    configure_pi_launchers
     install_autocuda
     configure_user_linger
     configure_bashrc

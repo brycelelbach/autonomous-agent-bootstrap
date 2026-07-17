@@ -1,58 +1,46 @@
 # ---------------------------------------------------------------------------
-# 6. Write ~/.aab/.env.
+# Persist shared model-profile and credential configuration in ~/.aab/.env.
 # ---------------------------------------------------------------------------
 configure_aab_env_file() {
     mkdir -p "${AAB_DIR}"
     chmod 700 "${AAB_DIR}"
 
-    local claude_provider
-    claude_provider=$(normalize_claude_code_inference_provider "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}")
-    local codex_provider
-    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
+    local claude_first_party_profiles claude_third_party_profiles
+    local codex_first_party_profiles codex_third_party_profiles pi_profiles
+    claude_first_party_profiles=$(_profile_list_for claude first-party)
+    claude_third_party_profiles=$(_profile_list_for claude third-party)
+    codex_first_party_profiles=$(_profile_list_for codex first-party)
+    codex_third_party_profiles=$(_profile_list_for codex third-party)
+    pi_profiles=$(_profile_list_for pi third-party)
+
+    local -A claude_profile=() codex_profile=() pi_profile=()
+    resolve_model_profile claude claude_profile
+    resolve_model_profile codex codex_profile
+    local pi_profile_name=""
+    if resolve_model_profile pi pi_profile; then
+        pi_profile_name="${pi_profile[name]}"
+    fi
 
     local tmp
     tmp=$(mktemp "${AAB_ENV_FILE}.tmp.XXXXXX")
     {
         printf '# Written by autonomous-agent-bootstrap. Re-run bootstrap.bash to update.\n'
-        _write_shell_export AAB_CLAUDE_CODE_INFERENCE_PROVIDER "$claude_provider"
-        _write_shell_export AAB_CLAUDE_CODE_EFFORT "${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
-        _write_shell_export AAB_CLAUDE_CODE_SUBAGENT_MODEL "${AAB_CLAUDE_CODE_SUBAGENT_MODEL:-}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY "${AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY:-}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL "${AAB_CLAUDE_CODE_FIRST_PARTY_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_BASE_URL:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_API_KEY:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_ANTHROPIC_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY:-}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL:-$DEFAULT_CLAUDE_CODE_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_HAIKU_MODEL:-$DEFAULT_CLAUDE_CODE_HAIKU_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_SONNET_MODEL:-$DEFAULT_CLAUDE_CODE_SONNET_MODEL}"
-        _write_shell_export AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL "${AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_OPUS_MODEL:-$DEFAULT_CLAUDE_CODE_OPUS_MODEL}"
-        _write_shell_export AAB_CODEX_INFERENCE_PROVIDER "$codex_provider"
-        _write_shell_export AAB_CODEX_FIRST_PARTY_API_KEY "${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
-        _write_shell_export AAB_CODEX_FIRST_PARTY_MODEL "${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL "${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY "${AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY:-}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_OPENAI_MODEL "${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL "${AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY "${AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY:-}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL "${AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL "${AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY "${AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY:-}"
-        _write_shell_export AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL "${AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL}"
-        _write_shell_export AAB_CODEX_EFFORT "${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
+        _write_shell_export AAB_CLAUDE_FIRST_PARTY_PROFILES "$claude_first_party_profiles"
+        _write_shell_export AAB_CLAUDE_THIRD_PARTY_PROFILES "$claude_third_party_profiles"
+        _write_shell_export AAB_CLAUDE_PROFILE "${claude_profile[source]}/${claude_profile[name]}"
+        _write_shell_export AAB_CODEX_FIRST_PARTY_PROFILES "$codex_first_party_profiles"
+        _write_shell_export AAB_CODEX_THIRD_PARTY_PROFILES "$codex_third_party_profiles"
+        _write_shell_export AAB_CODEX_PROFILE "${codex_profile[source]}/${codex_profile[name]}"
+        _write_shell_export AAB_PI_PROFILES "$pi_profiles"
+        _write_shell_export AAB_PI_PROFILE "$pi_profile_name"
+        _write_shell_export AAB_INFERENCE_GATEWAY_URL "${AAB_INFERENCE_GATEWAY_URL:-}"
+        _write_shell_export AAB_INFERENCE_GATEWAY_API_KEY "${AAB_INFERENCE_GATEWAY_API_KEY:-}"
+        if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+            _write_shell_export ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"
+        fi
+        if [ -n "${OPENAI_API_KEY:-}" ]; then
+            _write_shell_export OPENAI_API_KEY "$OPENAI_API_KEY"
+        fi
         _write_shell_export AAB_CODEX_SERVICE_TIER "${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
         _write_shell_export AAB_CODEX_AGENT_MAX_THREADS "${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
         _write_shell_export AAB_GH_TOKEN "${AAB_GH_TOKEN:-}"
@@ -61,5 +49,5 @@ configure_aab_env_file() {
     } > "$tmp"
     chmod 600 "$tmp"
     mv -f "$tmp" "$AAB_ENV_FILE"
-    log "Wrote ${AAB_ENV_FILE} (claude_provider=${claude_provider}, codex_provider=${codex_provider})."
+    log "Wrote ${AAB_ENV_FILE} (claude_profile=${claude_profile[source]}/${claude_profile[name]}, codex_profile=${codex_profile[source]}/${codex_profile[name]}, pi_profile=${pi_profile_name:-none})."
 }

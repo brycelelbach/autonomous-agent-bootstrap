@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Bootstrap fresh, non-interactive Claude Code and Codex installs on a Linux host.
+# Bootstrap fresh, non-interactive Claude Code, Codex, and Pi installs on Linux.
 #
 # The script installs Claude Code, Codex, Brev, gh, base packages, agent
 # plugins, git credentials, optional SSH keys, and unattended-mode config. It
 # writes AAB runtime configuration to ~/.aab/.env and installs wrapper families
 # that source that file:
 #
-#   claude plus claude-first-party, claude-third-party-anthropic,
-#   claude-third-party-deepseek, and claude-third-party-nemotron
-#   codex plus codex-first-party and codex-third-party-openai
+#   claude plus claude-first-party-<profile> and claude-third-party-<profile>
+#   codex plus codex-first-party-<profile> and codex-third-party-<profile>
+#   pi plus pi-<profile>
 #
-# AAB_CLAUDE_CODE_INFERENCE_PROVIDER selects the unqualified claude launcher:
-#   first-party, third-party-anthropic, third-party-deepseek, or third-party-nemotron.
+# AAB_CLAUDE_PROFILE and AAB_CODEX_PROFILE select the unqualified launchers.
+# Source remains part of each profile rather than being selected harness-wide.
 #
-# AAB_CODEX_INFERENCE_PROVIDER selects the unqualified codex launcher:
-#   first-party or third-party-openai.
+# AAB_PI_PROFILE selects the unqualified Pi launcher. Pi is always routed
+# through the shared inference gateway, so its aliases omit "third-party".
 #
 # Provider credentials and model names are kept out of ~/.bashrc and
 # /etc/environment. The managed ~/.bashrc block only puts ~/.local/bin on PATH
@@ -56,6 +56,10 @@ CLAUDE_SHELL_CONFIG_FILE="${AAB_SHELL_CONFIG_DIR}/claude.env"
 CODEX_DIR="${HOME}/.codex"
 CODEX_CONFIG="${CODEX_DIR}/config.toml"
 CODEX_MODEL_INSTRUCTIONS_FILE="${CODEX_DIR}/codex-instructions.md"
+PI_DIR="${HOME}/.pi/agent"
+PI_MODELS_FILE="${PI_DIR}/models.json"
+PI_MODELS_MARKER="${AAB_DIR}/pi-models-generated"
+PI_INSTALL_DIR="${HOME}/.local/share/aab/pi"
 BREV_DIR="${HOME}/.brev"
 BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
@@ -107,45 +111,20 @@ DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
 DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-8"
 DEFAULT_CLAUDE_CODE_EFFORT="max"
 DEFAULT_CODEX_MODEL="gpt-5.5"
-DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER="first-party"
-DEFAULT_CODEX_INFERENCE_PROVIDER="first-party"
-DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL="openai/openai/gpt-5.5"
-DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://inference-api.nvidia.com/v1"
-DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL="nvidia/nemotron-3-ultra"
-DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL="https://integrate.api.nvidia.com/v1"
-DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL="deepseek/deepseek-v4-pro"
-DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
 DEFAULT_CODEX_REASONING_EFFORT="xhigh"
+DEFAULT_PI_EFFORT="high"
 DEFAULT_CODEX_SERVICE_TIER="priority"
 DEFAULT_CODEX_AGENT_MAX_THREADS="64"
+DEFAULT_CLAUDE_FIRST_PARTY_PROFILES="opus-4.8 model=${DEFAULT_CLAUDE_CODE_MODEL} haiku=${DEFAULT_CLAUDE_CODE_HAIKU_MODEL} sonnet=${DEFAULT_CLAUDE_CODE_SONNET_MODEL} opus=${DEFAULT_CLAUDE_CODE_OPUS_MODEL} effort=${DEFAULT_CLAUDE_CODE_EFFORT}"
+DEFAULT_CLAUDE_THIRD_PARTY_PROFILES=""
+DEFAULT_CODEX_FIRST_PARTY_PROFILES="gpt-5.5 model=${DEFAULT_CODEX_MODEL} effort=${DEFAULT_CODEX_REASONING_EFFORT}"
+DEFAULT_CODEX_THIRD_PARTY_PROFILES=""
+DEFAULT_PI_PROFILES=""
+DEFAULT_CLAUDE_PROFILE="first-party/opus-4.8"
+DEFAULT_CODEX_PROFILE="first-party/gpt-5.5"
+DEFAULT_PI_PROFILE=""
 log() { printf '[bootstrap] %s\n' "$*"; }
 warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
-
-normalize_claude_code_inference_provider() {
-    local provider="${1:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}"
-    case "$provider" in
-        first-party|third-party-anthropic|third-party-deepseek|third-party-nemotron)
-            printf '%s' "$provider"
-            ;;
-        *)
-            warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-anthropic', 'third-party-deepseek', or 'third-party-nemotron'; defaulting to '${DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}'."
-            printf '%s' "$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER"
-            ;;
-    esac
-}
-
-normalize_codex_inference_provider() {
-    local provider="${1:-$DEFAULT_CODEX_INFERENCE_PROVIDER}"
-    case "$provider" in
-        first-party|third-party-openai|third-party-nemotron|third-party-deepseek)
-            printf '%s' "$provider"
-            ;;
-        *)
-            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-openai', 'third-party-nemotron', or 'third-party-deepseek'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
-            printf '%s' "$DEFAULT_CODEX_INFERENCE_PROVIDER"
-            ;;
-    esac
-}
 
 _write_shell_export() {
     local name="$1" value="${2:-}"

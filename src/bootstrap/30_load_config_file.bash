@@ -68,10 +68,12 @@ main() {
     elif [ ! -t 0 ]; then
         load_config_stdin
     fi
+    validate_model_profiles
     install_base_deps
     install_uv_tools
     install_claude
     install_codex
+    install_pi
     install_brev
     install_lifeboat
     install_gh
@@ -80,6 +82,7 @@ main() {
     configure_brev
     configure_claude
     configure_codex
+    configure_pi_models
     configure_git
     configure_auth_ssh_key
     configure_signing_ssh_key
@@ -88,6 +91,7 @@ main() {
     install_agent_plugins
     configure_claude_launchers
     configure_codex_launchers
+    configure_pi_launchers
     install_autocuda
     configure_user_linger
     configure_bashrc

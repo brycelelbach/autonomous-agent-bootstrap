@@ -20,17 +20,24 @@ BASHRC="${HOME}/.bashrc"
 PROFILE="${HOME}/.profile"
 AAB_ENV_FILE="${HOME}/.aab/.env"
 CLAUDE_SHELL_CONFIG_FILE="${HOME}/.aab/shell/claude.env"
+PI_MODELS_FILE="${HOME}/.pi/agent/models.json"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
 source "${REPO_ROOT}/bootstrap.bash"
+declare -A expected_claude_profile=() expected_codex_profile=() expected_pi_profile=()
+resolve_model_profile claude expected_claude_profile
+resolve_model_profile codex expected_codex_profile
+resolve_model_profile pi expected_pi_profile
 
 # 1. settings.json is well-formed and has the expected shape.
 [ -f "$SETTINGS_FILE" ] || fail "settings.json not written."
-python3 - "$SETTINGS_FILE" "$HOME" <<'PY'
+python3 - "$SETTINGS_FILE" "$HOME" "${expected_claude_profile[model]}" "${expected_claude_profile[effort]}" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 home = sys.argv[2]
+expected_model = sys.argv[3]
+expected_effort = sys.argv[4]
 assert d["permissions"]["defaultMode"] == "bypassPermissions", d
 assert d["skipDangerousModePermissionPrompt"] is True, d
 assert d["env"]["CLAUDE_CODE_SANDBOXED"] == "1", d
@@ -42,9 +49,9 @@ assert d["env"]["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1", d
 assert d["env"]["OTEL_LOGS_EXPORTER"] == "console", d
 for gate in ("OTEL_LOG_RAW_API_BODIES", "OTEL_LOG_USER_PROMPTS", "OTEL_LOG_TOOL_DETAILS", "OTEL_LOG_TOOL_CONTENT"):
     assert gate not in d["env"], gate
-assert d["effortLevel"] == "max", d
-assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "max", d
-assert d["model"].startswith("claude-"), d
+assert d["effortLevel"] == expected_effort, d
+assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == expected_effort, d
+assert d["model"] == expected_model, d
 assert d["extraKnownMarketplaces"]["robobryce-agitentic"]["source"]["repo"] == "brycelelbach/agitentic", d
 assert d["enabledPlugins"]["agitentic@robobryce-agitentic"] is True, d
 allow = d["permissions"]["allow"]
@@ -84,19 +91,12 @@ pass "Global Codex model instructions written without a blocking-wait cap."
 
 # 2. config.toml is present and puts Codex in unattended yolo mode.
 [ -f "$CODEX_CONFIG" ] || fail "Codex config.toml not written."
-expected_codex_effort="${AAB_CODEX_EFFORT:-xhigh}"
+expected_codex_effort="${expected_codex_profile[effort]}"
 expected_codex_service_tier="${AAB_CODEX_SERVICE_TIER:-priority}"
-expected_codex_provider="${AAB_CODEX_INFERENCE_PROVIDER:-first-party}"
-case "$expected_codex_provider" in
-    first-party|third-party-openai) ;;
-    *) expected_codex_provider="first-party" ;;
-esac
-if [ "$expected_codex_provider" = "third-party-openai" ]; then
-    expected_codex_model="${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-openai/openai/gpt-5.5}"
-    expected_codex_base_url="${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-https://inference-api.nvidia.com/v1}"
-else
-    expected_codex_model="${AAB_CODEX_FIRST_PARTY_MODEL:-gpt-5.5}"
-fi
+expected_codex_source="${expected_codex_profile[source]}"
+expected_codex_name="${expected_codex_profile[name]}"
+expected_codex_model="${expected_codex_profile[model]}"
+expected_codex_base_url="${AAB_INFERENCE_GATEWAY_URL:-}"
 expected_codex_agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-64}"
 expected_codex_agent_max_threads_valid=1
 case "$expected_codex_service_tier" in
@@ -108,15 +108,15 @@ grep -Fxq "model = \"${expected_codex_model}\"" "$CODEX_CONFIG" \
     || fail "Codex model is not ${expected_codex_model}."
 grep -Fxq "model_instructions_file = \"${CODEX_MODEL_INSTRUCTIONS_FILE}\"" "$CODEX_CONFIG" \
     || fail "Codex model_instructions_file does not use the global prompt."
-if [ "$expected_codex_provider" = "third-party-openai" ]; then
-    grep -q '^model_provider = "third-party-openai"$' "$CODEX_CONFIG" \
-        || fail "Codex model_provider is not third-party-openai."
-    grep -q '^\[model_providers."third-party-openai"\]$' "$CODEX_CONFIG" \
-        || fail "Codex third-party-openai provider table missing."
+if [ "$expected_codex_source" = "third-party" ]; then
+    grep -q '^model_provider = "aab-gateway"$' "$CODEX_CONFIG" \
+        || fail "Codex model_provider is not aab-gateway."
+    grep -q '^\[model_providers."aab-gateway"\]$' "$CODEX_CONFIG" \
+        || fail "Codex inference-gateway provider table missing."
     grep -Fxq "base_url = \"${expected_codex_base_url}\"" "$CODEX_CONFIG" \
-        || fail "Codex third-party-openai provider base URL is not ${expected_codex_base_url}."
-    grep -q '^env_key = "AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY"$' "$CODEX_CONFIG" \
-        || fail "Codex third-party-openai provider env key is not AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY."
+        || fail "Codex inference-gateway base URL is not ${expected_codex_base_url}."
+    grep -q '^env_key = "AAB_INFERENCE_GATEWAY_API_KEY"$' "$CODEX_CONFIG" \
+        || fail "Codex inference-gateway env key is not AAB_INFERENCE_GATEWAY_API_KEY."
 fi
 case "$expected_codex_agent_max_threads" in
     [1-9]*)
@@ -194,27 +194,22 @@ end_count=$(grep -c '^# <<< autonomous-agent-bootstrap <<<$' "$BASHRC")
 [ "$end_count" -eq 1 ]   || fail "Expected 1 bashrc end marker, got $end_count."
 pass "bashrc managed block present exactly once."
 
-# 6. AAB env file contains provider config and is private.
+# 6. AAB env file contains profile config and is private.
 [ -f "$AAB_ENV_FILE" ] || fail "$AAB_ENV_FILE not written."
 [ "$(stat -c '%a' "$AAB_ENV_FILE")" = "600" ] || fail "$AAB_ENV_FILE mode is not 600."
-expected_claude_provider="${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-first-party}"
-case "$expected_claude_provider" in
-    first-party|third-party-anthropic|third-party-deepseek|third-party-nemotron) ;;
-    *) expected_claude_provider="first-party" ;;
-esac
-grep -q "^export AAB_CLAUDE_CODE_INFERENCE_PROVIDER=${expected_claude_provider}$" "$AAB_ENV_FILE" \
-    || fail "Claude provider not written to $AAB_ENV_FILE."
-grep -q "^export AAB_CODEX_INFERENCE_PROVIDER=${expected_codex_provider}$" "$AAB_ENV_FILE" \
-    || fail "Codex provider not written to $AAB_ENV_FILE."
-if [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
-    grep -q '^export AAB_CODEX_FIRST_PARTY_API_KEY=' "$AAB_ENV_FILE" \
-        || fail "AAB_CODEX_FIRST_PARTY_API_KEY not written to $AAB_ENV_FILE."
+expected_claude_selector="${expected_claude_profile[source]}/${expected_claude_profile[name]}"
+expected_codex_selector="${expected_codex_profile[source]}/${expected_codex_profile[name]}"
+grep -Fq "export AAB_CLAUDE_PROFILE=${expected_claude_selector}" "$AAB_ENV_FILE" \
+    || fail "Claude profile selector not written to $AAB_ENV_FILE."
+grep -Fq "export AAB_CODEX_PROFILE=${expected_codex_selector}" "$AAB_ENV_FILE" \
+    || fail "Codex profile selector not written to $AAB_ENV_FILE."
+grep -Fq "export AAB_PI_PROFILE=${expected_pi_profile[name]}" "$AAB_ENV_FILE" \
+    || fail "Pi profile selector not written to $AAB_ENV_FILE."
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+    grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE" \
+        || fail "OPENAI_API_KEY not written to $AAB_ENV_FILE."
 fi
-! grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE" \
-    || fail "OPENAI_API_KEY should be mapped by wrappers, not stored in $AAB_ENV_FILE."
-! grep -q '^export ANTHROPIC_API_KEY=' "$AAB_ENV_FILE" \
-    || fail "ANTHROPIC_API_KEY should be mapped by wrappers, not stored in $AAB_ENV_FILE."
-pass "AAB env file written with private provider config."
+pass "AAB env file written with private profile config."
 
 # 7. bashrc exposes only PATH and non-secret unattended-mode defaults.
 grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC" \
@@ -241,8 +236,8 @@ pass "bashrc managed block keeps credentials out."
 [ -f "$CLAUDE_SHELL_CONFIG_FILE" ] || fail "Claude shell config not written."
 grep -q '^export DEBUG_SDK=1$' "$CLAUDE_SHELL_CONFIG_FILE" \
     || fail "DEBUG_SDK=1 missing from Claude shell config."
-grep -q '^export CLAUDE_CODE_EFFORT_LEVEL=max$' "$CLAUDE_SHELL_CONFIG_FILE" \
-    || fail "CLAUDE_CODE_EFFORT_LEVEL=max missing from Claude shell config."
+! grep -q '^export CLAUDE_CODE_EFFORT_LEVEL=' "$CLAUDE_SHELL_CONFIG_FILE" \
+    || fail "Claude effort should remain profile-specific."
 grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC" \
     || fail "bashrc does not source per-harness shell configuration."
 pass "Claude shell defaults are encapsulated and sourced generically."
@@ -275,7 +270,7 @@ profile_begin=$(grep -c '^# >>> autonomous-agent-bootstrap >>>$' "$PROFILE")
 bash -n "$PROFILE" || fail "Login profile ~/.profile has syntax errors."
 pass "Login profile keeps the launcher dir ahead of ~/.local/bin."
 
-# 10. The launcher dir wins on PATH and selects the provider wrapper, while
+# 10. The launcher dir wins on PATH and selects the profile wrapper, while
 #     ~/.local/bin/claude stays the native binary for the auto-updater.
 export PATH="$HOME/.local/aab-bin:$HOME/.local/bin:$PATH"
 command -v claude >/dev/null 2>&1 || fail "claude not on PATH after bootstrap."
@@ -284,22 +279,22 @@ command -v claude >/dev/null 2>&1 || fail "claude not on PATH after bootstrap."
 [ ! -L "$HOME/.local/aab-bin/claude" ] || fail "Launcher entrypoint ~/.local/aab-bin/claude should be an AAB launcher file, not a symlink."
 grep -q '^# Autonomous-agent-bootstrap Claude launcher\.$' "$HOME/.local/aab-bin/claude" \
     || fail "Launcher entrypoint ~/.local/aab-bin/claude is not an AAB launcher."
-grep -q "^provider=${expected_claude_provider}$" "$HOME/.local/aab-bin/claude" \
-    || fail "Launcher entrypoint does not select ${expected_claude_provider}."
+grep -q "^profile_source=${expected_claude_profile[source]}$" "$HOME/.local/aab-bin/claude" \
+    || fail "Claude launcher source is not ${expected_claude_profile[source]}."
+grep -q "^profile_name=${expected_claude_profile[name]}$" "$HOME/.local/aab-bin/claude" \
+    || fail "Claude launcher profile is not ${expected_claude_profile[name]}."
 # ~/.local/bin/claude is the native binary, not one of our wrappers, so the
 # updater can repoint it freely; the wrappers exec it via claude-aab-real.
 [ -x "$HOME/.local/bin/claude" ] || fail "Native claude binary missing from ~/.local/bin."
 case "$(basename "$(readlink -f "$HOME/.local/bin/claude")")" in
-    claude-first-party|claude-third-party-*)
+    claude-first-party-*|claude-third-party-*)
         fail "Native ~/.local/bin/claude resolves to an AAB wrapper; the updater would self-exec." ;;
 esac
 [ "$(readlink "$HOME/.local/bin/claude-aab-real")" = "$HOME/.local/bin/claude" ] \
     || fail "claude-aab-real does not track ~/.local/bin/claude."
 [ -x "$HOME/.local/bin/claude-aab-real" ] || fail "Claude real binary link not installed."
-[ -x "$HOME/.local/bin/claude-first-party" ] || fail "claude-first-party wrapper missing."
-[ -x "$HOME/.local/bin/claude-third-party-anthropic" ] || fail "claude-third-party-anthropic wrapper missing."
-[ -x "$HOME/.local/bin/claude-third-party-deepseek" ] || fail "claude-third-party-deepseek wrapper missing."
-[ -x "$HOME/.local/bin/claude-third-party-nemotron" ] || fail "claude-third-party-nemotron wrapper missing."
+claude_profile_launcher="$HOME/.local/bin/claude-${expected_claude_profile[source]}-${expected_claude_profile[name]}"
+[ -x "$claude_profile_launcher" ] || fail "Claude selected profile launcher missing at ${claude_profile_launcher}."
 # A login shell (sources ~/.profile, which re-prepends ~/.local/bin after
 # ~/.bashrc) must still resolve `claude` to the launcher-dir wrapper.
 login_claude=$(bash -lc 'command -v claude' 2>/dev/null) \
@@ -319,10 +314,12 @@ command -v codex  >/dev/null 2>&1 || fail "codex not on PATH after bootstrap."
 [ ! -L "$HOME/.local/bin/codex" ] || fail "codex should be an AAB launcher file, not a symlink."
 grep -q '^# Autonomous-agent-bootstrap Codex launcher\.$' "$HOME/.local/bin/codex" \
     || fail "codex is not an AAB launcher."
-grep -q "^provider=${expected_codex_provider}$" "$HOME/.local/bin/codex" \
-    || fail "codex launcher does not select ${expected_codex_provider}."
-[ -x "$HOME/.local/bin/codex-first-party" ] || fail "codex-first-party wrapper missing."
-[ -x "$HOME/.local/bin/codex-third-party-openai" ] || fail "codex-third-party-openai wrapper missing."
+grep -q "^profile_source=${expected_codex_source}$" "$HOME/.local/bin/codex" \
+    || fail "Codex launcher source is not ${expected_codex_source}."
+grep -q "^profile_name=${expected_codex_name}$" "$HOME/.local/bin/codex" \
+    || fail "Codex launcher profile is not ${expected_codex_name}."
+codex_profile_launcher="$HOME/.local/bin/codex-${expected_codex_source}-${expected_codex_name}"
+[ -x "$codex_profile_launcher" ] || fail "Codex selected profile launcher missing at ${codex_profile_launcher}."
 [ -x "$HOME/.local/bin/codex-aab-real" ] \
     || fail "Codex real binary link not installed."
 "$HOME/.local/bin/codex-aab-real" --version 2>&1 | grep -Fq "$CODEX_VERSION" \
@@ -334,9 +331,19 @@ case "$codex_plugins" in
     *) fail "Codex agitentic plugin not installed." ;;
 esac
 pass "Codex agent plugins installed."
-if [ "$expected_codex_provider" = "first-party" ] && [ -n "${AAB_CODEX_FIRST_PARTY_API_KEY:-}" ]; then
+command -v pi >/dev/null 2>&1 || fail "pi not on PATH after bootstrap."
+[ -x "$HOME/.local/bin/pi-${expected_pi_profile[name]}" ] \
+    || fail "Pi selected profile launcher missing."
+[ ! -e "$HOME/.local/bin/pi-third-party-${expected_pi_profile[name]}" ] \
+    || fail "Pi aliases must not include third-party."
+[ -f "$PI_MODELS_FILE" ] || fail "Pi models.json not written."
+grep -Fq '"aab-gateway"' "$PI_MODELS_FILE" || fail "Pi AAB gateway provider missing."
+"$HOME/.local/bin/pi-aab-real" --version 2>&1 | grep -Fq "$PI_VERSION" \
+    || fail "Pi is not the pinned version $PI_VERSION."
+pass "Pi profile launcher installed without a third-party alias segment."
+if [ "$expected_codex_source" = "first-party" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
-    AAB_EXPECTED_CODEX_API_KEY="$AAB_CODEX_FIRST_PARTY_API_KEY" \
+    AAB_EXPECTED_CODEX_API_KEY="$OPENAI_API_KEY" \
         python3 - "$CODEX_AUTH" <<'PY'
 import json
 import os
@@ -346,7 +353,7 @@ with open(sys.argv[1]) as f:
 if data.get("auth_mode") != "apikey":
     raise AssertionError("Codex auth_mode is not apikey.")
 if data.get("OPENAI_API_KEY") != os.environ["AAB_EXPECTED_CODEX_API_KEY"]:
-    raise AssertionError("Codex auth API key does not match AAB_CODEX_FIRST_PARTY_API_KEY.")
+    raise AssertionError("Codex auth API key does not match OPENAI_API_KEY.")
 PY
     codex_login_status=$(codex login status 2>&1)
     case "$codex_login_status" in
