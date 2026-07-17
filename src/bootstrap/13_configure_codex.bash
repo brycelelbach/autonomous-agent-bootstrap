@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# 7. Write the global Codex model instructions. model_instructions_file
+# Configure global Codex model instructions. model_instructions_file
 # replaces Codex's built-in model instructions, so this is a complete prompt,
 # not an AGENTS.md-style additive rule file. It is embedded here so the
 # bootstrap remains usable as a single script piped from curl.
@@ -172,7 +172,7 @@ configure_codex_model_instructions() {
 }
 
 # ---------------------------------------------------------------------------
-# 7. Write ~/.codex/config.toml.
+# Write ~/.codex/config.toml.
 # ---------------------------------------------------------------------------
 _toml_escape() {
     local s="$1"
@@ -196,37 +196,16 @@ configure_codex_config() {
         ' "${CODEX_CONFIG}")
     fi
 
-    local codex_provider
-    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
-    local first_party_model="${AAB_CODEX_FIRST_PARTY_MODEL:-$DEFAULT_CODEX_MODEL}"
-    local third_party_openai_model="${AAB_CODEX_THIRD_PARTY_OPENAI_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL}"
-    local third_party_openai_base_url="${AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL}"
-    local third_party_nemotron_model="${AAB_CODEX_THIRD_PARTY_NEMOTRON_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL}"
-    local third_party_nemotron_base_url="${AAB_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL}"
-    local third_party_deepseek_model="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_MODEL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL}"
-    local third_party_deepseek_base_url="${AAB_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL:-$DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL}"
-    local model="$first_party_model"
-    case "$codex_provider" in
-        third-party-openai)
-            model="$third_party_openai_model"
-            ;;
-        third-party-nemotron)
-            model="$third_party_nemotron_model"
-            ;;
-        third-party-deepseek)
-            model="$third_party_deepseek_model"
-            ;;
-    esac
-    local effort="${AAB_CODEX_EFFORT:-$DEFAULT_CODEX_REASONING_EFFORT}"
+    local -A profile=()
+    resolve_model_profile codex profile
+    if [ "${profile[source]}" = "third-party" ]; then
+        require_inference_gateway "Codex profile '${profile[name]}'"
+    fi
+
+    local model="${profile[model]}"
+    local effort="${profile[effort]}"
     local service_tier="${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
     local agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
-    case "$effort" in
-        minimal|low|medium|high|xhigh) ;;
-        *)
-            warn "AAB_CODEX_EFFORT='${effort}' is not one of minimal, low, medium, high, or xhigh; defaulting to ${DEFAULT_CODEX_REASONING_EFFORT}."
-            effort="$DEFAULT_CODEX_REASONING_EFFORT"
-            ;;
-    esac
     case "$service_tier" in
         priority|flex|default) ;;
         fast)
@@ -251,41 +230,29 @@ configure_codex_config() {
         agent_max_threads="$DEFAULT_CODEX_AGENT_MAX_THREADS"
     fi
 
-    local model_escaped model_instructions_file_escaped home_escaped cwd cwd_escaped third_party_openai_base_url_escaped third_party_nemotron_base_url_escaped third_party_deepseek_base_url_escaped
+    local model_escaped effort_escaped model_instructions_file_escaped
+    local home_escaped cwd cwd_escaped gateway_url_escaped
     model_escaped=$(_toml_escape "$model")
+    effort_escaped=$(_toml_escape "$effort")
     model_instructions_file_escaped=$(_toml_escape "$CODEX_MODEL_INSTRUCTIONS_FILE")
     home_escaped=$(_toml_escape "$HOME")
     cwd="${PWD:-$HOME}"
     cwd_escaped=$(_toml_escape "$cwd")
-    third_party_openai_base_url_escaped=$(_toml_escape "$third_party_openai_base_url")
-    third_party_nemotron_base_url_escaped=$(_toml_escape "$third_party_nemotron_base_url")
-    third_party_deepseek_base_url_escaped=$(_toml_escape "$third_party_deepseek_base_url")
+    gateway_url_escaped=$(_toml_escape "${AAB_INFERENCE_GATEWAY_URL:-}")
 
     cat > "${CODEX_CONFIG}" <<TOML
 model = "${model_escaped}"
 model_instructions_file = "${model_instructions_file_escaped}"
 TOML
 
-    case "$codex_provider" in
-        third-party-openai)
-            cat >> "${CODEX_CONFIG}" <<TOML
-model_provider = "third-party-openai"
+    if [ "${profile[source]}" = "third-party" ]; then
+        cat >> "${CODEX_CONFIG}" <<'TOML'
+model_provider = "aab-gateway"
 TOML
-            ;;
-        third-party-nemotron)
-            cat >> "${CODEX_CONFIG}" <<TOML
-model_provider = "third-party-nemotron"
-TOML
-            ;;
-        third-party-deepseek)
-            cat >> "${CODEX_CONFIG}" <<TOML
-model_provider = "third-party-deepseek"
-TOML
-            ;;
-    esac
+    fi
 
     cat >> "${CODEX_CONFIG}" <<TOML
-model_reasoning_effort = "${effort}"
+model_reasoning_effort = "${effort_escaped}"
 model_reasoning_summary = "detailed"
 hide_agent_reasoning = false
 show_raw_agent_reasoning = true
@@ -310,41 +277,13 @@ inherit = "all"
 ignore_default_excludes = true
 TOML
 
-    if [ "$codex_provider" = "third-party-openai" ]; then
+    if [ "${profile[source]}" = "third-party" ]; then
         cat >> "${CODEX_CONFIG}" <<TOML
 
-[model_providers."third-party-openai"]
-name = "Third Party OpenAI"
-base_url = "${third_party_openai_base_url_escaped}"
-env_key = "AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY"
-wire_api = "responses"
-request_max_retries = 4
-stream_max_retries = 5
-stream_idle_timeout_ms = 300000
-TOML
-    fi
-
-    if [ "$codex_provider" = "third-party-nemotron" ]; then
-        cat >> "${CODEX_CONFIG}" <<TOML
-
-[model_providers."third-party-nemotron"]
-name = "Third Party Nemotron"
-base_url = "${third_party_nemotron_base_url_escaped}"
-env_key = "AAB_CODEX_THIRD_PARTY_NEMOTRON_API_KEY"
-wire_api = "responses"
-request_max_retries = 4
-stream_max_retries = 5
-stream_idle_timeout_ms = 300000
-TOML
-    fi
-
-    if [ "$codex_provider" = "third-party-deepseek" ]; then
-        cat >> "${CODEX_CONFIG}" <<TOML
-
-[model_providers."third-party-deepseek"]
-name = "Third Party DeepSeek"
-base_url = "${third_party_deepseek_base_url_escaped}"
-env_key = "AAB_CODEX_THIRD_PARTY_DEEPSEEK_API_KEY"
+[model_providers."aab-gateway"]
+name = "AAB Inference Gateway"
+base_url = "${gateway_url_escaped}"
+env_key = "AAB_INFERENCE_GATEWAY_API_KEY"
 wire_api = "responses"
 request_max_retries = 4
 stream_max_retries = 5
@@ -376,7 +315,7 @@ ${preserved_plugin_config}
 TOML
     fi
 
-    log "Wrote ${CODEX_CONFIG} (provider=${codex_provider}, model=${model}, effort=${effort}, service_tier=${service_tier}, agent_max_threads=${agent_max_threads}, approval=never, sandbox=danger-full-access)."
+    log "Wrote ${CODEX_CONFIG} (profile=${profile[source]}/${profile[name]}, model=${model}, effort=${effort}, service_tier=${service_tier}, agent_max_threads=${agent_max_threads}, approval=never, sandbox=danger-full-access)."
 }
 
 # ---------------------------------------------------------------------------
@@ -389,15 +328,8 @@ TOML
 # auth path.
 # ---------------------------------------------------------------------------
 configure_codex_auth() {
-    local api_key="${AAB_CODEX_FIRST_PARTY_API_KEY:-}"
+    local api_key="${OPENAI_API_KEY:-}"
     [ -z "$api_key" ] && return
-
-    local codex_provider
-    codex_provider=$(normalize_codex_inference_provider "${AAB_CODEX_INFERENCE_PROVIDER:-$DEFAULT_CODEX_INFERENCE_PROVIDER}")
-    if [ "$codex_provider" != "first-party" ]; then
-        log "Skipping Codex first-party API-key login because AAB_CODEX_INFERENCE_PROVIDER=${codex_provider}."
-        return
-    fi
 
     local codex_bin=""
     if [ -x "${HOME}/.local/bin/codex-aab-real" ]; then
@@ -407,7 +339,7 @@ configure_codex_auth() {
     elif [ -x "${HOME}/.local/bin/codex" ]; then
         codex_bin="${HOME}/.local/bin/codex"
     else
-        warn "codex binary not on PATH; cannot configure AAB_CODEX_FIRST_PARTY_API_KEY auth."
+        warn "codex binary not on PATH; cannot configure OPENAI_API_KEY auth."
         exit 1
     fi
 
@@ -416,7 +348,7 @@ configure_codex_auth() {
         exit 1
     fi
 
-    log "Configured Codex API-key auth from AAB_CODEX_FIRST_PARTY_API_KEY."
+    log "Configured Codex API-key auth from OPENAI_API_KEY."
 }
 
 configure_codex() {

@@ -10,13 +10,13 @@ python3 tools/compile_bootstrap.py
 
 High-traffic audit targets:
 
-- `00_versions.bash` owns non-apt package versions, immutable refs, and release checksums.
+- `00_versions.bash` owns every non-apt, non-plugin package version, immutable ref, and release checksum.
 - `06_install_gitleaks.bash` installs the pinned, checksum-verified gitleaks release binary.
 - `11_install_agent_plugins.bash` installs the plugin list embedded by the compiler from `agent_plugins.txt`.
+- `12_model_profiles.bash` parses and resolves environment-defined model profiles.
 - `13_configure_claude.bash` owns Claude settings, onboarding, and shell defaults.
-- `13_configure_brev.bash` owns Brev authentication and onboarding.
 - `13_configure_codex.bash` owns Codex instructions, config, and authentication.
-- `23_configure_git_hooks.bash` renders and configures the global git hook.
-- `24_configure_agent_rules.bash` renders and writes global harness instructions.
+- `13_configure_pi.bash` writes Pi's generated inference-gateway model catalog.
+- `23_configure_git_hooks.bash` owns global git-hook configuration and rendering.
 - `26_configure_launchers.bash` owns launcher generation.
 - `27_configure_shell_startup.bash` sources per-harness shell defaults and owns PATH integration.
