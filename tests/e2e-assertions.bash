@@ -10,6 +10,7 @@ pass() { echo "PASS: $*"; }
 
 CLAUDE_DIR="${HOME}/.claude"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
+CLAUDE_MANAGED_SETTINGS_FILE="/etc/claude-code/managed-settings.json"
 CLAUDE_JSON="${HOME}/.claude.json"
 CODEX_CONFIG="${HOME}/.codex/config.toml"
 CODEX_AUTH="${HOME}/.codex/auth.json"
@@ -50,6 +51,23 @@ assert "EnterPlanMode" in deny, deny
 assert "ExitPlanMode" in deny, deny
 PY
 pass "settings.json written with unattended-mode defaults."
+
+if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
+    [ -f "$CLAUDE_MANAGED_SETTINGS_FILE" ] || fail "Claude managed settings policy not written."
+    python3 - "$CLAUDE_MANAGED_SETTINGS_FILE" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+deny = d["permissions"]["deny"]
+assert "AskUserQuestion" in deny, deny
+assert "EnterPlanMode" in deny, deny
+assert "ExitPlanMode" in deny, deny
+assert "defaultMode" not in d["permissions"], d
+assert "disableBypassPermissionsMode" not in d, d
+PY
+    pass "Claude managed settings deny policy written."
+else
+    pass "No passwordless sudo for managed settings; Claude policy write correctly skipped."
+fi
 
 # 2. config.toml is present and puts Codex in unattended yolo mode.
 [ -f "$CODEX_CONFIG" ] || fail "Codex config.toml not written."

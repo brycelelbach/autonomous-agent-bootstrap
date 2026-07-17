@@ -50,6 +50,8 @@ setup() {
           AAB_UV_TOOLS_FILE AAB_UV_TOOLS_URL
     # shellcheck disable=SC1091
     source "$REPO_ROOT/bootstrap.bash"
+    CLAUDE_MANAGED_SETTINGS_FILE="$TEST_HOME/etc/claude-code/managed-settings.json"
+    SUDO=""
 }
 
 teardown() {
@@ -144,6 +146,37 @@ assert "AskUserQuestion" in deny, deny
 assert "EnterPlanMode" in deny, deny
 assert "ExitPlanMode" in deny, deny
 PY
+}
+
+@test "write_settings writes Claude managed deny policy when writable" {
+    SUDO="" write_settings
+    [ -f "$CLAUDE_MANAGED_SETTINGS_FILE" ]
+    python3 - "$CLAUDE_MANAGED_SETTINGS_FILE" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+deny = d["permissions"]["deny"]
+assert "AskUserQuestion" in deny, deny
+assert "EnterPlanMode" in deny, deny
+assert "ExitPlanMode" in deny, deny
+assert "defaultMode" not in d["permissions"], d
+assert "disableBypassPermissionsMode" not in d, d
+PY
+}
+
+@test "write_claude_managed_settings warns and skips without passwordless sudo" {
+    local fake_bin="$TEST_HOME/fake-managed-settings-nosudo-bin"
+    mkdir -p "$fake_bin"
+    cat > "$fake_bin/sudo" <<'SH'
+#!/usr/bin/env bash
+[ "$1" = "-n" ] && [ "$2" = "true" ] && exit 1
+exit 1
+SH
+    chmod +x "$fake_bin/sudo"
+
+    SUDO="sudo" PATH="$fake_bin:$PATH" run write_claude_managed_settings
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"passwordless sudo is not available"* ]]
+    [ ! -f "$CLAUDE_MANAGED_SETTINGS_FILE" ]
 }
 
 @test "write_settings sets network-resilience env" {

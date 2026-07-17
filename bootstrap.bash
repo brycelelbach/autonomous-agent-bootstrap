@@ -47,6 +47,7 @@ set -euo pipefail
 
 CLAUDE_DIR="${HOME}/.claude"
 SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
+CLAUDE_MANAGED_SETTINGS_FILE="${CLAUDE_MANAGED_SETTINGS_FILE:-/etc/claude-code/managed-settings.json}"
 CLAUDE_JSON="${HOME}/.claude.json"
 AAB_DIR="${HOME}/.aab"
 AAB_ENV_FILE="${AAB_DIR}/.env"
@@ -591,6 +592,44 @@ PY
 # ---------------------------------------------------------------------------
 # 5. Write ~/.claude/settings.json.
 # ---------------------------------------------------------------------------
+write_claude_managed_settings() {
+    local managed_dir
+    managed_dir=$(dirname "$CLAUDE_MANAGED_SETTINGS_FILE")
+
+    if [ -n "$SUDO" ] && ! sudo -n true 2>/dev/null; then
+        warn "Writing $CLAUDE_MANAGED_SETTINGS_FILE needs sudo and passwordless sudo is not available; Claude interactive-tool deny policy is only in user settings."
+        return
+    fi
+
+    local tmp
+    tmp=$(mktemp)
+    cat > "$tmp" <<'JSON'
+{
+  "permissions": {
+    "deny": [
+      "AskUserQuestion",
+      "EnterPlanMode",
+      "ExitPlanMode"
+    ]
+  }
+}
+JSON
+
+    if ! $SUDO install -d -m 0755 "$managed_dir"; then
+        warn "Could not create $managed_dir; Claude interactive-tool deny policy is only in user settings."
+        rm -f "$tmp"
+        return
+    fi
+    if ! $SUDO install -m 0644 "$tmp" "$CLAUDE_MANAGED_SETTINGS_FILE"; then
+        warn "Could not write $CLAUDE_MANAGED_SETTINGS_FILE; Claude interactive-tool deny policy is only in user settings."
+        rm -f "$tmp"
+        return
+    fi
+
+    rm -f "$tmp"
+    log "Wrote ${CLAUDE_MANAGED_SETTINGS_FILE}."
+}
+
 write_settings() {
     mkdir -p "${CLAUDE_DIR}"
     if [[ -f "${SETTINGS_FILE}" ]]; then
@@ -669,6 +708,7 @@ write_settings() {
 }
 JSON
     log "Wrote ${SETTINGS_FILE} (model=${model}, effort=${effort})."
+    write_claude_managed_settings
 }
 
 # ---------------------------------------------------------------------------
