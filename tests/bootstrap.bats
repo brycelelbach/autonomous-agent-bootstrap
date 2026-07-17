@@ -248,10 +248,33 @@ PY
     ! grep -q '^export GH_TOKEN=' "$AAB_ENV_FILE"
 }
 
+@test "write_codex_model_instructions writes the complete global prompt without a blocking-wait cap" {
+    write_codex_model_instructions
+
+    [ -f "$CODEX_MODEL_INSTRUCTIONS_FILE" ]
+    [ "$CODEX_MODEL_INSTRUCTIONS_FILE" = "$HOME/.codex/codex-instructions.md" ]
+    cmp -s "$CODEX_MODEL_INSTRUCTIONS_FILE" <(emit_codex_model_instructions)
+    grep -Fq 'An event-driven monitoring call such as `wait_agent` is exempt' "$CODEX_MODEL_INSTRUCTIONS_FILE"
+    ! grep -Fq 'Avoid performing blocking sleep or wait calls longer than 60 seconds' "$CODEX_MODEL_INSTRUCTIONS_FILE"
+}
+
+@test "write_codex_model_instructions backs up a pre-existing prompt" {
+    mkdir -p "$CODEX_DIR"
+    printf 'local prompt\n' > "$CODEX_MODEL_INSTRUCTIONS_FILE"
+
+    write_codex_model_instructions
+
+    local backup_count
+    backup_count=$(find "$CODEX_DIR" -maxdepth 1 -name 'codex-instructions.md.bak.*' | wc -l)
+    [ "$backup_count" -ge 1 ]
+    grep -Fxq 'You are Codex, an agent based on GPT-5. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.' "$CODEX_MODEL_INSTRUCTIONS_FILE"
+}
+
 @test "write_codex_config writes unattended yolo-mode defaults" {
     write_codex_config
     [ -f "$CODEX_CONFIG" ]
     grep -q '^model = "gpt-5.5"$' "$CODEX_CONFIG"
+    grep -Fxq "model_instructions_file = \"${HOME}/.codex/codex-instructions.md\"" "$CODEX_CONFIG"
     grep -q '^model_reasoning_effort = "xhigh"$' "$CODEX_CONFIG"
     grep -q '^model_reasoning_summary = "detailed"$' "$CODEX_CONFIG"
     grep -q '^hide_agent_reasoning = false$' "$CODEX_CONFIG"
