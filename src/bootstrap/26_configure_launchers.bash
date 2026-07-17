@@ -170,7 +170,7 @@ BASH
     mv -f "$tmp" "$launcher"
 }
 
-write_claude_launchers() {
+configure_claude_launchers() {
     local launcher_dir="${HOME}/.local/aab-bin"
     local claude_bin="${HOME}/.local/bin/claude"
     local real_bin="${HOME}/.local/bin/claude-aab-real"
@@ -194,7 +194,7 @@ write_claude_launchers() {
     _write_claude_launcher "third-party-nemotron" "${HOME}/.local/bin/claude-third-party-nemotron"
 
     # Put the selected `claude` entrypoint in a dedicated directory kept ahead of
-    # ~/.local/bin on PATH (see update_bashrc / update_profile), so the native
+    # ~/.local/bin on PATH (see configure_bashrc / configure_profile), so the native
     # auto-updater's ~/.local/bin/claude can't shadow the wrapper. The entrypoint
     # is a regular launcher file rather than a symlink to a provider wrapper.
     mkdir -p "$launcher_dir"
@@ -336,7 +336,7 @@ BASH
     mv -f "$tmp" "$launcher"
 }
 
-write_codex_launchers() {
+configure_codex_launchers() {
     local codex_bin="${HOME}/.local/bin/codex"
     local real_bin="${HOME}/.local/bin/codex-aab-real"
     local selected_provider

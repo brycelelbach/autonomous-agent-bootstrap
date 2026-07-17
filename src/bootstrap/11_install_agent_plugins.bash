@@ -112,7 +112,7 @@ install_claude_code_plugins() {
     local -a tuples=("$@")
     [ ${#tuples[@]} -eq 0 ] && return
 
-    # Merge into ~/.claude/settings.json. write_claude_settings has already run,
+    # Merge into ~/.claude/settings.json. configure_claude_settings has already run,
     # so the file exists and is valid JSON.
     python3 - "$SETTINGS_FILE" "${tuples[@]}" <<'PY'
 import json, sys
@@ -158,7 +158,7 @@ PY
         github_env=(env "GH_TOKEN=$github_token")
     fi
 
-    # Snapshot the post-write_claude_settings + post-merge settings.json so
+    # Snapshot the post-configure_claude_settings + post-merge settings.json so
     # the re-merge below can restore AAB-managed top-level keys that
     # Claude Code's plugin CLI strips on re-serialise.
     cp "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak"
@@ -191,10 +191,10 @@ PY
     # user` re-serialise ~/.claude/settings.json against Claude Code's
     # internal schema, which drops any top-level keys the schema
     # doesn't enumerate (notably `effortLevel` — written by
-    # write_claude_settings, asserted by tests/e2e-assertions.bash). Re-merge
+    # configure_claude_settings, asserted by tests/e2e-assertions.bash). Re-merge
     # the AAB-managed top-level keys back in from a snapshot taken
     # before the claude calls ran so the on-disk shape stays a
-    # superset of what write_claude_settings produced.
+    # superset of what configure_claude_settings produced.
     if [ -f "${SETTINGS_FILE}.pre-plugin-install.bak" ]; then
         python3 - "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak" <<'PY'
 import json, sys

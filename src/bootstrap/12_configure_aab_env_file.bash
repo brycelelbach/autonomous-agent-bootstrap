@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # 6. Write ~/.aab/.env.
 # ---------------------------------------------------------------------------
-write_aab_env_file() {
+configure_aab_env_file() {
     mkdir -p "${AAB_DIR}"
     chmod 700 "${AAB_DIR}"
 
@@ -63,4 +63,3 @@ write_aab_env_file() {
     mv -f "$tmp" "$AAB_ENV_FILE"
     log "Wrote ${AAB_ENV_FILE} (claude_provider=${claude_provider}, codex_provider=${codex_provider})."
 }
-

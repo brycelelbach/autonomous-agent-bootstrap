@@ -122,19 +122,19 @@ teardown() {
     [ "$backup_count" -ge 1 ]
 }
 
-@test "write_claude_settings uses default model when first-party model unset" {
-    write_claude_settings
+@test "configure_claude_settings uses default model when first-party model unset" {
+    configure_claude_settings
     [ -f "$SETTINGS_FILE" ]
     python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='$DEFAULT_CLAUDE_CODE_MODEL', d['model']"
 }
 
-@test "write_claude_settings honors first-party model override" {
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-sonnet-4-6" write_claude_settings
+@test "configure_claude_settings honors first-party model override" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-sonnet-4-6" configure_claude_settings
     python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='claude-sonnet-4-6', d['model']"
 }
 
-@test "write_claude_settings honors AAB_CLAUDE_CODE_EFFORT override" {
-    AAB_CLAUDE_CODE_EFFORT="high" write_claude_settings
+@test "configure_claude_settings honors AAB_CLAUDE_CODE_EFFORT override" {
+    AAB_CLAUDE_CODE_EFFORT="high" configure_claude_settings
     python3 - <<PY
 import json
 d = json.load(open("$SETTINGS_FILE"))
@@ -143,8 +143,8 @@ assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "high", d
 PY
 }
 
-@test "write_claude_settings sets bypassPermissions and sandbox env" {
-    write_claude_settings
+@test "configure_claude_settings sets bypassPermissions and sandbox env" {
+    configure_claude_settings
     python3 - <<PY
 import json
 d = json.load(open("$SETTINGS_FILE"))
@@ -166,8 +166,8 @@ assert "ExitPlanMode" in deny, deny
 PY
 }
 
-@test "write_claude_settings writes Claude managed deny policy when writable" {
-    SUDO="" write_claude_settings
+@test "configure_claude_settings writes Claude managed deny policy when writable" {
+    SUDO="" configure_claude_settings
     [ -f "$CLAUDE_MANAGED_SETTINGS_FILE" ]
     python3 - "$CLAUDE_MANAGED_SETTINGS_FILE" <<'PY'
 import json, sys
@@ -181,7 +181,7 @@ assert "disableBypassPermissionsMode" not in d, d
 PY
 }
 
-@test "write_claude_managed_settings warns and skips without passwordless sudo" {
+@test "configure_claude_managed_settings warns and skips without passwordless sudo" {
     local fake_bin="$TEST_HOME/fake-managed-settings-nosudo-bin"
     mkdir -p "$fake_bin"
     cat > "$fake_bin/sudo" <<'SH'
@@ -191,14 +191,14 @@ exit 1
 SH
     chmod +x "$fake_bin/sudo"
 
-    SUDO="sudo" PATH="$fake_bin:$PATH" run write_claude_managed_settings
+    SUDO="sudo" PATH="$fake_bin:$PATH" run configure_claude_managed_settings
     [ "$status" -eq 0 ]
     [[ "$output" == *"passwordless sudo is not available"* ]]
     [ ! -f "$CLAUDE_MANAGED_SETTINGS_FILE" ]
 }
 
-@test "write_claude_settings sets network-resilience env" {
-    write_claude_settings
+@test "configure_claude_settings sets network-resilience env" {
+    configure_claude_settings
     python3 - <<PY
 import json
 d = json.load(open("$SETTINGS_FILE"))
@@ -209,8 +209,8 @@ assert env["CLAUDE_CODE_MAX_RETRIES"] == "15", env
 PY
 }
 
-@test "write_claude_settings pre-approves edits to ~/.claude/** and ~/.claude.json" {
-    write_claude_settings
+@test "configure_claude_settings pre-approves edits to ~/.claude/** and ~/.claude.json" {
+    configure_claude_settings
     python3 - <<PY
 import json
 d = json.load(open("$SETTINGS_FILE"))
@@ -222,16 +222,16 @@ for op in ("Edit", "Write", "Read"):
 PY
 }
 
-@test "write_claude_settings backs up pre-existing settings.json" {
+@test "configure_claude_settings backs up pre-existing settings.json" {
     mkdir -p "$CLAUDE_DIR"
     echo '{"model": "old"}' > "$SETTINGS_FILE"
-    write_claude_settings
+    configure_claude_settings
     local backup_count
     backup_count=$(find "$CLAUDE_DIR" -maxdepth 1 -name 'settings.json.bak.*' | wc -l)
     [ "$backup_count" -ge 1 ]
 }
 
-@test "write_aab_env_file writes AAB config and credentials with private permissions" {
+@test "configure_aab_env_file writes AAB config and credentials with private permissions" {
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" \
         AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL="https://deepseek.example.com/v1" \
         AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY="deepseek-test-key" \
@@ -239,7 +239,7 @@ PY
         AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://openai-compatible.example.com/v1" \
         AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY="codex-third-party-test-key" \
         AAB_GH_TOKEN="ghp_test_token" \
-        write_aab_env_file
+        configure_aab_env_file
 
     [ -f "$AAB_ENV_FILE" ]
     [ "$(stat -c '%a' "$AAB_ENV_FILE")" = "600" ]
@@ -256,18 +256,18 @@ PY
     [ "$AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL" = "$DEFAULT_CLAUDE_CODE_MODEL" ]
 }
 
-@test "write_aab_env_file does not write runtime API-key aliases" {
+@test "configure_aab_env_file does not write runtime API-key aliases" {
     AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" \
         AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" \
-        write_aab_env_file
+        configure_aab_env_file
 
     ! grep -q '^export ANTHROPIC_API_KEY=' "$AAB_ENV_FILE"
     ! grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE"
     ! grep -q '^export GH_TOKEN=' "$AAB_ENV_FILE"
 }
 
-@test "write_codex_model_instructions writes the complete global prompt without a blocking-wait cap" {
-    write_codex_model_instructions
+@test "configure_codex_model_instructions writes the complete global prompt without a blocking-wait cap" {
+    configure_codex_model_instructions
 
     [ -f "$CODEX_MODEL_INSTRUCTIONS_FILE" ]
     [ "$CODEX_MODEL_INSTRUCTIONS_FILE" = "$HOME/.codex/codex-instructions.md" ]
@@ -276,11 +276,11 @@ PY
     ! grep -Fq 'Avoid performing blocking sleep or wait calls longer than 60 seconds' "$CODEX_MODEL_INSTRUCTIONS_FILE"
 }
 
-@test "write_codex_model_instructions backs up a pre-existing prompt" {
+@test "configure_codex_model_instructions backs up a pre-existing prompt" {
     mkdir -p "$CODEX_DIR"
     printf 'local prompt\n' > "$CODEX_MODEL_INSTRUCTIONS_FILE"
 
-    write_codex_model_instructions
+    configure_codex_model_instructions
 
     local backup_count
     backup_count=$(find "$CODEX_DIR" -maxdepth 1 -name 'codex-instructions.md.bak.*' | wc -l)
@@ -288,8 +288,8 @@ PY
     grep -Fxq 'You are Codex, an agent based on GPT-5. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.' "$CODEX_MODEL_INSTRUCTIONS_FILE"
 }
 
-@test "write_codex_config writes unattended yolo-mode defaults" {
-    write_codex_config
+@test "configure_codex_config writes unattended yolo-mode defaults" {
+    configure_codex_config
     [ -f "$CODEX_CONFIG" ]
     grep -q '^model = "gpt-5.5"$' "$CODEX_CONFIG"
     grep -Fxq "model_instructions_file = \"${HOME}/.codex/codex-instructions.md\"" "$CODEX_CONFIG"
@@ -316,23 +316,23 @@ PY
     grep -q '^trust_level = "trusted"$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config honors model, reasoning-effort, service-tier, and agent thread overrides" {
+@test "configure_codex_config honors model, reasoning-effort, service-tier, and agent thread overrides" {
     AAB_CODEX_FIRST_PARTY_MODEL="gpt-5.4" \
         AAB_CODEX_EFFORT="high" \
         AAB_CODEX_SERVICE_TIER="flex" \
         AAB_CODEX_AGENT_MAX_THREADS="24" \
-        write_codex_config
+        configure_codex_config
     grep -q '^model = "gpt-5.4"$' "$CODEX_CONFIG"
     grep -q '^model_reasoning_effort = "high"$' "$CODEX_CONFIG"
     grep -q '^service_tier = "flex"$' "$CODEX_CONFIG"
     grep -q '^max_threads = 24$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config can target a third-party OpenAI-compatible Responses endpoint" {
+@test "configure_codex_config can target a third-party OpenAI-compatible Responses endpoint" {
     AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" \
         AAB_CODEX_THIRD_PARTY_OPENAI_MODEL="openai/openai/gpt-5.5" \
         AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://inference-api.nvidia.com/v1" \
-        write_codex_config
+        configure_codex_config
 
     grep -q '^model = "openai/openai/gpt-5.5"$' "$CODEX_CONFIG"
     grep -q '^model_provider = "third-party-openai"$' "$CODEX_CONFIG"
@@ -343,42 +343,42 @@ PY
     grep -q '^wire_api = "responses"$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config defaults invalid reasoning effort back to xhigh" {
-    AAB_CODEX_EFFORT="maximum" run write_codex_config
+@test "configure_codex_config defaults invalid reasoning effort back to xhigh" {
+    AAB_CODEX_EFFORT="maximum" run configure_codex_config
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_CODEX_EFFORT='maximum'"* ]]
     grep -q '^model_reasoning_effort = "xhigh"$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config normalizes fast service tier to priority" {
-    AAB_CODEX_SERVICE_TIER="fast" write_codex_config
+@test "configure_codex_config normalizes fast service tier to priority" {
+    AAB_CODEX_SERVICE_TIER="fast" configure_codex_config
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config defaults invalid service tier back to priority" {
-    AAB_CODEX_SERVICE_TIER="premium" run write_codex_config
+@test "configure_codex_config defaults invalid service tier back to priority" {
+    AAB_CODEX_SERVICE_TIER="premium" run configure_codex_config
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_CODEX_SERVICE_TIER='premium'"* ]]
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config defaults invalid agent max threads back to 64" {
-    AAB_CODEX_AGENT_MAX_THREADS="many" run write_codex_config
+@test "configure_codex_config defaults invalid agent max threads back to 64" {
+    AAB_CODEX_AGENT_MAX_THREADS="many" run configure_codex_config
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_CODEX_AGENT_MAX_THREADS='many'"* ]]
     grep -q '^max_threads = 64$' "$CODEX_CONFIG"
 }
 
-@test "write_codex_config backs up pre-existing config.toml" {
+@test "configure_codex_config backs up pre-existing config.toml" {
     mkdir -p "$CODEX_DIR"
     echo 'model = "old"' > "$CODEX_CONFIG"
-    write_codex_config
+    configure_codex_config
     local backup_count
     backup_count=$(find "$CODEX_DIR" -maxdepth 1 -name 'config.toml.bak.*' | wc -l)
     [ "$backup_count" -ge 1 ]
 }
 
-@test "write_codex_config preserves Codex plugin marketplace tables" {
+@test "configure_codex_config preserves Codex plugin marketplace tables" {
     mkdir -p "$CODEX_DIR"
     cat > "$CODEX_CONFIG" <<'TOML'
 model = "old"
@@ -392,7 +392,7 @@ source = "https://github.com/brycelelbach/agitentic.git"
 enabled = true
 TOML
 
-    write_codex_config
+    configure_codex_config
 
     grep -q '^\[marketplaces.robobryce-agitentic\]$' "$CODEX_CONFIG"
     grep -q '^source = "https://github.com/brycelelbach/agitentic.git"$' "$CODEX_CONFIG"
@@ -733,7 +733,7 @@ PY
     [ ! -f "${SETTINGS_FILE}.pre-autocuda-install.bak" ]
 }
 
-@test "write_codex_launchers wraps codex with dynamic trust and bypass flags" {
+@test "configure_codex_launchers wraps codex with dynamic trust and bypass flags" {
     mkdir -p "$HOME/.local/bin" "$TEST_HOME/work/subdir"
     cat > "$TEST_HOME/real-codex" <<SH
 #!/usr/bin/env bash
@@ -742,7 +742,7 @@ SH
     chmod +x "$TEST_HOME/real-codex"
     ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
 
-    write_codex_launchers
+    configure_codex_launchers
 
     [ -x "$HOME/.local/bin/codex" ]
     [ -L "$HOME/.local/bin/codex-aab-real" ]
@@ -758,7 +758,7 @@ SH
     grep -Fxq -- '--version' "$TEST_HOME/codex-launcher-args"
 }
 
-@test "write_codex_launchers adds git root to dynamic trust override" {
+@test "configure_codex_launchers adds git root to dynamic trust override" {
     command -v git >/dev/null || skip "precondition: git must exist"
     mkdir -p "$HOME/.local/bin" "$TEST_HOME/repo/nested"
     git -C "$TEST_HOME/repo" init >/dev/null
@@ -769,7 +769,7 @@ SH
     chmod +x "$TEST_HOME/real-codex"
     ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
 
-    write_codex_launchers
+    configure_codex_launchers
     (
         cd "$TEST_HOME/repo/nested"
         "$HOME/.local/bin/codex" plugin list
@@ -780,7 +780,7 @@ SH
     grep -Fxq -- 'list' "$TEST_HOME/codex-launcher-args"
 }
 
-@test "write_codex_launchers selects third-party OpenAI wrapper and injects provider config" {
+@test "configure_codex_launchers selects third-party OpenAI wrapper and injects provider config" {
     mkdir -p "$HOME/.local/bin"
     cat > "$TEST_HOME/real-codex" <<SH
 #!/usr/bin/env bash
@@ -794,8 +794,8 @@ SH
         AAB_CODEX_THIRD_PARTY_OPENAI_MODEL="vendor/model" \
         AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://gateway.example.com/v1" \
         AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY="gateway-test-key" \
-        write_aab_env_file
-    AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" write_codex_launchers
+        configure_aab_env_file
+    AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" configure_codex_launchers
 
     [ ! -L "$HOME/.local/bin/codex" ]
     grep -q '^provider=third-party-openai$' "$HOME/.local/bin/codex"
@@ -808,7 +808,7 @@ SH
     grep -Fq 'base_url="https://gateway.example.com/v1"' "$TEST_HOME/codex-launcher-args"
 }
 
-@test "write_claude_launchers selects provider wrapper and maps env from .env" {
+@test "configure_claude_launchers selects provider wrapper and maps env from .env" {
     mkdir -p "$HOME/.local/bin"
     cat > "$TEST_HOME/real-claude" <<SH
 #!/usr/bin/env bash
@@ -830,8 +830,8 @@ SH
         AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_BASE_URL="https://deepseek.example.com/v1" \
         AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY="deepseek-test-key" \
         AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL="deepseek-reasoner" \
-        write_aab_env_file
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" write_claude_launchers
+        configure_aab_env_file
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" configure_claude_launchers
 
     # The selected entrypoint lives in ~/.local/aab-bin as a regular launcher
     # file (not a symlink to a provider wrapper); ~/.local/bin/claude is left as
@@ -857,7 +857,7 @@ SH
     grep -Fxq 'auto_compact_window=1000000' "$TEST_HOME/claude-launcher-env"
 }
 
-@test "write_claude_launchers selects nemotron wrapper and maps env from .env" {
+@test "configure_claude_launchers selects nemotron wrapper and maps env from .env" {
     mkdir -p "$HOME/.local/bin"
     cat > "$TEST_HOME/real-claude" <<SH
 #!/usr/bin/env bash
@@ -878,8 +878,8 @@ SH
         AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_BASE_URL="https://nemotron.example.com/v1" \
         AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY="nemotron-test-key" \
         AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL="nvidia/nvidia/nemotron-3-ultra" \
-        write_aab_env_file
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-nemotron" write_claude_launchers
+        configure_aab_env_file
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-nemotron" configure_claude_launchers
 
     # The selected entrypoint lives in ~/.local/aab-bin as a regular launcher
     # file (not a symlink to a provider wrapper); ~/.local/bin/claude is left as
@@ -902,7 +902,7 @@ SH
     grep -Fxq 'auto_compact_window=262144' "$TEST_HOME/claude-launcher-env"
 }
 
-@test "write_claude_launchers pins subagent model, explicit override or main-agent default" {
+@test "configure_claude_launchers pins subagent model, explicit override or main-agent default" {
     mkdir -p "$HOME/.local/bin"
     cat > "$TEST_HOME/real-claude" <<SH
 #!/usr/bin/env bash
@@ -918,16 +918,16 @@ SH
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" \
         AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
         AAB_CLAUDE_CODE_SUBAGENT_MODEL="claude-haiku-4-5" \
-        write_aab_env_file
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" write_claude_launchers
+        configure_aab_env_file
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" configure_claude_launchers
     "$HOME/.local/aab-bin/claude" -p hello
     grep -Fxq 'subagent_model=claude-haiku-4-5' "$TEST_HOME/claude-launcher-env"
 
     # Unset: defaults to the resolved main-agent ANTHROPIC_MODEL.
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" \
         AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
-        write_aab_env_file
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" write_claude_launchers
+        configure_aab_env_file
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" configure_claude_launchers
     "$HOME/.local/aab-bin/claude" -p hello
     grep -Fxq 'model=claude-opus-4-7' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'subagent_model=claude-opus-4-7' "$TEST_HOME/claude-launcher-env"
@@ -1113,16 +1113,16 @@ assert len(approved) == 1, approved
 PY
 }
 
-@test "update_bashrc writes managed block with both markers" {
-    update_bashrc
+@test "configure_bashrc writes managed block with both markers" {
+    configure_bashrc
     [ -f "$BASHRC" ]
     grep -q "$BASHRC_MARKER_BEGIN" "$BASHRC"
     grep -q "$BASHRC_MARKER_END" "$BASHRC"
 }
 
-@test "update_bashrc is idempotent (single managed block after two runs)" {
-    update_bashrc
-    update_bashrc
+@test "configure_bashrc is idempotent (single managed block after two runs)" {
+    configure_bashrc
+    configure_bashrc
     local begin_count end_count
     begin_count=$(grep -c "^${BASHRC_MARKER_BEGIN}$" "$BASHRC")
     end_count=$(grep -c "^${BASHRC_MARKER_END}$" "$BASHRC")
@@ -1130,27 +1130,27 @@ PY
     [ "$end_count" -eq 1 ]
 }
 
-@test "update_bashrc puts launcher directory on PATH without aliases" {
-    update_bashrc
+@test "configure_bashrc puts launcher directory on PATH without aliases" {
+    configure_bashrc
     grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC"
     grep -q 'export PATH="$HOME/.local/aab-bin:$PATH"' "$BASHRC"
     ! grep -q '^alias claude=' "$BASHRC"
     ! grep -q '^alias codex=' "$BASHRC"
 }
 
-@test "update_profile keeps the launcher dir ahead of ~/.local/bin in a login shell" {
+@test "configure_profile keeps the launcher dir ahead of ~/.local/bin in a login shell" {
     # Mimic a distro-default ~/.profile: source ~/.bashrc, then re-prepend
-    # ~/.local/bin. Without the update_profile block this re-prepend would shadow
+    # ~/.local/bin. Without the configure_profile block this re-prepend would shadow
     # the launcher dir for login/SSH shells.
     cat > "$PROFILE" <<'SH'
 if [ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi
 if [ -d "$HOME/.local/bin" ]; then PATH="$HOME/.local/bin:$PATH"; fi
 SH
-    update_bashrc
-    update_profile
+    configure_bashrc
+    configure_profile
 
     # The managed block is added once and replaced (not stacked) on re-run.
-    update_profile
+    configure_profile
     [ "$(grep -cF "$BASHRC_MARKER_BEGIN" "$PROFILE")" -eq 1 ]
 
     mkdir -p "$HOME/.local/bin" "$HOME/.local/aab-bin"
@@ -1167,17 +1167,17 @@ SH
     [ "$output" = "$HOME/.local/aab-bin/claude" ]
 }
 
-@test "write_claude_shell_config owns Claude shell defaults" {
-    AAB_CLAUDE_CODE_EFFORT="high" write_claude_shell_config
+@test "configure_claude_shell owns Claude shell defaults" {
+    AAB_CLAUDE_CODE_EFFORT="high" configure_claude_shell
     [ -f "$CLAUDE_SHELL_CONFIG_FILE" ]
     grep -Fxq 'export CLAUDE_CODE_SANDBOXED=1' "$CLAUDE_SHELL_CONFIG_FILE"
     grep -Fxq 'export DEBUG_SDK=1' "$CLAUDE_SHELL_CONFIG_FILE"
     grep -Fxq 'export CLAUDE_CODE_EFFORT_LEVEL=high' "$CLAUDE_SHELL_CONFIG_FILE"
 }
 
-@test "update_bashrc sources per-harness shell configuration" {
-    AAB_CLAUDE_CODE_EFFORT="high" write_claude_shell_config
-    update_bashrc
+@test "configure_bashrc sources per-harness shell configuration" {
+    AAB_CLAUDE_CODE_EFFORT="high" configure_claude_shell
+    configure_bashrc
     grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC"
     ! grep -q '^export DEBUG_SDK=' "$BASHRC"
     run env HOME="$HOME" bash -c 'unset DEBUG_SDK CLAUDE_CODE_EFFORT_LEVEL; . "$HOME/.bashrc"; printf "%s %s" "$DEBUG_SDK" "$CLAUDE_CODE_EFFORT_LEVEL"'
@@ -1185,12 +1185,12 @@ SH
     [ "$output" = "1 high" ]
 }
 
-@test "update_bashrc does not write credentials or provider AAB vars" {
+@test "configure_bashrc does not write credentials or provider AAB vars" {
     AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-key" \
         AAB_CODEX_FIRST_PARTY_API_KEY="codex-first-party-test-key" \
         AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY="codex-third-party-test-key" \
         AAB_GH_TOKEN="ghp_test_token" \
-        update_bashrc
+        configure_bashrc
 
     ! grep -q 'sk-ant-test-key' "$BASHRC"
     ! grep -q 'codex-first-party-test-key' "$BASHRC"
@@ -1202,14 +1202,14 @@ SH
     ! grep -q '^export GH_TOKEN=' "$BASHRC"
 }
 
-@test "update_bashrc writes the dead-SSH-agent-socket guard" {
-    update_bashrc
+@test "configure_bashrc writes the dead-SSH-agent-socket guard" {
+    configure_bashrc
     grep -qF 'if [ -n "${SSH_AUTH_SOCK:-}" ]; then' "$BASHRC"
     grep -qF 'unset SSH_AUTH_SOCK SSH_AGENT_PID' "$BASHRC"
 }
 
 @test "bashrc guard unsets SSH_AUTH_SOCK when the socket file is missing" {
-    update_bashrc
+    configure_bashrc
     run env HOME="$HOME" SSH_AUTH_SOCK="$HOME/gone/agent.sock" \
         bash -c '. "$HOME/.bashrc" >/dev/null 2>&1; printf %s "${SSH_AUTH_SOCK:-UNSET}"'
     [ "$status" -eq 0 ]
@@ -1217,7 +1217,7 @@ SH
 }
 
 @test "bashrc guard preserves a reachable SSH agent" {
-    update_bashrc
+    configure_bashrc
     # Mock a live agent: ssh-add exits 0, and a real (orphaned) socket file
     # exists so the guard reaches the probe rather than the missing-file branch.
     mkdir -p "$HOME/mockbin"
@@ -1232,7 +1232,7 @@ SH
 }
 
 @test "bashrc guard unsets a connectable-but-dead SSH agent socket" {
-    update_bashrc
+    configure_bashrc
     # A forwarded socket whose owner is alive but whose agent is gone: ssh-add
     # connects, then fails with a comms error and exit 1 — the same exit code a
     # live-but-empty agent returns, so the guard must key off the message.
@@ -1253,7 +1253,7 @@ SH
     # attempted to install Claude Code via curl; instead the function is
     # merely defined.
     type main >/dev/null
-    # And no settings file should exist yet — write_claude_settings was never
+    # And no settings file should exist yet — configure_claude_settings was never
     # called by a main() invocation at source time.
     [ ! -f "$SETTINGS_FILE" ]
 }
@@ -1418,7 +1418,7 @@ SH
 
 
 # ---------------------------------------------------------------------------
-# enable_user_linger: cover the no-systemd skip, the already-lingering no-op,
+# configure_user_linger: cover the no-systemd skip, the already-lingering no-op,
 # the enable path, the missing-passwordless-sudo skip, and the enable failure.
 # ---------------------------------------------------------------------------
 
@@ -1464,42 +1464,42 @@ SH
     chmod +x "$FAKE_LINGER_BIN/id" "$FAKE_LINGER_BIN/loginctl" "$FAKE_LINGER_BIN/sudo"
 }
 
-@test "enable_user_linger skips cleanly when loginctl is unavailable" {
+@test "configure_user_linger skips cleanly when loginctl is unavailable" {
     make_linger_fakes
     rm -f "$FAKE_LINGER_BIN/loginctl"
 
-    SUDO="" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    SUDO="" PATH="$FAKE_LINGER_BIN" run configure_user_linger
     [ "$status" -eq 0 ]
     [[ "$output" == *"loginctl not available"* ]]
     [ ! -f "$LINGER_ENABLE_LOG" ]
 }
 
-@test "enable_user_linger is a no-op when lingering is already enabled" {
+@test "configure_user_linger is a no-op when lingering is already enabled" {
     make_linger_fakes
     export FAKE_LINGER=yes
 
-    SUDO="" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    SUDO="" PATH="$FAKE_LINGER_BIN" run configure_user_linger
     [ "$status" -eq 0 ]
     [[ "$output" == *"already enabled for testuser"* ]]
     # Must not re-run enable-linger when it is already on.
     [ ! -f "$LINGER_ENABLE_LOG" ]
 }
 
-@test "enable_user_linger enables lingering when it is off" {
+@test "configure_user_linger enables lingering when it is off" {
     make_linger_fakes
     export FAKE_LINGER=no
 
-    SUDO="" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    SUDO="" PATH="$FAKE_LINGER_BIN" run configure_user_linger
     [ "$status" -eq 0 ]
     [[ "$output" == *"Enabled user lingering for testuser"* ]]
     grep -Fxq 'enable-linger testuser' "$LINGER_ENABLE_LOG"
 }
 
-@test "enable_user_linger skips and warns when passwordless sudo is unavailable" {
+@test "configure_user_linger skips and warns when passwordless sudo is unavailable" {
     make_linger_fakes
     export FAKE_LINGER=no FAKE_SUDO_NOPASSWD_RC=1
 
-    SUDO="sudo" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    SUDO="sudo" PATH="$FAKE_LINGER_BIN" run configure_user_linger
     [ "$status" -eq 0 ]
     [[ "$output" == *"passwordless sudo is not available"* ]]
     [[ "$output" == *"sudo loginctl enable-linger testuser"* ]]
@@ -1507,11 +1507,11 @@ SH
     [ ! -f "$LINGER_ENABLE_LOG" ]
 }
 
-@test "enable_user_linger warns when enable-linger fails" {
+@test "configure_user_linger warns when enable-linger fails" {
     make_linger_fakes
     export FAKE_LINGER=no FAKE_ENABLE_RC=1
 
-    SUDO="" PATH="$FAKE_LINGER_BIN" run enable_user_linger
+    SUDO="" PATH="$FAKE_LINGER_BIN" run configure_user_linger
     [ "$status" -eq 0 ]
     [[ "$output" == *"Could not enable user lingering for testuser"* ]]
 }
@@ -1591,7 +1591,7 @@ JSON
     echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_claude_settings
+    configure_claude_settings
     install_agent_plugins
 
     python3 - <<PY
@@ -1610,7 +1610,7 @@ PY
     echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_claude_settings
+    configure_claude_settings
     install_agent_plugins
 
     python3 - <<PY
@@ -1629,7 +1629,7 @@ PY
     echo "acme/public-plugin" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_claude_settings
+    configure_claude_settings
     install_agent_plugins
 
     python3 - <<PY
@@ -1649,7 +1649,7 @@ PY
     printf '%s\n%s\n' "acme/public-plugin" "private/no-access" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_claude_settings
+    configure_claude_settings
     run install_agent_plugins
     [ "$status" -eq 0 ]
     # Soft log, not WARN, for the inaccessible repo.
@@ -1707,7 +1707,7 @@ JSON
     echo "acme/multi" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_claude_settings
+    configure_claude_settings
     install_agent_plugins
 
     grep -Fxq 'plugin marketplace add acme/multi' "$TEST_HOME/claude-invocations"
@@ -1732,7 +1732,7 @@ JSON
     echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_claude_settings
+    configure_claude_settings
     install_agent_plugins
 
     grep -Fxq 'plugin marketplace add acme/private-plugin' "$TEST_HOME/claude-invocations"
@@ -1752,7 +1752,7 @@ JSON
     printf '%s\n%s\n' "alpha/m" "beta/m" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_claude_settings
+    configure_claude_settings
     install_agent_plugins
 
     grep -Fxq 'plugin marketplace add alpha/m' "$TEST_HOME/claude-invocations"
@@ -1775,7 +1775,7 @@ JSON
     echo "acme/m" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_claude_settings
+    configure_claude_settings
     run install_agent_plugins
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN:"*"claude binary not on PATH"* ]]
@@ -1789,7 +1789,7 @@ PY
 }
 
 # ---------------------------------------------------------------------------
-# write_auth_ssh_key / write_signing_ssh_key: cover the two distinct
+# configure_auth_ssh_key / configure_signing_ssh_key: cover the two distinct
 # roles (GitHub SSH auth vs git commit/tag signing), including:
 #   - skip-on-unset for each
 #   - correct file modes on both key pairs
@@ -1810,15 +1810,15 @@ gen_test_ssh_key_b64() {
     base64 -w0 < "$path"
 }
 
-@test "write_auth_ssh_key is a no-op when AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is unset" {
-    run write_auth_ssh_key
+@test "configure_auth_ssh_key is a no-op when AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is unset" {
+    run configure_auth_ssh_key
     [ "$status" -eq 0 ]
     [ ! -e "$AUTH_KEY" ]
     [ ! -e "$SSH_CONFIG" ]
 }
 
-@test "write_signing_ssh_key is a no-op when AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 is unset" {
-    run write_signing_ssh_key
+@test "configure_signing_ssh_key is a no-op when AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 is unset" {
+    run configure_signing_ssh_key
     [ "$status" -eq 0 ]
     [ ! -e "$SIGNING_KEY" ]
     # Signing does NOT touch ~/.ssh/config regardless — double-check nothing appeared.
@@ -1827,10 +1827,10 @@ gen_test_ssh_key_b64() {
     [ -z "$(git config --global --get user.signingkey 2>/dev/null || true)" ]
 }
 
-@test "write_auth_ssh_key writes id_aab_auth (0600) and id_aab_auth.pub (0644)" {
+@test "configure_auth_ssh_key writes id_aab_auth (0600) and id_aab_auth.pub (0644)" {
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    write_auth_ssh_key
+    configure_auth_ssh_key
 
     [ -f "$AUTH_KEY" ]
     [ -f "$AUTH_KEY_PUB" ]
@@ -1840,10 +1840,10 @@ gen_test_ssh_key_b64() {
     diff <(sort "$AUTH_KEY_PUB") <(sort "$TEST_HOME/generated_key.pub")
 }
 
-@test "write_signing_ssh_key writes id_aab_signing (0600) and id_aab_signing.pub (0644)" {
+@test "configure_signing_ssh_key writes id_aab_signing (0600) and id_aab_signing.pub (0644)" {
     AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
-    write_signing_ssh_key
+    configure_signing_ssh_key
 
     [ -f "$SIGNING_KEY" ]
     [ -f "$SIGNING_KEY_PUB" ]
@@ -1852,10 +1852,10 @@ gen_test_ssh_key_b64() {
     diff <(sort "$SIGNING_KEY_PUB") <(sort "$TEST_HOME/generated_key.pub")
 }
 
-@test "write_auth_ssh_key writes a managed block in ~/.ssh/config mapping github.com to id_aab_auth" {
+@test "configure_auth_ssh_key writes a managed block in ~/.ssh/config mapping github.com to id_aab_auth" {
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    write_auth_ssh_key
+    configure_auth_ssh_key
 
     [ -f "$SSH_CONFIG" ]
     grep -qF "$SSH_MARKER_BEGIN" "$SSH_CONFIG"
@@ -1866,11 +1866,11 @@ gen_test_ssh_key_b64() {
     [ "$(stat -c '%a' "$SSH_CONFIG")" = "600" ]
 }
 
-@test "write_auth_ssh_key does NOT configure git signing" {
+@test "configure_auth_ssh_key does NOT configure git signing" {
     command -v git >/dev/null || skip "precondition: git must exist"
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    write_auth_ssh_key
+    configure_auth_ssh_key
 
     # No signing config should have been written.
     [ -z "$(git config --global --get gpg.format 2>/dev/null || true)" ]
@@ -1879,19 +1879,19 @@ gen_test_ssh_key_b64() {
     [ -z "$(git config --global --get tag.gpgsign 2>/dev/null || true)" ]
 }
 
-@test "write_signing_ssh_key does NOT touch ~/.ssh/config" {
+@test "configure_signing_ssh_key does NOT touch ~/.ssh/config" {
     AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
-    write_signing_ssh_key
+    configure_signing_ssh_key
 
     [ ! -e "$SSH_CONFIG" ]
 }
 
-@test "write_signing_ssh_key configures git SSH signing (gpg.format, signingkey, commit/tag.gpgsign)" {
+@test "configure_signing_ssh_key configures git SSH signing (gpg.format, signingkey, commit/tag.gpgsign)" {
     command -v git >/dev/null || skip "precondition: git must exist"
     AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
-    write_signing_ssh_key
+    configure_signing_ssh_key
 
     [ "$(git config --global --get gpg.format)" = "ssh" ]
     [ "$(git config --global --get user.signingkey)" = "$SIGNING_KEY_PUB" ]
@@ -1899,14 +1899,14 @@ gen_test_ssh_key_b64() {
     [ "$(git config --global --get tag.gpgsign)" = "true" ]
 }
 
-@test "write_auth_ssh_key is idempotent (second run: single managed block, file size stable)" {
+@test "configure_auth_ssh_key is idempotent (second run: single managed block, file size stable)" {
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    write_auth_ssh_key
+    configure_auth_ssh_key
     local size1
     size1=$(wc -c < "$SSH_CONFIG")
 
-    write_auth_ssh_key
+    configure_auth_ssh_key
     local begin_count end_count size2
     begin_count=$(grep -cF "$SSH_MARKER_BEGIN" "$SSH_CONFIG")
     end_count=$(grep -cF "$SSH_MARKER_END" "$SSH_CONFIG")
@@ -1916,7 +1916,7 @@ gen_test_ssh_key_b64() {
     [ "$size1" -eq "$size2" ]
 }
 
-@test "write_auth_ssh_key preserves pre-existing non-managed content in ~/.ssh/config" {
+@test "configure_auth_ssh_key preserves pre-existing non-managed content in ~/.ssh/config" {
     mkdir -p "$SSH_DIR"
     cat > "$SSH_CONFIG" <<'EOF'
 Host gitlab.com
@@ -1925,7 +1925,7 @@ Host gitlab.com
 EOF
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    write_auth_ssh_key
+    configure_auth_ssh_key
 
     # Original content still present.
     grep -qE "^Host gitlab.com$" "$SSH_CONFIG"
@@ -1935,18 +1935,18 @@ EOF
     grep -qE "^Host github.com$" "$SSH_CONFIG"
 }
 
-@test "write_auth_ssh_key warns and skips on invalid-base64 input" {
+@test "configure_auth_ssh_key warns and skips on invalid-base64 input" {
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64="this is not base64!@#"
-    run write_auth_ssh_key
+    run configure_auth_ssh_key
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is not valid base64"* ]] \
         || [[ "$output" == *"AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
     [ ! -e "$AUTH_KEY" ]
 }
 
-@test "write_signing_ssh_key warns and skips on decoded-garbage input" {
+@test "configure_signing_ssh_key warns and skips on decoded-garbage input" {
     export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64="$(printf 'not-an-ssh-key' | base64 -w0)"
-    run write_signing_ssh_key
+    run configure_signing_ssh_key
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
     [ ! -e "$SIGNING_KEY" ]
@@ -1959,8 +1959,8 @@ EOF
     AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/sign_key")
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
 
-    write_auth_ssh_key
-    write_signing_ssh_key
+    configure_auth_ssh_key
+    configure_signing_ssh_key
 
     # Both keys are on disk, at different paths.
     [ -f "$AUTH_KEY" ]
@@ -1976,7 +1976,7 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# configure_git_hooks / write_agent_rules: the global commit-identity
+# configure_git_hooks / configure_agent_rules: the global commit-identity
 # enforcement hook plus the agent instruction-file rules. Cover:
 #   - hook dispatcher + per-name symlinks configured, core.hooksPath set
 #   - the emitted dispatcher is valid bash
@@ -2334,8 +2334,8 @@ STUB
     [ ! -e "$GITLEAKS_BIN" ]
 }
 
-@test "write_agent_rules writes a managed block to CLAUDE.md and AGENTS.md" {
-    write_agent_rules
+@test "configure_agent_rules writes a managed block to CLAUDE.md and AGENTS.md" {
+    configure_agent_rules
     [ -f "$CLAUDE_MEMORY_FILE" ]
     [ -f "$CODEX_AGENTS_FILE" ]
     grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE"
@@ -2348,11 +2348,11 @@ STUB
     grep -q "Always use the configured git identity" "$CODEX_AGENTS_FILE"
 }
 
-@test "write_agent_rules is idempotent (single managed block, size stable)" {
-    write_agent_rules
+@test "configure_agent_rules is idempotent (single managed block, size stable)" {
+    configure_agent_rules
     local size1
     size1=$(wc -c < "$CLAUDE_MEMORY_FILE")
-    write_agent_rules
+    configure_agent_rules
     local begin_count size2
     begin_count=$(grep -cF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE")
     size2=$(wc -c < "$CLAUDE_MEMORY_FILE")
@@ -2360,10 +2360,10 @@ STUB
     [ "$size1" -eq "$size2" ]
 }
 
-@test "write_agent_rules preserves pre-existing instruction-file content" {
+@test "configure_agent_rules preserves pre-existing instruction-file content" {
     mkdir -p "$(dirname "$CLAUDE_MEMORY_FILE")"
     printf '# My memory\n\nKeep this line.\n' > "$CLAUDE_MEMORY_FILE"
-    write_agent_rules
+    configure_agent_rules
     grep -q '^# My memory$' "$CLAUDE_MEMORY_FILE"
     grep -q '^Keep this line\.$' "$CLAUDE_MEMORY_FILE"
     grep -qF "$AGENT_RULES_MARKER_BEGIN" "$CLAUDE_MEMORY_FILE"

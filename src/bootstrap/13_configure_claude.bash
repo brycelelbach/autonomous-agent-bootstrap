@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------------------
 # 5. Write ~/.claude/settings.json.
 # ---------------------------------------------------------------------------
-write_claude_managed_settings() {
+configure_claude_managed_settings() {
     local managed_dir
     managed_dir=$(dirname "$CLAUDE_MANAGED_SETTINGS_FILE")
 
@@ -39,7 +39,7 @@ JSON
     log "Wrote ${CLAUDE_MANAGED_SETTINGS_FILE}."
 }
 
-write_claude_settings() {
+configure_claude_settings() {
     mkdir -p "${CLAUDE_DIR}"
     if [[ -f "${SETTINGS_FILE}" ]]; then
         local backup
@@ -117,7 +117,7 @@ write_claude_settings() {
 }
 JSON
     log "Wrote ${SETTINGS_FILE} (model=${model}, effort=${effort})."
-    write_claude_managed_settings
+    configure_claude_managed_settings
 }
 
 # Skip Claude Code's first-run theme prompt and pre-approve the
@@ -158,7 +158,7 @@ PY
 # Write Claude-specific shell defaults to a dedicated file. The generic
 # ~/.bashrc integration sources every file in ~/.aab/shell instead of
 # hard-coding harness settings in the shell integration module.
-write_claude_shell_config() {
+configure_claude_shell() {
     local effort="${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
     mkdir -p "${AAB_SHELL_CONFIG_DIR}"
     {
@@ -173,8 +173,7 @@ write_claude_shell_config() {
 }
 
 configure_claude() {
-    write_claude_settings
-    write_claude_shell_config
+    configure_claude_settings
+    configure_claude_shell
     skip_claude_onboarding
 }
-

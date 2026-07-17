@@ -17,6 +17,6 @@ High-traffic audit targets:
 - `13_configure_brev.bash` owns Brev authentication and onboarding.
 - `13_configure_codex.bash` owns Codex instructions, config, and authentication.
 - `23_configure_git_hooks.bash` renders and configures the global git hook.
-- `24_write_agent_rules.bash` renders and writes global harness instructions.
-- `26_write_launchers.bash` owns launcher generation.
-- `27_update_bashrc.bash` sources per-harness shell defaults and owns PATH integration.
+- `24_configure_agent_rules.bash` renders and writes global harness instructions.
+- `26_configure_launchers.bash` owns launcher generation.
+- `27_configure_shell_startup.bash` sources per-harness shell defaults and owns PATH integration.

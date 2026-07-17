@@ -828,7 +828,7 @@ install_claude_code_plugins() {
     local -a tuples=("$@")
     [ ${#tuples[@]} -eq 0 ] && return
 
-    # Merge into ~/.claude/settings.json. write_claude_settings has already run,
+    # Merge into ~/.claude/settings.json. configure_claude_settings has already run,
     # so the file exists and is valid JSON.
     python3 - "$SETTINGS_FILE" "${tuples[@]}" <<'PY'
 import json, sys
@@ -874,7 +874,7 @@ PY
         github_env=(env "GH_TOKEN=$github_token")
     fi
 
-    # Snapshot the post-write_claude_settings + post-merge settings.json so
+    # Snapshot the post-configure_claude_settings + post-merge settings.json so
     # the re-merge below can restore AAB-managed top-level keys that
     # Claude Code's plugin CLI strips on re-serialise.
     cp "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak"
@@ -907,10 +907,10 @@ PY
     # user` re-serialise ~/.claude/settings.json against Claude Code's
     # internal schema, which drops any top-level keys the schema
     # doesn't enumerate (notably `effortLevel` — written by
-    # write_claude_settings, asserted by tests/e2e-assertions.bash). Re-merge
+    # configure_claude_settings, asserted by tests/e2e-assertions.bash). Re-merge
     # the AAB-managed top-level keys back in from a snapshot taken
     # before the claude calls ran so the on-disk shape stays a
-    # superset of what write_claude_settings produced.
+    # superset of what configure_claude_settings produced.
     if [ -f "${SETTINGS_FILE}.pre-plugin-install.bak" ]; then
         python3 - "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak" <<'PY'
 import json, sys
@@ -1039,11 +1039,11 @@ PY
 }
 # <<< src/bootstrap/11_install_autocuda.bash <<<
 
-# >>> src/bootstrap/12_write_aab_env_file.bash >>>
+# >>> src/bootstrap/12_configure_aab_env_file.bash >>>
 # ---------------------------------------------------------------------------
 # 6. Write ~/.aab/.env.
 # ---------------------------------------------------------------------------
-write_aab_env_file() {
+configure_aab_env_file() {
     mkdir -p "${AAB_DIR}"
     chmod 700 "${AAB_DIR}"
 
@@ -1105,8 +1105,7 @@ write_aab_env_file() {
     mv -f "$tmp" "$AAB_ENV_FILE"
     log "Wrote ${AAB_ENV_FILE} (claude_provider=${claude_provider}, codex_provider=${codex_provider})."
 }
-
-# <<< src/bootstrap/12_write_aab_env_file.bash <<<
+# <<< src/bootstrap/12_configure_aab_env_file.bash <<<
 
 # >>> src/bootstrap/13_configure_brev.bash >>>
 # ---------------------------------------------------------------------------
@@ -1171,7 +1170,7 @@ configure_brev() {
 # ---------------------------------------------------------------------------
 # 5. Write ~/.claude/settings.json.
 # ---------------------------------------------------------------------------
-write_claude_managed_settings() {
+configure_claude_managed_settings() {
     local managed_dir
     managed_dir=$(dirname "$CLAUDE_MANAGED_SETTINGS_FILE")
 
@@ -1209,7 +1208,7 @@ JSON
     log "Wrote ${CLAUDE_MANAGED_SETTINGS_FILE}."
 }
 
-write_claude_settings() {
+configure_claude_settings() {
     mkdir -p "${CLAUDE_DIR}"
     if [[ -f "${SETTINGS_FILE}" ]]; then
         local backup
@@ -1287,7 +1286,7 @@ write_claude_settings() {
 }
 JSON
     log "Wrote ${SETTINGS_FILE} (model=${model}, effort=${effort})."
-    write_claude_managed_settings
+    configure_claude_managed_settings
 }
 
 # Skip Claude Code's first-run theme prompt and pre-approve the
@@ -1328,7 +1327,7 @@ PY
 # Write Claude-specific shell defaults to a dedicated file. The generic
 # ~/.bashrc integration sources every file in ~/.aab/shell instead of
 # hard-coding harness settings in the shell integration module.
-write_claude_shell_config() {
+configure_claude_shell() {
     local effort="${AAB_CLAUDE_CODE_EFFORT:-$DEFAULT_CLAUDE_CODE_EFFORT}"
     mkdir -p "${AAB_SHELL_CONFIG_DIR}"
     {
@@ -1343,11 +1342,10 @@ write_claude_shell_config() {
 }
 
 configure_claude() {
-    write_claude_settings
-    write_claude_shell_config
+    configure_claude_settings
+    configure_claude_shell
     skip_claude_onboarding
 }
-
 # <<< src/bootstrap/13_configure_claude.bash <<<
 
 # >>> src/bootstrap/13_configure_codex.bash >>>
@@ -1507,7 +1505,7 @@ If a skill causes the current turn to pause or otherwise blocks the continuation
 CODEX_MODEL_INSTRUCTIONS
 }
 
-write_codex_model_instructions() {
+configure_codex_model_instructions() {
     mkdir -p "${CODEX_DIR}"
     if [[ -f "${CODEX_MODEL_INSTRUCTIONS_FILE}" ]]; then
         local backup
@@ -1534,7 +1532,7 @@ _toml_escape() {
     printf '%s' "$s"
 }
 
-write_codex_config() {
+configure_codex_config() {
     mkdir -p "${CODEX_DIR}"
     local preserved_plugin_config=""
     if [[ -f "${CODEX_CONFIG}" ]]; then
@@ -1773,11 +1771,10 @@ configure_codex_auth() {
 }
 
 configure_codex() {
-    write_codex_model_instructions
-    write_codex_config
+    configure_codex_model_instructions
+    configure_codex_config
     configure_codex_auth
 }
-
 # <<< src/bootstrap/13_configure_codex.bash <<<
 
 # >>> src/bootstrap/20_configure_git.bash >>>
@@ -1807,7 +1804,7 @@ configure_git() {
 
 # <<< src/bootstrap/20_configure_git.bash <<<
 
-# >>> src/bootstrap/21_write_ssh_keys.bash >>>
+# >>> src/bootstrap/21_configure_ssh_keys.bash >>>
 # ---------------------------------------------------------------------------
 # Write SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
 # github.com auth: clone/push over SSH) and/or
@@ -1897,11 +1894,11 @@ PY
     chmod 0600 "$SSH_CONFIG"
 }
 
-# write_auth_ssh_key: Decode $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 to
+# configure_auth_ssh_key: Decode $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_auth and wire it as the IdentityFile for github.com in
 # ~/.ssh/config. Does NOT touch git signing config. Silent no-op when the
 # env var is unset.
-write_auth_ssh_key() {
+configure_auth_ssh_key() {
     local encoded="${AAB_GH_AUTH_SSH_PRIVATE_KEY_B64:-}"
     local label="AAB_GH_AUTH_SSH_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
@@ -1917,11 +1914,11 @@ write_auth_ssh_key() {
     log "Wrote GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
 }
 
-# write_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
+# configure_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_signing and configure git to sign commits/tags with it.
 # Does NOT touch ~/.ssh/config — this key is for signing only. Silent
 # no-op when the env var is unset.
-write_signing_ssh_key() {
+configure_signing_ssh_key() {
     local encoded="${AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64:-}"
     local label="AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
@@ -1943,7 +1940,7 @@ write_signing_ssh_key() {
         warn "git not installed; skipping SSH signing config."
     fi
 }
-# <<< src/bootstrap/21_write_ssh_keys.bash <<<
+# <<< src/bootstrap/21_configure_ssh_keys.bash <<<
 
 # >>> src/bootstrap/23_configure_git_hooks.bash >>>
 # ---------------------------------------------------------------------------
@@ -1955,7 +1952,7 @@ write_signing_ssh_key() {
 # configures and commit under their own name/email via `git -c user.email=...`,
 # `git commit --author=...`, GIT_AUTHOR_*/GIT_COMMITTER_* env vars, or a
 # repo-local `git config user.email`. The agent rules written by
-# write_agent_rules() ask them not to; this hook makes the ask
+# configure_agent_rules() ask them not to; this hook makes the ask
 # non-optional.
 #
 # The same pre-commit hook also runs a staged-diff secret scan (gitleaks, with
@@ -2202,7 +2199,7 @@ configure_git_hooks() {
 }
 # <<< src/bootstrap/23_configure_git_hooks.bash <<<
 
-# >>> src/bootstrap/24_write_agent_rules.bash >>>
+# >>> src/bootstrap/24_configure_agent_rules.bash >>>
 # ---------------------------------------------------------------------------
 # 9d. Write the global agent rules to every harness's instruction file. Claude
 # Code reads ~/.claude/CLAUDE.md and Codex reads ~/.codex/AGENTS.md for every
@@ -2228,8 +2225,8 @@ Always commit and tag with the git identity this machine is configured with, and
 RULES
 }
 
-write_agent_rules() {
-    _write_agent_rules_block() {
+configure_agent_rules() {
+    _configure_agent_rules_block() {
         local file="$1" dir
         dir=$(dirname -- "$file")
         mkdir -p "$dir"
@@ -2257,14 +2254,14 @@ write_agent_rules() {
         } >> "$file"
     }
 
-    _write_agent_rules_block "${CLAUDE_MEMORY_FILE}"
+    _configure_agent_rules_block "${CLAUDE_MEMORY_FILE}"
     log "Wrote agent rules to ${CLAUDE_MEMORY_FILE}."
-    _write_agent_rules_block "${CODEX_AGENTS_FILE}"
+    _configure_agent_rules_block "${CODEX_AGENTS_FILE}"
     log "Wrote agent rules to ${CODEX_AGENTS_FILE}."
 }
-# <<< src/bootstrap/24_write_agent_rules.bash <<<
+# <<< src/bootstrap/24_configure_agent_rules.bash <<<
 
-# >>> src/bootstrap/26_write_launchers.bash >>>
+# >>> src/bootstrap/26_configure_launchers.bash >>>
 # ---------------------------------------------------------------------------
 # Write Claude and Codex launcher wrapper families.
 # ---------------------------------------------------------------------------
@@ -2437,7 +2434,7 @@ BASH
     mv -f "$tmp" "$launcher"
 }
 
-write_claude_launchers() {
+configure_claude_launchers() {
     local launcher_dir="${HOME}/.local/aab-bin"
     local claude_bin="${HOME}/.local/bin/claude"
     local real_bin="${HOME}/.local/bin/claude-aab-real"
@@ -2461,7 +2458,7 @@ write_claude_launchers() {
     _write_claude_launcher "third-party-nemotron" "${HOME}/.local/bin/claude-third-party-nemotron"
 
     # Put the selected `claude` entrypoint in a dedicated directory kept ahead of
-    # ~/.local/bin on PATH (see update_bashrc / update_profile), so the native
+    # ~/.local/bin on PATH (see configure_bashrc / configure_profile), so the native
     # auto-updater's ~/.local/bin/claude can't shadow the wrapper. The entrypoint
     # is a regular launcher file rather than a symlink to a provider wrapper.
     mkdir -p "$launcher_dir"
@@ -2603,7 +2600,7 @@ BASH
     mv -f "$tmp" "$launcher"
 }
 
-write_codex_launchers() {
+configure_codex_launchers() {
     local codex_bin="${HOME}/.local/bin/codex"
     local real_bin="${HOME}/.local/bin/codex-aab-real"
     local selected_provider
@@ -2617,9 +2614,9 @@ write_codex_launchers() {
     _write_codex_launcher "$selected_provider" "$codex_bin"
     log "Wrote Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
 }
-# <<< src/bootstrap/26_write_launchers.bash <<<
+# <<< src/bootstrap/26_configure_launchers.bash <<<
 
-# >>> src/bootstrap/27_update_bashrc.bash >>>
+# >>> src/bootstrap/27_configure_shell_startup.bash >>>
 # ---------------------------------------------------------------------------
 # 11. Rewrite the unattended-mode block in ~/.bashrc.
 #
@@ -2627,7 +2624,7 @@ write_codex_launchers() {
 # old block and append a fresh one. Credentials and provider model settings
 # are written to ~/.aab/.env instead of ~/.bashrc.
 # ---------------------------------------------------------------------------
-update_bashrc() {
+configure_bashrc() {
     touch "${BASHRC}"
     if grep -qF "${BASHRC_MARKER_BEGIN}" "${BASHRC}"; then
         local tmp
@@ -2696,7 +2693,7 @@ update_bashrc() {
 # tweak gets shadowed in login/SSH shells. Append the launcher-dir prepend at
 # the end of ~/.profile so ~/.local/aab-bin stays ahead of ~/.local/bin there
 # too. The managed block is replaced in place on re-run, so it never stacks.
-update_profile() {
+configure_profile() {
     touch "${PROFILE}"
     if grep -qF "${BASHRC_MARKER_BEGIN}" "${PROFILE}"; then
         local tmp
@@ -2724,9 +2721,9 @@ update_profile() {
     } >> "${PROFILE}"
     log "Wrote autonomous-agent-bootstrap block to ${PROFILE}."
 }
-# <<< src/bootstrap/27_update_bashrc.bash <<<
+# <<< src/bootstrap/27_configure_shell_startup.bash <<<
 
-# >>> src/bootstrap/28_enable_user_linger.bash >>>
+# >>> src/bootstrap/28_configure_user_linger.bash >>>
 # ---------------------------------------------------------------------------
 # Enable user lingering so the per-user systemd instance — and its bus at
 # $XDG_RUNTIME_DIR/bus — stays up across SSH sessions instead of dying with the
@@ -2736,7 +2733,7 @@ update_profile() {
 # open. `loginctl enable-linger` is the one-time setup for that. Skip cleanly on
 # hosts without a systemd user manager (bare containers) or without sudo.
 # ---------------------------------------------------------------------------
-enable_user_linger() {
+configure_user_linger() {
     local user
     user=$(id -un)
 
@@ -2762,7 +2759,7 @@ enable_user_linger() {
         warn "Could not enable user lingering for ${user}; run 'sudo loginctl enable-linger ${user}' so the user systemd bus stays up across sessions."
     fi
 }
-# <<< src/bootstrap/28_enable_user_linger.bash <<<
+# <<< src/bootstrap/28_configure_user_linger.bash <<<
 
 # >>> src/bootstrap/30_load_config_file.bash >>>
 # ---------------------------------------------------------------------------
@@ -2843,22 +2840,22 @@ main() {
     install_lifeboat
     install_gh
     install_gitleaks
-    write_aab_env_file
+    configure_aab_env_file
     configure_brev
     configure_claude
     configure_codex
     configure_git
-    write_auth_ssh_key
-    write_signing_ssh_key
+    configure_auth_ssh_key
+    configure_signing_ssh_key
     configure_git_hooks
-    write_agent_rules
+    configure_agent_rules
     install_agent_plugins
-    write_claude_launchers
-    write_codex_launchers
+    configure_claude_launchers
+    configure_codex_launchers
     install_autocuda
-    enable_user_linger
-    update_bashrc
-    update_profile
+    configure_user_linger
+    configure_bashrc
+    configure_profile
     log "Done. Open a new shell (or 'source ~/.bashrc') so PATH updates take effect."
 }
 
