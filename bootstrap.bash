@@ -1112,6 +1112,13 @@ sandbox_mode = "danger-full-access"
 web_search = "live"
 check_for_update_on_startup = false
 
+[otel]
+environment = "dev"
+exporter = "none"
+trace_exporter = "none"
+metrics_exporter = "none"
+log_user_prompt = false
+
 [notice]
 hide_full_access_warning = true
 

@@ -140,6 +140,18 @@ grep -Fxq "service_tier = \"${expected_codex_service_tier}\"" "$CODEX_CONFIG" \
     || fail "Codex service tier is not ${expected_codex_service_tier}."
 grep -q '^check_for_update_on_startup = false$' "$CODEX_CONFIG" \
     || fail "Codex startup update check is not disabled."
+grep -q '^\[otel\]$' "$CODEX_CONFIG" \
+    || fail "Codex OpenTelemetry config section is missing."
+grep -Fxq 'environment = "dev"' "$CODEX_CONFIG" \
+    || fail "Codex OpenTelemetry environment is not dev."
+grep -Fxq 'exporter = "none"' "$CODEX_CONFIG" \
+    || fail "Codex OpenTelemetry log exporter is not disabled."
+grep -Fxq 'trace_exporter = "none"' "$CODEX_CONFIG" \
+    || fail "Codex OpenTelemetry trace exporter is not disabled."
+grep -Fxq 'metrics_exporter = "none"' "$CODEX_CONFIG" \
+    || fail "Codex OpenTelemetry metrics exporter is not disabled."
+grep -Fxq 'log_user_prompt = false' "$CODEX_CONFIG" \
+    || fail "Codex OpenTelemetry prompt logging is not disabled."
 grep -q '^hide_full_access_warning = true$' "$CODEX_CONFIG" \
     || fail "Codex full-access warning acknowledgement not written."
 grep -q '^inherit = "all"$' "$CODEX_CONFIG" \
