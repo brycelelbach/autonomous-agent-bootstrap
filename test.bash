@@ -73,15 +73,11 @@ run_e2e() {
     : "${AAB_CODEX_FIRST_PARTY_MODEL:=gpt-5.5}"
     : "${AAB_CODEX_EFFORT:=xhigh}"
     : "${AAB_CODEX_FIRST_PARTY_API_KEY:=codex-e2e-test-key}"
-    : "${AAB_HERMES_MODEL:=gateway/test-model}"
-    # No /v1 here on purpose — exercises write_hermes_config's /v1 normalization.
-    : "${AAB_HERMES_BASE_URL:=https://gateway.example.com}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
            AAB_CLAUDE_CODE_FIRST_PARTY_MODEL AAB_CLAUDE_CODE_EFFORT \
            AAB_CLAUDE_CODE_INFERENCE_PROVIDER \
            AAB_CODEX_INFERENCE_PROVIDER AAB_CODEX_FIRST_PARTY_MODEL AAB_CODEX_EFFORT \
-           AAB_CODEX_FIRST_PARTY_API_KEY \
-           AAB_HERMES_MODEL AAB_HERMES_BASE_URL
+           AAB_CODEX_FIRST_PARTY_API_KEY
 
     bash bootstrap.bash
     bash tests/e2e-assertions.bash
@@ -201,32 +197,6 @@ run_smoke() {
     fi
     echo "Codex smoke passed."
 
-    # Hermes routes at the configured gateway. Its launcher sources ~/.aab/.env
-    # for AAB_HERMES_API_KEY (referenced by config.yaml's key_env), but pass it
-    # through explicitly too so the smoke works straight from the environment.
-    need hermes
-    local hermes_output
-    local -a hermes_env=(env)
-    local hermes_api_key="${AAB_HERMES_API_KEY:-}"
-    if [ -z "$hermes_api_key" ]; then
-        echo "test.bash: --smoke requires AAB_HERMES_API_KEY for the Hermes gateway." >&2
-        return 1
-    fi
-    hermes_env+=(AAB_HERMES_API_KEY="$hermes_api_key")
-    [ -n "${AAB_HERMES_BASE_URL:-}" ] && hermes_env+=(AAB_HERMES_BASE_URL="$AAB_HERMES_BASE_URL")
-    [ -n "${AAB_HERMES_MODEL:-}" ] && hermes_env+=(AAB_HERMES_MODEL="$AAB_HERMES_MODEL")
-
-    if ! hermes_output=$(timeout 180s "${hermes_env[@]}" hermes -z "$prompt" 2>&1); then
-        printf '%s\n' "$hermes_output" | redact_secrets >&2
-        echo "test.bash: Hermes smoke test failed." >&2
-        return 1
-    fi
-    if ! grep -Fq "$expected" <<<"$hermes_output"; then
-        printf '%s\n' "$hermes_output" | redact_secrets >&2
-        echo "test.bash: Hermes smoke test did not return ${expected}." >&2
-        return 1
-    fi
-    echo "Hermes smoke passed."
     echo "=== live inference smoke passed ==="
 }
 
