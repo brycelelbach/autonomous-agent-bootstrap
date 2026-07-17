@@ -13,6 +13,7 @@ SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
 CLAUDE_MANAGED_SETTINGS_FILE="/etc/claude-code/managed-settings.json"
 CLAUDE_JSON="${HOME}/.claude.json"
 CODEX_CONFIG="${HOME}/.codex/config.toml"
+CODEX_MODEL_INSTRUCTIONS_FILE="${HOME}/.codex/codex-instructions.md"
 CODEX_AUTH="${HOME}/.codex/auth.json"
 BREV_ONBOARDING="${HOME}/.brev/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
@@ -69,6 +70,13 @@ else
     pass "No passwordless sudo for managed settings; Claude policy write correctly skipped."
 fi
 
+# 2b. Codex model instructions are written and selected.
+[ -f "$CODEX_MODEL_INSTRUCTIONS_FILE" ] || fail "Global Codex model instructions not written."
+grep -Fq 'You are Codex, an agent based on GPT-5.' "$CODEX_MODEL_INSTRUCTIONS_FILE"     || fail "Global Codex model instructions are incomplete."
+grep -Fq 'An event-driven monitoring call such as `wait_agent` is exempt' "$CODEX_MODEL_INSTRUCTIONS_FILE"     || fail "Global Codex model instructions do not exempt event-driven waits."
+! grep -Fq 'Avoid performing blocking sleep or wait calls longer than 60 seconds' "$CODEX_MODEL_INSTRUCTIONS_FILE"     || fail "Global Codex model instructions still cap blocking waits at 60 seconds."
+pass "Global Codex model instructions written without a blocking-wait cap."
+
 # 2. config.toml is present and puts Codex in unattended yolo mode.
 [ -f "$CODEX_CONFIG" ] || fail "Codex config.toml not written."
 expected_codex_effort="${AAB_CODEX_EFFORT:-xhigh}"
@@ -93,6 +101,8 @@ case "$expected_codex_service_tier" in
 esac
 grep -Fxq "model = \"${expected_codex_model}\"" "$CODEX_CONFIG" \
     || fail "Codex model is not ${expected_codex_model}."
+grep -Fxq "model_instructions_file = \"${CODEX_MODEL_INSTRUCTIONS_FILE}\"" "$CODEX_CONFIG" \
+    || fail "Codex model_instructions_file does not use the global prompt."
 if [ "$expected_codex_provider" = "third-party-openai" ]; then
     grep -q '^model_provider = "third-party-openai"$' "$CODEX_CONFIG" \
         || fail "Codex model_provider is not third-party-openai."
