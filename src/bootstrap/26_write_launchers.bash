@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# 10b. Install Claude and Codex launcher wrapper families.
+# Write Claude and Codex launcher wrapper families.
 # ---------------------------------------------------------------------------
 _is_aab_launcher_symlink_target() {
     case "$(basename "$1")" in
@@ -16,7 +16,7 @@ _prepare_launcher_real_binary() {
     local agent_name="$1" agent_bin="$2" real_bin="$3" marker="$4"
 
     if [ ! -e "$agent_bin" ]; then
-        warn "${agent_name} binary not found at ${agent_bin}; cannot install launcher wrappers."
+        warn "${agent_name} binary not found at ${agent_bin}; cannot write launcher wrappers."
         exit 1
     fi
 
@@ -25,7 +25,7 @@ _prepare_launcher_real_binary() {
         target=$(readlink "$agent_bin")
         if _is_aab_launcher_symlink_target "$target"; then
             if [ ! -e "$real_bin" ]; then
-                warn "${agent_name} launcher is installed but ${real_bin} is missing."
+                warn "${agent_name} launcher exists but ${real_bin} is missing."
                 exit 1
             fi
             return
@@ -34,7 +34,7 @@ _prepare_launcher_real_binary() {
     elif ! grep -q "$marker" "$agent_bin" 2>/dev/null; then
         mv "$agent_bin" "$real_bin"
     elif [ ! -e "$real_bin" ]; then
-        warn "${agent_name} launcher is installed but ${real_bin} is missing."
+        warn "${agent_name} launcher exists but ${real_bin} is missing."
         exit 1
     fi
 }
@@ -170,7 +170,7 @@ BASH
     mv -f "$tmp" "$launcher"
 }
 
-install_claude_launcher() {
+write_claude_launchers() {
     local launcher_dir="${HOME}/.local/aab-bin"
     local claude_bin="${HOME}/.local/bin/claude"
     local real_bin="${HOME}/.local/bin/claude-aab-real"
@@ -178,7 +178,7 @@ install_claude_launcher() {
     selected_provider=$(normalize_claude_code_inference_provider "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}")
 
     if [ ! -e "$claude_bin" ]; then
-        warn "claude binary not found at ${claude_bin}; cannot install launcher wrappers."
+        warn "claude binary not found at ${claude_bin}; cannot write launcher wrappers."
         exit 1
     fi
 
@@ -199,7 +199,7 @@ install_claude_launcher() {
     # is a regular launcher file rather than a symlink to a provider wrapper.
     mkdir -p "$launcher_dir"
     _write_claude_launcher "$selected_provider" "${launcher_dir}/claude"
-    log "Installed Claude launcher wrappers (selected=${selected_provider}); entrypoint at ${launcher_dir}/claude."
+    log "Wrote Claude launcher wrappers (selected=${selected_provider}); entrypoint at ${launcher_dir}/claude."
 }
 
 _write_codex_launcher() {
@@ -336,7 +336,7 @@ BASH
     mv -f "$tmp" "$launcher"
 }
 
-install_codex_launcher() {
+write_codex_launchers() {
     local codex_bin="${HOME}/.local/bin/codex"
     local real_bin="${HOME}/.local/bin/codex-aab-real"
     local selected_provider
@@ -348,6 +348,5 @@ install_codex_launcher() {
     _write_codex_launcher "third-party-nemotron" "${HOME}/.local/bin/codex-third-party-nemotron"
     _write_codex_launcher "third-party-deepseek" "${HOME}/.local/bin/codex-third-party-deepseek"
     _write_codex_launcher "$selected_provider" "$codex_bin"
-    log "Installed Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
+    log "Wrote Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
 }
-

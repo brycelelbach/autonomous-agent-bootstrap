@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# 9b. Install SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
+# Write SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
 # github.com auth: clone/push over SSH) and/or
 # $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 (for git commit/tag signing). These are
 # two separate roles and the
@@ -87,11 +87,11 @@ PY
     chmod 0600 "$SSH_CONFIG"
 }
 
-# install_auth_ssh_key: Decode $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 to
+# write_auth_ssh_key: Decode $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_auth and wire it as the IdentityFile for github.com in
 # ~/.ssh/config. Does NOT touch git signing config. Silent no-op when the
 # env var is unset.
-install_auth_ssh_key() {
+write_auth_ssh_key() {
     local encoded="${AAB_GH_AUTH_SSH_PRIVATE_KEY_B64:-}"
     local label="AAB_GH_AUTH_SSH_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
@@ -100,18 +100,18 @@ install_auth_ssh_key() {
         warn "base64 not installed; cannot decode ${label}; skipping."
         return
     fi
-    _require_ssh_keygen || { warn "Skipping ${label} install (ssh-keygen unavailable)."; return; }
+    _require_ssh_keygen || { warn "Skipping ${label} write (ssh-keygen unavailable)."; return; }
     _decode_ssh_key "$encoded" "$AUTH_KEY" "$label" || return 0
 
     _rewrite_ssh_config_block "$AUTH_KEY"
-    log "Installed GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
+    log "Wrote GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
 }
 
-# install_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
+# write_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_signing and configure git to sign commits/tags with it.
 # Does NOT touch ~/.ssh/config — this key is for signing only. Silent
 # no-op when the env var is unset.
-install_signing_ssh_key() {
+write_signing_ssh_key() {
     local encoded="${AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64:-}"
     local label="AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
@@ -120,7 +120,7 @@ install_signing_ssh_key() {
         warn "base64 not installed; cannot decode ${label}; skipping."
         return
     fi
-    _require_ssh_keygen || { warn "Skipping ${label} install (ssh-keygen unavailable)."; return; }
+    _require_ssh_keygen || { warn "Skipping ${label} write (ssh-keygen unavailable)."; return; }
     _decode_ssh_key "$encoded" "$SIGNING_KEY" "$label" || return 0
 
     if command -v git >/dev/null 2>&1; then

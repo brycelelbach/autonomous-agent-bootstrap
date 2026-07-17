@@ -730,7 +730,7 @@ PY
     [ ! -f "${SETTINGS_FILE}.pre-autocuda-install.bak" ]
 }
 
-@test "install_codex_launcher wraps codex with dynamic trust and bypass flags" {
+@test "write_codex_launchers wraps codex with dynamic trust and bypass flags" {
     mkdir -p "$HOME/.local/bin" "$TEST_HOME/work/subdir"
     cat > "$TEST_HOME/real-codex" <<SH
 #!/usr/bin/env bash
@@ -739,7 +739,7 @@ SH
     chmod +x "$TEST_HOME/real-codex"
     ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
 
-    install_codex_launcher
+    write_codex_launchers
 
     [ -x "$HOME/.local/bin/codex" ]
     [ -L "$HOME/.local/bin/codex-aab-real" ]
@@ -755,7 +755,7 @@ SH
     grep -Fxq -- '--version' "$TEST_HOME/codex-launcher-args"
 }
 
-@test "install_codex_launcher adds git root to dynamic trust override" {
+@test "write_codex_launchers adds git root to dynamic trust override" {
     command -v git >/dev/null || skip "precondition: git must exist"
     mkdir -p "$HOME/.local/bin" "$TEST_HOME/repo/nested"
     git -C "$TEST_HOME/repo" init >/dev/null
@@ -766,7 +766,7 @@ SH
     chmod +x "$TEST_HOME/real-codex"
     ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
 
-    install_codex_launcher
+    write_codex_launchers
     (
         cd "$TEST_HOME/repo/nested"
         "$HOME/.local/bin/codex" plugin list
@@ -777,7 +777,7 @@ SH
     grep -Fxq -- 'list' "$TEST_HOME/codex-launcher-args"
 }
 
-@test "install_codex_launcher selects third-party OpenAI wrapper and injects provider config" {
+@test "write_codex_launchers selects third-party OpenAI wrapper and injects provider config" {
     mkdir -p "$HOME/.local/bin"
     cat > "$TEST_HOME/real-codex" <<SH
 #!/usr/bin/env bash
@@ -792,7 +792,7 @@ SH
         AAB_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://gateway.example.com/v1" \
         AAB_CODEX_THIRD_PARTY_OPENAI_API_KEY="gateway-test-key" \
         write_aab_env_file
-    AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" install_codex_launcher
+    AAB_CODEX_INFERENCE_PROVIDER="third-party-openai" write_codex_launchers
 
     [ ! -L "$HOME/.local/bin/codex" ]
     grep -q '^provider=third-party-openai$' "$HOME/.local/bin/codex"
@@ -805,7 +805,7 @@ SH
     grep -Fq 'base_url="https://gateway.example.com/v1"' "$TEST_HOME/codex-launcher-args"
 }
 
-@test "install_claude_launcher selects provider wrapper and maps env from .env" {
+@test "write_claude_launchers selects provider wrapper and maps env from .env" {
     mkdir -p "$HOME/.local/bin"
     cat > "$TEST_HOME/real-claude" <<SH
 #!/usr/bin/env bash
@@ -828,7 +828,7 @@ SH
         AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_API_KEY="deepseek-test-key" \
         AAB_CLAUDE_CODE_THIRD_PARTY_DEEPSEEK_MODEL="deepseek-reasoner" \
         write_aab_env_file
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" install_claude_launcher
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-deepseek" write_claude_launchers
 
     # The selected entrypoint lives in ~/.local/aab-bin as a regular launcher
     # file (not a symlink to a provider wrapper); ~/.local/bin/claude is left as
@@ -854,7 +854,7 @@ SH
     grep -Fxq 'auto_compact_window=1000000' "$TEST_HOME/claude-launcher-env"
 }
 
-@test "install_claude_launcher selects nemotron wrapper and maps env from .env" {
+@test "write_claude_launchers selects nemotron wrapper and maps env from .env" {
     mkdir -p "$HOME/.local/bin"
     cat > "$TEST_HOME/real-claude" <<SH
 #!/usr/bin/env bash
@@ -876,7 +876,7 @@ SH
         AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_API_KEY="nemotron-test-key" \
         AAB_CLAUDE_CODE_THIRD_PARTY_NEMOTRON_MODEL="nvidia/nvidia/nemotron-3-ultra" \
         write_aab_env_file
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-nemotron" install_claude_launcher
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="third-party-nemotron" write_claude_launchers
 
     # The selected entrypoint lives in ~/.local/aab-bin as a regular launcher
     # file (not a symlink to a provider wrapper); ~/.local/bin/claude is left as
@@ -899,7 +899,7 @@ SH
     grep -Fxq 'auto_compact_window=262144' "$TEST_HOME/claude-launcher-env"
 }
 
-@test "install_claude_launcher pins subagent model, explicit override or main-agent default" {
+@test "write_claude_launchers pins subagent model, explicit override or main-agent default" {
     mkdir -p "$HOME/.local/bin"
     cat > "$TEST_HOME/real-claude" <<SH
 #!/usr/bin/env bash
@@ -916,7 +916,7 @@ SH
         AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
         AAB_CLAUDE_CODE_SUBAGENT_MODEL="claude-haiku-4-5" \
         write_aab_env_file
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" install_claude_launcher
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" write_claude_launchers
     "$HOME/.local/aab-bin/claude" -p hello
     grep -Fxq 'subagent_model=claude-haiku-4-5' "$TEST_HOME/claude-launcher-env"
 
@@ -924,7 +924,7 @@ SH
     AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" \
         AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-opus-4-7" \
         write_aab_env_file
-    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" install_claude_launcher
+    AAB_CLAUDE_CODE_INFERENCE_PROVIDER="first-party" write_claude_launchers
     "$HOME/.local/aab-bin/claude" -p hello
     grep -Fxq 'model=claude-opus-4-7' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'subagent_model=claude-opus-4-7' "$TEST_HOME/claude-launcher-env"
@@ -1786,7 +1786,7 @@ PY
 }
 
 # ---------------------------------------------------------------------------
-# install_auth_ssh_key / install_signing_ssh_key: cover the two distinct
+# write_auth_ssh_key / write_signing_ssh_key: cover the two distinct
 # roles (GitHub SSH auth vs git commit/tag signing), including:
 #   - skip-on-unset for each
 #   - correct file modes on both key pairs
@@ -1807,15 +1807,15 @@ gen_test_ssh_key_b64() {
     base64 -w0 < "$path"
 }
 
-@test "install_auth_ssh_key is a no-op when AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is unset" {
-    run install_auth_ssh_key
+@test "write_auth_ssh_key is a no-op when AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is unset" {
+    run write_auth_ssh_key
     [ "$status" -eq 0 ]
     [ ! -e "$AUTH_KEY" ]
     [ ! -e "$SSH_CONFIG" ]
 }
 
-@test "install_signing_ssh_key is a no-op when AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 is unset" {
-    run install_signing_ssh_key
+@test "write_signing_ssh_key is a no-op when AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 is unset" {
+    run write_signing_ssh_key
     [ "$status" -eq 0 ]
     [ ! -e "$SIGNING_KEY" ]
     # Signing does NOT touch ~/.ssh/config regardless — double-check nothing appeared.
@@ -1824,10 +1824,10 @@ gen_test_ssh_key_b64() {
     [ -z "$(git config --global --get user.signingkey 2>/dev/null || true)" ]
 }
 
-@test "install_auth_ssh_key writes id_aab_auth (0600) and id_aab_auth.pub (0644)" {
+@test "write_auth_ssh_key writes id_aab_auth (0600) and id_aab_auth.pub (0644)" {
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    install_auth_ssh_key
+    write_auth_ssh_key
 
     [ -f "$AUTH_KEY" ]
     [ -f "$AUTH_KEY_PUB" ]
@@ -1837,10 +1837,10 @@ gen_test_ssh_key_b64() {
     diff <(sort "$AUTH_KEY_PUB") <(sort "$TEST_HOME/generated_key.pub")
 }
 
-@test "install_signing_ssh_key writes id_aab_signing (0600) and id_aab_signing.pub (0644)" {
+@test "write_signing_ssh_key writes id_aab_signing (0600) and id_aab_signing.pub (0644)" {
     AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
-    install_signing_ssh_key
+    write_signing_ssh_key
 
     [ -f "$SIGNING_KEY" ]
     [ -f "$SIGNING_KEY_PUB" ]
@@ -1849,10 +1849,10 @@ gen_test_ssh_key_b64() {
     diff <(sort "$SIGNING_KEY_PUB") <(sort "$TEST_HOME/generated_key.pub")
 }
 
-@test "install_auth_ssh_key writes a managed block in ~/.ssh/config mapping github.com to id_aab_auth" {
+@test "write_auth_ssh_key writes a managed block in ~/.ssh/config mapping github.com to id_aab_auth" {
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    install_auth_ssh_key
+    write_auth_ssh_key
 
     [ -f "$SSH_CONFIG" ]
     grep -qF "$SSH_MARKER_BEGIN" "$SSH_CONFIG"
@@ -1863,11 +1863,11 @@ gen_test_ssh_key_b64() {
     [ "$(stat -c '%a' "$SSH_CONFIG")" = "600" ]
 }
 
-@test "install_auth_ssh_key does NOT configure git signing" {
+@test "write_auth_ssh_key does NOT configure git signing" {
     command -v git >/dev/null || skip "precondition: git must exist"
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    install_auth_ssh_key
+    write_auth_ssh_key
 
     # No signing config should have been written.
     [ -z "$(git config --global --get gpg.format 2>/dev/null || true)" ]
@@ -1876,19 +1876,19 @@ gen_test_ssh_key_b64() {
     [ -z "$(git config --global --get tag.gpgsign 2>/dev/null || true)" ]
 }
 
-@test "install_signing_ssh_key does NOT touch ~/.ssh/config" {
+@test "write_signing_ssh_key does NOT touch ~/.ssh/config" {
     AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
-    install_signing_ssh_key
+    write_signing_ssh_key
 
     [ ! -e "$SSH_CONFIG" ]
 }
 
-@test "install_signing_ssh_key configures git SSH signing (gpg.format, signingkey, commit/tag.gpgsign)" {
+@test "write_signing_ssh_key configures git SSH signing (gpg.format, signingkey, commit/tag.gpgsign)" {
     command -v git >/dev/null || skip "precondition: git must exist"
     AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
-    install_signing_ssh_key
+    write_signing_ssh_key
 
     [ "$(git config --global --get gpg.format)" = "ssh" ]
     [ "$(git config --global --get user.signingkey)" = "$SIGNING_KEY_PUB" ]
@@ -1896,14 +1896,14 @@ gen_test_ssh_key_b64() {
     [ "$(git config --global --get tag.gpgsign)" = "true" ]
 }
 
-@test "install_auth_ssh_key is idempotent (second run: single managed block, file size stable)" {
+@test "write_auth_ssh_key is idempotent (second run: single managed block, file size stable)" {
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    install_auth_ssh_key
+    write_auth_ssh_key
     local size1
     size1=$(wc -c < "$SSH_CONFIG")
 
-    install_auth_ssh_key
+    write_auth_ssh_key
     local begin_count end_count size2
     begin_count=$(grep -cF "$SSH_MARKER_BEGIN" "$SSH_CONFIG")
     end_count=$(grep -cF "$SSH_MARKER_END" "$SSH_CONFIG")
@@ -1913,7 +1913,7 @@ gen_test_ssh_key_b64() {
     [ "$size1" -eq "$size2" ]
 }
 
-@test "install_auth_ssh_key preserves pre-existing non-managed content in ~/.ssh/config" {
+@test "write_auth_ssh_key preserves pre-existing non-managed content in ~/.ssh/config" {
     mkdir -p "$SSH_DIR"
     cat > "$SSH_CONFIG" <<'EOF'
 Host gitlab.com
@@ -1922,7 +1922,7 @@ Host gitlab.com
 EOF
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64
-    install_auth_ssh_key
+    write_auth_ssh_key
 
     # Original content still present.
     grep -qE "^Host gitlab.com$" "$SSH_CONFIG"
@@ -1932,32 +1932,32 @@ EOF
     grep -qE "^Host github.com$" "$SSH_CONFIG"
 }
 
-@test "install_auth_ssh_key warns and skips on invalid-base64 input" {
+@test "write_auth_ssh_key warns and skips on invalid-base64 input" {
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64="this is not base64!@#"
-    run install_auth_ssh_key
+    run write_auth_ssh_key
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 is not valid base64"* ]] \
         || [[ "$output" == *"AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
     [ ! -e "$AUTH_KEY" ]
 }
 
-@test "install_signing_ssh_key warns and skips on decoded-garbage input" {
+@test "write_signing_ssh_key warns and skips on decoded-garbage input" {
     export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64="$(printf 'not-an-ssh-key' | base64 -w0)"
-    run install_signing_ssh_key
+    run write_signing_ssh_key
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 did not decode to a valid SSH private key"* ]]
     [ ! -e "$SIGNING_KEY" ]
     [ ! -e "$SIGNING_KEY_PUB" ]
 }
 
-@test "auth and signing keys can be set independently (different keys, both installed)" {
+@test "auth and signing keys can be set independently (different keys, both written)" {
     # Generate two distinct keys, set each env var to a different encoding.
     AAB_GH_AUTH_SSH_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/auth_key")
     AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/sign_key")
     export AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
 
-    install_auth_ssh_key
-    install_signing_ssh_key
+    write_auth_ssh_key
+    write_signing_ssh_key
 
     # Both keys are on disk, at different paths.
     [ -f "$AUTH_KEY" ]
@@ -1973,9 +1973,9 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# install_git_hooks / write_agent_rules: the global commit-identity
+# configure_git_hooks / write_agent_rules: the global commit-identity
 # enforcement hook plus the agent instruction-file rules. Cover:
-#   - hook dispatcher + per-name symlinks installed, core.hooksPath set
+#   - hook dispatcher + per-name symlinks configured, core.hooksPath set
 #   - the emitted dispatcher is valid bash
 #   - idempotent re-runs (one rule block, stable symlink count)
 #   - functional enforcement: a matching identity commits, an overridden one
@@ -1988,22 +1988,22 @@ EOF
 # ---------------------------------------------------------------------------
 
 # Stage a committable repo under $TEST_HOME with the global identity pinned and
-# the hooks installed. Echoes the repo path. The bootstrap helpers log to
+# the hooks configured. Echoes the repo path. The bootstrap helpers log to
 # stdout, so redirect their chatter to stderr to keep the echoed path clean.
 _setup_enforced_repo() {
     command -v git >/dev/null || skip "precondition: git must exist"
     AAB_GIT_AUTHOR_NAME="Global Name" \
         AAB_GIT_AUTHOR_EMAIL="global@example.com" \
         configure_git >&2
-    install_git_hooks >&2
+    configure_git_hooks >&2
     local repo="$TEST_HOME/repo"
     git init -q "$repo"
     printf '%s\n' "$repo"
 }
 
-@test "install_git_hooks installs the dispatcher, per-name symlinks, and sets core.hooksPath" {
+@test "configure_git_hooks configures the dispatcher, per-name symlinks, and sets core.hooksPath" {
     command -v git >/dev/null || skip "precondition: git must exist"
-    install_git_hooks
+    configure_git_hooks
     [ -x "$GIT_HOOK_DISPATCHER" ]
     [ "$(git config --global --get core.hooksPath)" = "$GIT_HOOKS_DIR" ]
     local name
@@ -2019,12 +2019,12 @@ _setup_enforced_repo() {
     head -1 "$TEST_HOME/hook" | grep -q '^#!/usr/bin/env bash$'
 }
 
-@test "install_git_hooks is idempotent (stable symlink count, hooksPath set once)" {
+@test "configure_git_hooks is idempotent (stable symlink count, hooksPath set once)" {
     command -v git >/dev/null || skip "precondition: git must exist"
-    install_git_hooks
+    configure_git_hooks
     local count1
     count1=$(find "$GIT_HOOKS_DIR" -maxdepth 1 -type l | wc -l)
-    install_git_hooks
+    configure_git_hooks
     local count2
     count2=$(find "$GIT_HOOKS_DIR" -maxdepth 1 -type l | wc -l)
     [ "$count1" -eq "$count2" ]
@@ -2100,7 +2100,7 @@ _setup_enforced_repo() {
 
 @test "enforcement: no global identity pinned is a no-op (commit allowed)" {
     command -v git >/dev/null || skip "precondition: git must exist"
-    install_git_hooks
+    configure_git_hooks
     local repo="$TEST_HOME/repo"
     git init -q "$repo"
     cd "$repo"
@@ -2152,7 +2152,7 @@ RH
     git config --global commit.gpgsign true
     git config --global gpg.format ssh
     git config --global user.signingkey "$TEST_HOME/fake.pub"
-    install_git_hooks
+    configure_git_hooks
     local repo="$TEST_HOME/repo"
     git init -q "$repo"
     cd "$repo"

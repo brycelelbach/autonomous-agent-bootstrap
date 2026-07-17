@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# 9b-bis. Install gitleaks, the secret scanner the pre-commit hook runs. A
+# Install gitleaks, the secret scanner the pre-commit hook runs. A
 # single static Go binary (MIT, offline — no network at scan time), pinned to
 # the same version and verified against the same per-arch SHA-256 the CI
 # secret-scan job uses, so a commit blocked locally is a commit blocked in CI.
@@ -89,4 +89,3 @@ install_gitleaks() {
     rm -rf "$tmp"
     log "Installed gitleaks ${GITLEAKS_VERSION} at ${GITLEAKS_BIN}."
 }
-

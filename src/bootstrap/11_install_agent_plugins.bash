@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# 10. Install agent plugins listed in agent_plugins.txt.
+# Install agent plugins listed in agent_plugins.txt.
 #
 # Each line is a GitHub owner/repo that hosts a plugin marketplace
 # containing .claude-plugin/marketplace.json. Claude Code and Codex both
