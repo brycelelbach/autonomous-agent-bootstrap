@@ -625,7 +625,7 @@ SH
 @test "install_autocuda installs its package from a pinned git ref" {
     setup_fake_uv
 
-    run _install_autocuda_package
+    run install_autocuda
     [ "$status" -eq 0 ]
     # Installed as its own isolated uv tool, not into a shared interpreter.
     grep -Fq "tool install git+https://github.com/${AUTOCUDA_PRIVATE_REPO}@${AUTOCUDA_REF}" "$TEST_HOME/uv-invocations"
@@ -635,7 +635,7 @@ SH
     setup_fake_uv
     export UV_FAIL_TOOL_INSTALL=1
 
-    run _install_autocuda_package
+    run install_autocuda
     # Best effort: a failed install is never fatal.
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN:"*"autocuda"* ]]
@@ -658,12 +658,13 @@ SH
     chmod +x "$FAKE_UV_BIN/uv"
     export AAB_GH_TOKEN="ghp_faketoken123"
 
-    run _install_autocuda_package
+    run install_autocuda
     [ "$status" -eq 0 ]
     grep -Fq 'KEY0=url.https://x-access-token:ghp_faketoken123@github.com/.insteadOf VALUE0=https://github.com/' "$TEST_HOME/uv-git-env"
 }
 
 @test "install_autocuda configures plugins when autocuda is on PATH" {
+    setup_fake_uv
     local fake_bin="$TEST_HOME/fake-autocuda-bin"
     mkdir -p "$fake_bin"
     cat > "$fake_bin/autocuda" <<SH
@@ -671,24 +672,26 @@ SH
 printf '%s\n' "\$*" >> "$TEST_HOME/autocuda-invocations"
 SH
     chmod +x "$fake_bin/autocuda"
-    PATH="$fake_bin:$PATH" run _configure_autocuda
+    PATH="$fake_bin:$PATH" run install_autocuda
     [ "$status" -eq 0 ]
     grep -Fxq 'install' "$TEST_HOME/autocuda-invocations"
 }
 
 @test "install_autocuda configuration warns and skips when autocuda is not on PATH" {
+    setup_fake_uv
     # A PATH without autocuda: the private install was skipped, so this is a
     # graceful no-op warning rather than an error.
-    PATH="/usr/bin:/bin" run _configure_autocuda
+    PATH="$FAKE_UV_BIN:/usr/bin:/bin" run install_autocuda
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN:"*"autocuda"* ]]
     [ ! -f "$TEST_HOME/autocuda-invocations" ]
 }
 
 @test "install_autocuda restores AAB-managed settings.json keys that autocuda install strips" {
+    setup_fake_uv
     # autocuda install shells out to claude's plugin CLI, which re-serialises
     # settings.json and drops top-level keys like effortLevel. The fake autocuda
-    # below reproduces that strip; _configure_autocuda must re-merge them.
+    # below reproduces that strip; install_autocuda must re-merge them.
     mkdir -p "$CLAUDE_DIR"
     cat > "$SETTINGS_FILE" <<'JSON'
 {
@@ -714,7 +717,7 @@ PY
 SH
     chmod +x "$fake_bin/autocuda"
 
-    PATH="$fake_bin:$PATH" run _configure_autocuda
+    PATH="$fake_bin:$PATH" run install_autocuda
     [ "$status" -eq 0 ]
     # effortLevel is re-merged from the snapshot; the marketplace autocuda
     # install added survives (live value wins where present).
