@@ -35,7 +35,7 @@ jobs:
 
   e2e:
     name: End-to-end bootstrap
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: ./test.bash --e2e
@@ -62,8 +62,12 @@ jobs:
           fetch-depth: 0
       - name: Install gitleaks
         run: |
-          VERSION=8.18.4
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
-            | sudo tar -xz -C /usr/local/bin gitleaks
+          source src/bootstrap/00_versions.bash
+          archive="$(mktemp)"
+          curl -sSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o "$archive"
+          printf '%s  %s\n' "$GITLEAKS_SHA256_LINUX_X64" "$archive" | sha256sum -c -
+          sudo tar -xzf "$archive" -C /usr/local/bin gitleaks
       - name: ./test.bash --secrets
         run: ./test.bash --secrets

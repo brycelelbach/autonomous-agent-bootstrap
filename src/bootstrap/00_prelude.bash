@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# Bootstrap fresh, non-interactive Claude Code and Codex installs on a Linux host.
+#
+# The script installs Claude Code, Codex, Brev, gh, base packages, agent
+# plugins, git credentials, optional SSH keys, and unattended-mode config. It
+# writes AAB runtime configuration to ~/.aab/.env and installs wrapper families
+# that source that file:
+#
+#   claude plus claude-first-party, claude-third-party-anthropic,
+#   claude-third-party-deepseek, and claude-third-party-nemotron
+#   codex plus codex-first-party and codex-third-party-openai
+#
+# AAB_CLAUDE_CODE_INFERENCE_PROVIDER selects the unqualified claude launcher:
+#   first-party, third-party-anthropic, third-party-deepseek, or third-party-nemotron.
+#
+# AAB_CODEX_INFERENCE_PROVIDER selects the unqualified codex launcher:
+#   first-party or third-party-openai.
+#
+# Provider credentials and model names are kept out of ~/.bashrc and
+# /etc/environment. The managed ~/.bashrc block only puts ~/.local/bin on PATH
+# and exports non-secret unattended-mode defaults.
+#
+# Can be run from a local checkout or piped via `curl ... | bash`. Safe to
+# re-run: existing settings.json, config.toml, and .claude.json are backed up
+# before overwrite, and AAB-managed wrapper/config files are replaced wholesale.
+#
+# Optional config input — settings using the env-var contract above can
+# come in via either of two channels (in order of preference):
+#
+#   1. Positional arg: a path to a config file
+#      (`bash bootstrap.bash ./aab.conf` or `curl ... | bash -s -- ./aab.conf`).
+#   2. Stdin pipe: heredoc, file redirect, or any non-TTY stdin
+#      (`bash bootstrap.bash <<EOF ... EOF`,
+#       `bash <(curl ...) <<EOF ... EOF`).
+#
+# The file (or piped content) is sourced via `set -a; . file; set +a`, so
+# it has full access to bash syntax: `${VAR:-default}`, `$(cmd)`, multi-
+# line strings, comments. Values containing shell metacharacters (`&`,
+# `|`, `;`, `$`, …) need to be quoted; plain `KEY=value` lines do not.
+#
+# Caller-supplied env vars beat file values: `FOO=override bash
+# bootstrap.bash aab.conf` is a one-line debug override without touching
+# the file. An explicitly-empty `FOO= bash …` counts as set and still
+# wins.
+
+set -euo pipefail
+
+CLAUDE_DIR="${HOME}/.claude"
+SETTINGS_FILE="${CLAUDE_DIR}/settings.json"
+CLAUDE_MANAGED_SETTINGS_FILE="${CLAUDE_MANAGED_SETTINGS_FILE:-/etc/claude-code/managed-settings.json}"
+CLAUDE_JSON="${HOME}/.claude.json"
+AAB_DIR="${HOME}/.aab"
+AAB_ENV_FILE="${AAB_DIR}/.env"
+AAB_SHELL_CONFIG_DIR="${AAB_DIR}/shell"
+CLAUDE_SHELL_CONFIG_FILE="${AAB_SHELL_CONFIG_DIR}/claude.env"
+CODEX_DIR="${HOME}/.codex"
+CODEX_CONFIG="${CODEX_DIR}/config.toml"
+CODEX_MODEL_INSTRUCTIONS_FILE="${CODEX_DIR}/codex-instructions.md"
+BREV_DIR="${HOME}/.brev"
+BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
+BASHRC="${HOME}/.bashrc"
+PROFILE="${HOME}/.profile"
+AAB_BOOTSTRAP_REPO="${AAB_BOOTSTRAP_REPO:-__AAB_BOOTSTRAP_REPO__}"
+AAB_BOOTSTRAP_REF="${AAB_BOOTSTRAP_REF:-__AAB_BOOTSTRAP_REF__}"
+BASHRC_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
+BASHRC_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+SSH_DIR="${HOME}/.ssh"
+SSH_CONFIG="${SSH_DIR}/config"
+AUTH_KEY="${SSH_DIR}/id_aab_auth"
+AUTH_KEY_PUB="${AUTH_KEY}.pub"
+SIGNING_KEY="${SSH_DIR}/id_aab_signing"
+SIGNING_KEY_PUB="${SIGNING_KEY}.pub"
+SSH_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
+SSH_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+GIT_HOOKS_DIR="${AAB_DIR}/git-hooks"
+GIT_HOOK_DISPATCHER="${GIT_HOOKS_DIR}/aab-git-hook"
+GITLEAKS_BIN="${HOME}/.local/bin/gitleaks"
+# git hook names the dispatcher is symlinked under. core.hooksPath replaces
+# the per-repo hooks dir wholesale, so we cover the hooks git invokes around a
+# commit / push and chain through to any repo-local hook of the same name.
+GIT_HOOK_NAMES=(
+    pre-commit
+    prepare-commit-msg
+    commit-msg
+    post-commit
+    pre-merge-commit
+    pre-rebase
+    post-checkout
+    post-merge
+    pre-push
+    post-rewrite
+    applypatch-msg
+    pre-applypatch
+    post-applypatch
+    sendemail-validate
+)
+CLAUDE_MEMORY_FILE="${CLAUDE_DIR}/CLAUDE.md"
+CODEX_AGENTS_FILE="${CODEX_DIR}/AGENTS.md"
+AGENT_RULES_MARKER_BEGIN="# >>> autonomous-agent-bootstrap >>>"
+AGENT_RULES_MARKER_END="# <<< autonomous-agent-bootstrap <<<"
+# Path to the uv binary, resolved by install_uv and consumed by the uv tool
+# install steps.
+UV_BIN=""
+DEFAULT_CLAUDE_CODE_MODEL="claude-opus-4-8"
+DEFAULT_CLAUDE_CODE_HAIKU_MODEL="claude-haiku-4-5"
+DEFAULT_CLAUDE_CODE_SONNET_MODEL="claude-sonnet-4-6"
+DEFAULT_CLAUDE_CODE_OPUS_MODEL="claude-opus-4-8"
+DEFAULT_CLAUDE_CODE_EFFORT="max"
+DEFAULT_CODEX_MODEL="gpt-5.5"
+DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER="first-party"
+DEFAULT_CODEX_INFERENCE_PROVIDER="first-party"
+DEFAULT_CODEX_THIRD_PARTY_OPENAI_MODEL="openai/openai/gpt-5.5"
+DEFAULT_CODEX_THIRD_PARTY_OPENAI_BASE_URL="https://inference-api.nvidia.com/v1"
+DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_MODEL="nvidia/nemotron-3-ultra"
+DEFAULT_CODEX_THIRD_PARTY_NEMOTRON_BASE_URL="https://integrate.api.nvidia.com/v1"
+DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_MODEL="deepseek/deepseek-v4-pro"
+DEFAULT_CODEX_THIRD_PARTY_DEEPSEEK_BASE_URL="https://api.deepseek.com/v1"
+DEFAULT_CODEX_REASONING_EFFORT="xhigh"
+DEFAULT_CODEX_SERVICE_TIER="priority"
+DEFAULT_CODEX_AGENT_MAX_THREADS="64"
+log() { printf '[bootstrap] %s\n' "$*"; }
+warn() { printf '[bootstrap] WARN: %s\n' "$*" >&2; }
+
+normalize_claude_code_inference_provider() {
+    local provider="${1:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}"
+    case "$provider" in
+        first-party|third-party-anthropic|third-party-deepseek|third-party-nemotron)
+            printf '%s' "$provider"
+            ;;
+        *)
+            warn "AAB_CLAUDE_CODE_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-anthropic', 'third-party-deepseek', or 'third-party-nemotron'; defaulting to '${DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}'."
+            printf '%s' "$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER"
+            ;;
+    esac
+}
+
+normalize_codex_inference_provider() {
+    local provider="${1:-$DEFAULT_CODEX_INFERENCE_PROVIDER}"
+    case "$provider" in
+        first-party|third-party-openai|third-party-nemotron|third-party-deepseek)
+            printf '%s' "$provider"
+            ;;
+        *)
+            warn "AAB_CODEX_INFERENCE_PROVIDER='${provider}' is not 'first-party', 'third-party-openai', 'third-party-nemotron', or 'third-party-deepseek'; defaulting to '${DEFAULT_CODEX_INFERENCE_PROVIDER}'."
+            printf '%s' "$DEFAULT_CODEX_INFERENCE_PROVIDER"
+            ;;
+    esac
+}
+
+_write_shell_export() {
+    local name="$1" value="${2:-}"
+    printf 'export %s=%q\n' "$name" "$value"
+}
+
+need_sudo() {
+    if [ "$(id -u)" -eq 0 ]; then echo ""; else echo "sudo"; fi
+}
+SUDO=$(need_sudo)

@@ -1,0 +1,83 @@
+name: Publish generated bootstrap
+
+on:
+  push:
+    branches-ignore:
+      - generated
+      - generated/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Compile and publish curlable bootstrap
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve generated branch
+        id: generated
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_branch="${GITHUB_REF_NAME}"
+          if [ "$source_branch" = "main" ]; then
+            generated_branch="generated"
+          else
+            generated_branch="generated/${source_branch}"
+          fi
+          printf 'branch=%s\n' "$generated_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Compile bootstrap.bash
+        run: |
+          python3 tools/compile_bootstrap.py \
+            --bootstrap-repo "${GITHUB_REPOSITORY}" \
+            --bootstrap-ref "${{ steps.generated.outputs.branch }}"
+          bash -n bootstrap.bash
+
+      - name: Publish generated branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          generated_branch="${{ steps.generated.outputs.branch }}"
+          worktree="$(mktemp -d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git ls-remote --exit-code --heads origin "$generated_branch" >/dev/null 2>&1; then
+            git worktree add "$worktree" "origin/$generated_branch"
+            git -C "$worktree" switch -C "$generated_branch"
+          else
+            git worktree add --detach "$worktree" HEAD
+            git -C "$worktree" switch --orphan "$generated_branch"
+          fi
+
+          find "$worktree" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          install -m 0755 bootstrap.bash "$worktree/bootstrap.bash"
+          install -m 0644 apt_packages.txt "$worktree/apt_packages.txt"
+          install -m 0644 uv_tools.txt "$worktree/uv_tools.txt"
+          cat > "$worktree/README.md" <<EOF
+          # Generated autonomous-agent-bootstrap artifact
+
+          Source branch: ${GITHUB_REF_NAME}
+          Source commit: ${GITHUB_SHA}
+
+          Curl this generated artifact with:
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${generated_branch}/bootstrap.bash | bash
+          \`\`\`
+          EOF
+
+          git -C "$worktree" add bootstrap.bash apt_packages.txt uv_tools.txt README.md
+          if git -C "$worktree" diff --cached --quiet; then
+            echo "Generated branch ${generated_branch} already up to date."
+          else
+            git -C "$worktree" commit -m "Generate bootstrap for ${GITHUB_REF_NAME}"
+            git -C "$worktree" push origin "HEAD:${generated_branch}"
+          fi
+          git worktree remove --force "$worktree"

@@ -9,9 +9,12 @@
 # brycelelbach-private and bootstrap.bash installs it in its own best-effort
 # step that tolerates a host without repository access.
 
-# ruff: the linter / formatter. Pinned to the version the ruff-pre-commit hook
-# resolves to, so a bare `ruff` matches what `pre-commit run` invokes.
-ruff==0.15.12
+# Versions for these built-in tools live in src/bootstrap/00_versions.bash.
+# Custom lists may add additional tools, but every custom entry must use an
+# explicit `package==version` specifier.
+
+# ruff: the linter / formatter.
+ruff
 
 # pre-commit: the hook runner projects bootstrapped on this host run locally
 # and in CI.

@@ -19,6 +19,11 @@ BREV_ONBOARDING="${HOME}/.brev/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
 PROFILE="${HOME}/.profile"
 AAB_ENV_FILE="${HOME}/.aab/.env"
+CLAUDE_SHELL_CONFIG_FILE="${HOME}/.aab/shell/claude.env"
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${REPO_ROOT}/bootstrap.bash"
 
 # 1. settings.json is well-formed and has the expected shape.
 [ -f "$SETTINGS_FILE" ] || fail "settings.json not written."
@@ -231,17 +236,16 @@ aab_line=$(grep -n 'export PATH="$HOME/.local/aab-bin:$PATH"' "$BASHRC" | head -
 ! grep -q '^export GH_TOKEN=' "$BASHRC" || fail "GitHub token should not be exported from bashrc."
 pass "bashrc managed block keeps credentials out."
 
-# 8. DEBUG_SDK=1 is exported (provider-agnostic) so Claude Code writes
-# its debug logs to ~/.claude/debug/<uuid>.txt for every invocation.
-grep -q 'export DEBUG_SDK=1' "$BASHRC" \
-    || fail "DEBUG_SDK=1 export missing from bashrc managed block."
-pass "DEBUG_SDK=1 exported (claude debug logging on)."
-
-# 8b. CLAUDE_CODE_EFFORT_LEVEL mirrors AAB_CLAUDE_CODE_EFFORT, defaulting
-# to max so non-interactive launches keep the same effort setting.
-grep -q 'export CLAUDE_CODE_EFFORT_LEVEL="max"' "$BASHRC" \
-    || fail "CLAUDE_CODE_EFFORT_LEVEL=max export missing from bashrc managed block."
-pass "CLAUDE_CODE_EFFORT_LEVEL=max exported."
+# 8. Claude owns its shell defaults; the generic bashrc block only sources
+# per-harness files.
+[ -f "$CLAUDE_SHELL_CONFIG_FILE" ] || fail "Claude shell config not written."
+grep -q '^export DEBUG_SDK=1$' "$CLAUDE_SHELL_CONFIG_FILE" \
+    || fail "DEBUG_SDK=1 missing from Claude shell config."
+grep -q '^export CLAUDE_CODE_EFFORT_LEVEL=max$' "$CLAUDE_SHELL_CONFIG_FILE" \
+    || fail "CLAUDE_CODE_EFFORT_LEVEL=max missing from Claude shell config."
+grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC" \
+    || fail "bashrc does not source per-harness shell configuration."
+pass "Claude shell defaults are encapsulated and sourced generically."
 
 # 9. The bashrc block sources cleanly.
 bash -n "$BASHRC" || fail "bashrc has syntax errors."
@@ -302,6 +306,8 @@ login_claude=$(bash -lc 'command -v claude' 2>/dev/null) \
     || fail "claude not resolvable in a login shell."
 [ "$login_claude" = "$HOME/.local/aab-bin/claude" ] \
     || fail "login shell resolves claude to ${login_claude}, not the launcher dir."
+"$HOME/.local/bin/claude" --version 2>&1 | grep -Fq "$CLAUDE_CODE_VERSION" \
+    || fail "Claude Code is not the pinned version $CLAUDE_CODE_VERSION."
 pass "claude wrapper family installed and selected (launcher dir wins on PATH)."
 claude_plugins=$(claude plugin list 2>&1) || fail "claude plugin list failed."
 case "$claude_plugins" in
@@ -319,7 +325,8 @@ grep -q "^provider=${expected_codex_provider}$" "$HOME/.local/bin/codex" \
 [ -x "$HOME/.local/bin/codex-third-party-openai" ] || fail "codex-third-party-openai wrapper missing."
 [ -x "$HOME/.local/bin/codex-aab-real" ] \
     || fail "Codex real binary link not installed."
-codex --version >/dev/null 2>&1 || fail "codex binary does not run."
+"$HOME/.local/bin/codex-aab-real" --version 2>&1 | grep -Fq "$CODEX_VERSION" \
+    || fail "Codex is not the pinned version $CODEX_VERSION."
 pass "codex wrapper family installed and runnable."
 codex_plugins=$(codex plugin list 2>&1) || fail "codex plugin list failed."
 case "$codex_plugins" in
@@ -349,6 +356,8 @@ PY
     pass "Codex first-party API-key auth configured."
 fi
 command -v brev   >/dev/null 2>&1 || fail "brev not on PATH after bootstrap."
+brev --version 2>&1 | grep -Fq "Current Version: v${BREV_VERSION}" \
+    || fail "Brev is not the pinned version $BREV_VERSION."
 pass "brev binary installed and on PATH."
 if [ -n "${AAB_BREV_API_KEY:-}" ] || [ -n "${AAB_BREV_ORG_ID:-}" ]; then
     [ -n "${AAB_BREV_API_KEY:-}" ] || fail "AAB_BREV_API_KEY missing while AAB_BREV_ORG_ID is set."
@@ -358,6 +367,8 @@ if [ -n "${AAB_BREV_API_KEY:-}" ] || [ -n "${AAB_BREV_ORG_ID:-}" ]; then
     pass "Brev API-key auth configured."
 fi
 command -v gh     >/dev/null 2>&1 || fail "gh not on PATH after bootstrap."
+gh --version 2>&1 | grep -Fq "gh version ${GH_VERSION} " \
+    || fail "gh is not the pinned version $GH_VERSION."
 pass "gh binary installed."
 
 # 11. git identity was configured.
@@ -419,8 +430,8 @@ pass "git hook allows the configured identity and blocks overrides."
 GITLEAKS_BIN="${HOME}/.local/bin/gitleaks"
 [ -x "$GITLEAKS_BIN" ] || fail "gitleaks not installed at $GITLEAKS_BIN."
 gl_ver=$("$GITLEAKS_BIN" version 2>/dev/null | tr -d 'v[:space:]')
-[ "$gl_ver" = "8.18.4" ] \
-    || fail "gitleaks at $GITLEAKS_BIN is version '$gl_ver', expected 8.18.4."
+[ "$gl_ver" = "$GITLEAKS_VERSION" ] \
+    || fail "gitleaks at $GITLEAKS_BIN is version '$gl_ver', expected $GITLEAKS_VERSION."
 secret_repo=$(mktemp -d)
 git init -q "$secret_repo"
 (
@@ -510,10 +521,13 @@ for tool in ruff pre-commit; do
         *) fail "$tool at $LOCAL_BIN/$tool resolves to $tool_real, not a uv tool env under $UV_TOOLS_DIR." ;;
     esac
 done
-ruff --version 2>&1 | grep -Fq "0.15.12" \
-    || fail "ruff is not the ruff-pre-commit hook version 0.15.12."
-pre-commit --version >/dev/null 2>&1 || fail "pre-commit is present but does not run."
-pass "ruff (0.15.12) and pre-commit installed as uv tools, on PATH and runnable."
+uv --version 2>&1 | grep -Fq "uv ${UV_VERSION} " \
+    || fail "uv is not the pinned version $UV_VERSION."
+ruff --version 2>&1 | grep -Fq "$RUFF_VERSION" \
+    || fail "ruff is not the pinned version $RUFF_VERSION."
+pre-commit --version 2>&1 | grep -Fq "$PRE_COMMIT_VERSION" \
+    || fail "pre-commit is not the pinned version $PRE_COMMIT_VERSION."
+pass "uv, ruff, and pre-commit installed at their pinned versions."
 
 # The managed ~/.bashrc block puts ~/.local/bin (with the uv tool symlinks)
 # ahead of the system dirs. The block sits after ~/.bashrc's interactive-only
