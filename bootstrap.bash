@@ -17,11 +17,13 @@
 #   codex plus codex-first-party-<profile> and codex-third-party-<profile>
 #   pi plus pi-<profile>
 #
-# AAB_CLAUDE_PROFILE and AAB_CODEX_PROFILE select the unqualified launchers.
+# AAB_CLAUDE_DEFAULT_PROFILE and AAB_CODEX_DEFAULT_PROFILE select the
+# unqualified launchers.
 # Source remains part of each profile rather than being selected harness-wide.
 #
-# AAB_PI_PROFILE selects the unqualified Pi launcher. Pi is always routed
-# through the shared inference gateway, so its aliases omit "third-party".
+# AAB_PI_DEFAULT_PROFILE selects the unqualified Pi launcher. Pi is always
+# routed through the shared inference gateway, so its aliases omit
+# "third-party".
 #
 # Provider credentials and model names are kept out of ~/.bashrc and
 # /etc/environment. The managed ~/.bashrc block only puts ~/.local/bin on PATH
@@ -1227,12 +1229,12 @@ configure_aab_env_file() {
         printf '# Written by autonomous-agent-bootstrap. Re-run bootstrap.bash to update.\n'
         _write_shell_export AAB_CLAUDE_FIRST_PARTY_PROFILES "$claude_first_party_profiles"
         _write_shell_export AAB_CLAUDE_THIRD_PARTY_PROFILES "$claude_third_party_profiles"
-        _write_shell_export AAB_CLAUDE_PROFILE "${claude_profile[source]}/${claude_profile[name]}"
+        _write_shell_export AAB_CLAUDE_DEFAULT_PROFILE "${claude_profile[source]}/${claude_profile[name]}"
         _write_shell_export AAB_CODEX_FIRST_PARTY_PROFILES "$codex_first_party_profiles"
         _write_shell_export AAB_CODEX_THIRD_PARTY_PROFILES "$codex_third_party_profiles"
-        _write_shell_export AAB_CODEX_PROFILE "${codex_profile[source]}/${codex_profile[name]}"
+        _write_shell_export AAB_CODEX_DEFAULT_PROFILE "${codex_profile[source]}/${codex_profile[name]}"
         _write_shell_export AAB_PI_PROFILES "$pi_profiles"
-        _write_shell_export AAB_PI_PROFILE "$pi_profile_name"
+        _write_shell_export AAB_PI_DEFAULT_PROFILE "$pi_profile_name"
         _write_shell_export AAB_INFERENCE_GATEWAY_URL "${AAB_INFERENCE_GATEWAY_URL:-}"
         _write_shell_export AAB_INFERENCE_GATEWAY_API_KEY "${AAB_INFERENCE_GATEWAY_API_KEY:-}"
         if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
@@ -1316,6 +1318,7 @@ _parse_model_profile_line() {
     result[context]=""
     result["max_tokens"]=""
     result[subagent]=""
+    result[thinking]=""
     case "$harness" in
         claude)
             result[effort]="$DEFAULT_CLAUDE_CODE_EFFORT"
@@ -1388,6 +1391,15 @@ _parse_model_profile_line() {
         result[sonnet]="${result[sonnet]:-${result[model]}}"
         result[opus]="${result[opus]:-${result[model]}}"
         result[subagent]="${result[subagent]:-${result[model]}}"
+    elif [ "$harness" = "pi" ]; then
+        case "${result[effort]}" in
+            off|minimal|low|medium|high|xhigh)
+                result[thinking]="${result[effort]}"
+                ;;
+            *)
+                result[thinking]="xhigh"
+                ;;
+        esac
     fi
 }
 
@@ -1448,24 +1460,24 @@ resolve_model_profile() {
 
     case "$harness" in
         claude)
-            if [ "${AAB_CLAUDE_PROFILE+x}" = x ]; then
-                selection="$AAB_CLAUDE_PROFILE"
+            if [ "${AAB_CLAUDE_DEFAULT_PROFILE+x}" = x ]; then
+                selection="$AAB_CLAUDE_DEFAULT_PROFILE"
                 explicit_selection=1
             else
                 selection="$DEFAULT_CLAUDE_PROFILE"
             fi
             ;;
         codex)
-            if [ "${AAB_CODEX_PROFILE+x}" = x ]; then
-                selection="$AAB_CODEX_PROFILE"
+            if [ "${AAB_CODEX_DEFAULT_PROFILE+x}" = x ]; then
+                selection="$AAB_CODEX_DEFAULT_PROFILE"
                 explicit_selection=1
             else
                 selection="$DEFAULT_CODEX_PROFILE"
             fi
             ;;
         pi)
-            if [ "${AAB_PI_PROFILE+x}" = x ]; then
-                selection="$AAB_PI_PROFILE"
+            if [ "${AAB_PI_DEFAULT_PROFILE+x}" = x ]; then
+                selection="$AAB_PI_DEFAULT_PROFILE"
                 explicit_selection=1
             else
                 selection="$DEFAULT_PI_PROFILE"
@@ -1474,7 +1486,7 @@ resolve_model_profile() {
                 return 0
             fi
             if [ "$explicit_selection" -eq 1 ]; then
-                warn "AAB_PI_PROFILE='${selection}' does not name a configured Pi profile."
+                warn "AAB_PI_DEFAULT_PROFILE='${selection}' does not name a configured Pi profile."
                 return 1
             fi
             _first_model_profile pi third-party "$result_name"
@@ -1496,7 +1508,7 @@ resolve_model_profile() {
     case "$source" in
         first-party|third-party) ;;
         *)
-            warn "AAB_${harness^^}_PROFILE='${selection}' must use first-party/<profile> or third-party/<profile>."
+            warn "AAB_${harness^^}_DEFAULT_PROFILE='${selection}' must use first-party/<profile> or third-party/<profile>."
             return 1
             ;;
     esac
@@ -1505,7 +1517,7 @@ resolve_model_profile() {
         return 0
     fi
     if [ "$explicit_selection" -eq 1 ]; then
-        warn "AAB_${harness^^}_PROFILE='${selection}' does not name a configured ${harness} profile."
+        warn "AAB_${harness^^}_DEFAULT_PROFILE='${selection}' does not name a configured ${harness} profile."
         return 1
     fi
     if _first_model_profile "$harness" first-party "$result_name"; then
@@ -2721,10 +2733,11 @@ configure_pi_models() {
     local -A profile=()
     while IFS= read -r line; do
         _parse_model_profile_line pi third-party "$line" profile
-        printf '%s\t%s\t%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
             "${profile[name]}" \
             "${profile[model]}" \
             "${profile[effort]}" \
+            "${profile[thinking]}" \
             "${profile[context]}" \
             "${profile["max_tokens"]}" >> "$records"
     done < <(_model_profile_lines "$profiles")
@@ -2737,20 +2750,33 @@ import sys
 records_path, base_url, output_path = sys.argv[1:]
 models = {}
 with open(records_path, encoding="utf-8", newline="") as handle:
-    for name, model_id, effort, context, max_tokens in csv.reader(handle, delimiter="\t"):
+    for name, model_id, effort, thinking, context, max_tokens in csv.reader(handle, delimiter="\t"):
         candidate = {
             "id": model_id,
             "name": name,
-            "reasoning": effort != "off",
+            "reasoning": thinking != "off",
             "input": ["text"],
             "contextWindow": int(context or "128000"),
             "maxTokens": int(max_tokens or "16384"),
             "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
         }
+        if effort != thinking:
+            candidate["thinkingLevelMap"] = {thinking: effort}
         existing = models.get(model_id)
         if existing is None:
             models[model_id] = candidate
             continue
+        existing_map = existing.setdefault("thinkingLevelMap", {})
+        for level, provider_effort in candidate.get("thinkingLevelMap", {}).items():
+            previous = existing_map.get(level)
+            if previous is not None and previous != provider_effort:
+                raise SystemExit(
+                    f"Conflicting Pi effort mappings for model {model_id!r}: "
+                    f"{level} maps to both {previous!r} and {provider_effort!r}"
+                )
+            existing_map[level] = provider_effort
+        if not existing_map:
+            existing.pop("thinkingLevelMap", None)
         existing["reasoning"] = existing["reasoning"] or candidate["reasoning"]
         existing["contextWindow"] = max(existing["contextWindow"], candidate["contextWindow"])
         existing["maxTokens"] = max(existing["maxTokens"], candidate["maxTokens"])
@@ -3495,7 +3521,6 @@ if [ ! -x "$real_bin" ]; then
     exit 127
 fi
 
-export AAB_CLAUDE_PROFILE="${profile_source}/${profile_name}"
 export CLAUDE_CODE_SANDBOXED=1
 export DEBUG_SDK=1
 export CLAUDE_CODE_EFFORT_LEVEL="$profile_effort"
@@ -3642,7 +3667,6 @@ canonical_dir() {
     fi
 }
 
-export AAB_CODEX_PROFILE="${profile_source}/${profile_name}"
 [ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
 [ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
 [ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
@@ -3741,14 +3765,14 @@ configure_codex_launchers() {
 }
 
 _write_pi_launcher() {
-    local name="$1" model="$2" effort="$3" launcher="$4" tmp
+    local name="$1" model="$2" thinking="$3" launcher="$4" tmp
     tmp=$(mktemp "${launcher}.tmp.XXXXXX")
     {
         printf '%s\n' '#!/usr/bin/env bash'
         printf '%s\n' '# Autonomous-agent-bootstrap Pi launcher.'
         printf 'profile_name=%q\n' "$name"
         printf 'profile_model=%q\n' "$model"
-        printf 'profile_effort=%q\n' "$effort"
+        printf 'profile_thinking=%q\n' "$thinking"
         cat <<'BASH'
 set -euo pipefail
 
@@ -3779,7 +3803,6 @@ if [ -n "$profile_name" ] && [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
     exit 1
 fi
 
-[ -z "$profile_name" ] || export AAB_PI_PROFILE="$profile_name"
 [ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
 [ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
 [ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
@@ -3799,7 +3822,7 @@ extra_args=()
 if [ -n "$profile_name" ]; then
     [ "$has_provider" -eq 1 ] || extra_args+=(--provider aab-gateway)
     [ "$has_model" -eq 1 ] || extra_args+=(--model "$profile_model")
-    [ "$has_thinking" -eq 1 ] || extra_args+=(--thinking "$profile_effort")
+    [ "$has_thinking" -eq 1 ] || extra_args+=(--thinking "$profile_thinking")
 fi
 exec "$real_bin" "${extra_args[@]}" "$@"
 BASH
@@ -3834,11 +3857,11 @@ configure_pi_launchers() {
     while IFS= read -r line; do
         _parse_model_profile_line pi third-party "$line" profile
         launcher="${HOME}/.local/bin/pi-${profile[name]}"
-        _write_pi_launcher "${profile[name]}" "${profile[model]}" "${profile[effort]}" "$launcher"
+        _write_pi_launcher "${profile[name]}" "${profile[model]}" "${profile[thinking]}" "$launcher"
     done < <(_model_profile_lines "$profiles")
 
     resolve_model_profile pi selected
-    _write_pi_launcher "${selected[name]}" "${selected[model]}" "${selected[effort]}" "$pi_bin"
+    _write_pi_launcher "${selected[name]}" "${selected[model]}" "${selected[thinking]}" "$pi_bin"
     log "Wrote Pi profile launchers (selected=${selected[name]})."
 }
 # <<< src/bootstrap/26_configure_launchers.bash <<<

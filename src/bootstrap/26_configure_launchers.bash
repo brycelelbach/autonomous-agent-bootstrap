@@ -97,7 +97,6 @@ if [ ! -x "$real_bin" ]; then
     exit 127
 fi
 
-export AAB_CLAUDE_PROFILE="${profile_source}/${profile_name}"
 export CLAUDE_CODE_SANDBOXED=1
 export DEBUG_SDK=1
 export CLAUDE_CODE_EFFORT_LEVEL="$profile_effort"
@@ -244,7 +243,6 @@ canonical_dir() {
     fi
 }
 
-export AAB_CODEX_PROFILE="${profile_source}/${profile_name}"
 [ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
 [ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
 [ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
@@ -343,14 +341,14 @@ configure_codex_launchers() {
 }
 
 _write_pi_launcher() {
-    local name="$1" model="$2" effort="$3" launcher="$4" tmp
+    local name="$1" model="$2" thinking="$3" launcher="$4" tmp
     tmp=$(mktemp "${launcher}.tmp.XXXXXX")
     {
         printf '%s\n' '#!/usr/bin/env bash'
         printf '%s\n' '# Autonomous-agent-bootstrap Pi launcher.'
         printf 'profile_name=%q\n' "$name"
         printf 'profile_model=%q\n' "$model"
-        printf 'profile_effort=%q\n' "$effort"
+        printf 'profile_thinking=%q\n' "$thinking"
         cat <<'BASH'
 set -euo pipefail
 
@@ -381,7 +379,6 @@ if [ -n "$profile_name" ] && [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
     exit 1
 fi
 
-[ -z "$profile_name" ] || export AAB_PI_PROFILE="$profile_name"
 [ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
 [ -n "${AAB_BREV_API_KEY:-}" ] && export BREV_API_KEY="$AAB_BREV_API_KEY"
 [ -n "${AAB_BREV_ORG_ID:-}" ] && export BREV_ORG_ID="$AAB_BREV_ORG_ID"
@@ -401,7 +398,7 @@ extra_args=()
 if [ -n "$profile_name" ]; then
     [ "$has_provider" -eq 1 ] || extra_args+=(--provider aab-gateway)
     [ "$has_model" -eq 1 ] || extra_args+=(--model "$profile_model")
-    [ "$has_thinking" -eq 1 ] || extra_args+=(--thinking "$profile_effort")
+    [ "$has_thinking" -eq 1 ] || extra_args+=(--thinking "$profile_thinking")
 fi
 exec "$real_bin" "${extra_args[@]}" "$@"
 BASH
@@ -436,10 +433,10 @@ configure_pi_launchers() {
     while IFS= read -r line; do
         _parse_model_profile_line pi third-party "$line" profile
         launcher="${HOME}/.local/bin/pi-${profile[name]}"
-        _write_pi_launcher "${profile[name]}" "${profile[model]}" "${profile[effort]}" "$launcher"
+        _write_pi_launcher "${profile[name]}" "${profile[model]}" "${profile[thinking]}" "$launcher"
     done < <(_model_profile_lines "$profiles")
 
     resolve_model_profile pi selected
-    _write_pi_launcher "${selected[name]}" "${selected[model]}" "${selected[effort]}" "$pi_bin"
+    _write_pi_launcher "${selected[name]}" "${selected[model]}" "${selected[thinking]}" "$pi_bin"
     log "Wrote Pi profile launchers (selected=${selected[name]})."
 }

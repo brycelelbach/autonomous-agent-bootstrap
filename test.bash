@@ -69,18 +69,18 @@ run_e2e() {
     : "${AAB_GIT_AUTHOR_NAME:=CI Bot}"
     : "${AAB_GIT_AUTHOR_EMAIL:=ci@example.com}"
     : "${AAB_CLAUDE_FIRST_PARTY_PROFILES:=opus-4.8 model=claude-opus-4-8 haiku=claude-haiku-4-5 sonnet=claude-sonnet-4-6 opus=claude-opus-4-8 effort=max}"
-    : "${AAB_CLAUDE_PROFILE:=first-party/opus-4.8}"
+    : "${AAB_CLAUDE_DEFAULT_PROFILE:=first-party/opus-4.8}"
     : "${AAB_CODEX_FIRST_PARTY_PROFILES:=gpt-5.5 effort=xhigh}"
-    : "${AAB_CODEX_PROFILE:=first-party/gpt-5.5}"
+    : "${AAB_CODEX_DEFAULT_PROFILE:=first-party/gpt-5.5}"
     : "${AAB_PI_PROFILES:=opus-4.8 model=anthropic/claude-opus-4-8 effort=max context=200000 max_tokens=32000}"
-    : "${AAB_PI_PROFILE:=opus-4.8}"
+    : "${AAB_PI_DEFAULT_PROFILE:=opus-4.8}"
     : "${AAB_INFERENCE_GATEWAY_URL:=https://gateway.example.com/v1}"
     : "${AAB_INFERENCE_GATEWAY_API_KEY:=gateway-e2e-test-key}"
     : "${OPENAI_API_KEY:=codex-e2e-test-key}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
-           AAB_CLAUDE_FIRST_PARTY_PROFILES AAB_CLAUDE_PROFILE \
-           AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_PROFILE \
-           AAB_PI_PROFILES AAB_PI_PROFILE \
+           AAB_CLAUDE_FIRST_PARTY_PROFILES AAB_CLAUDE_DEFAULT_PROFILE \
+           AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_DEFAULT_PROFILE \
+           AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
            AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
            OPENAI_API_KEY
 

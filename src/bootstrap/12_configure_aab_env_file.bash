@@ -27,12 +27,12 @@ configure_aab_env_file() {
         printf '# Written by autonomous-agent-bootstrap. Re-run bootstrap.bash to update.\n'
         _write_shell_export AAB_CLAUDE_FIRST_PARTY_PROFILES "$claude_first_party_profiles"
         _write_shell_export AAB_CLAUDE_THIRD_PARTY_PROFILES "$claude_third_party_profiles"
-        _write_shell_export AAB_CLAUDE_PROFILE "${claude_profile[source]}/${claude_profile[name]}"
+        _write_shell_export AAB_CLAUDE_DEFAULT_PROFILE "${claude_profile[source]}/${claude_profile[name]}"
         _write_shell_export AAB_CODEX_FIRST_PARTY_PROFILES "$codex_first_party_profiles"
         _write_shell_export AAB_CODEX_THIRD_PARTY_PROFILES "$codex_third_party_profiles"
-        _write_shell_export AAB_CODEX_PROFILE "${codex_profile[source]}/${codex_profile[name]}"
+        _write_shell_export AAB_CODEX_DEFAULT_PROFILE "${codex_profile[source]}/${codex_profile[name]}"
         _write_shell_export AAB_PI_PROFILES "$pi_profiles"
-        _write_shell_export AAB_PI_PROFILE "$pi_profile_name"
+        _write_shell_export AAB_PI_DEFAULT_PROFILE "$pi_profile_name"
         _write_shell_export AAB_INFERENCE_GATEWAY_URL "${AAB_INFERENCE_GATEWAY_URL:-}"
         _write_shell_export AAB_INFERENCE_GATEWAY_API_KEY "${AAB_INFERENCE_GATEWAY_API_KEY:-}"
         if [ -n "${ANTHROPIC_API_KEY:-}" ]; then

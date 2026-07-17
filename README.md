@@ -31,10 +31,10 @@ Export the profiles and credentials you want, then run the bootstrap:
 
 ```bash
 export AAB_CLAUDE_FIRST_PARTY_PROFILES='opus-4.8 model=claude-opus-4-8 haiku=claude-haiku-4-5 sonnet=claude-sonnet-4-8 effort=high'
-export AAB_CLAUDE_PROFILE=first-party/opus-4.8
+export AAB_CLAUDE_DEFAULT_PROFILE=first-party/opus-4.8
 
 export AAB_CODEX_FIRST_PARTY_PROFILES='gpt-5.5 effort=xhigh'
-export AAB_CODEX_PROFILE=first-party/gpt-5.5
+export AAB_CODEX_DEFAULT_PROFILE=first-party/gpt-5.5
 
 # Optional. If omitted, first-party launchers use existing interactive login.
 export ANTHROPIC_API_KEY=...
@@ -84,18 +84,19 @@ gpt-5.5 effort=xhigh
 '
 
 export AAB_PI_PROFILES='
-opus-4.8 model=anthropic/claude-opus-4-8 effort=high
+opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000
+gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000
 '
 ```
 
-`model` defaults to the profile name. `effort` is passed through to the harness. Claude's `haiku`, `sonnet`, and `opus` slots each inherit `model`, so the DeepSeek profile above expands to `deepseek-v4-flash`, `deepseek-v4-pro`, and `deepseek-v4-pro` without repeating the Pro model. Optional Claude fields are `subagent` and `context`; optional Pi metadata fields are `context` and `max_tokens`.
+`model` defaults to the profile name. `effort` is passed through to the harness. Pi accepts its native `off`, `minimal`, `low`, `medium`, `high`, and `xhigh` levels directly; other values such as `ultra` are automatically mapped from Pi's `xhigh` level to the provider's value. Claude's `haiku`, `sonnet`, and `opus` slots each inherit `model`, so the DeepSeek profile above expands to `deepseek-v4-flash`, `deepseek-v4-pro`, and `deepseek-v4-pro` without repeating the Pro model. Optional Claude fields are `subagent` and `context`; optional Pi metadata fields are `context` and `max_tokens`.
 
-First-party and third-party profiles coexist for Claude and Codex. These selectors only control the unqualified commands:
+First-party and third-party profiles coexist for Claude and Codex. The `*_DEFAULT_PROFILE` selectors only control the unqualified commands:
 
 ```bash
-export AAB_CLAUDE_PROFILE=third-party/deepseek-v4
-export AAB_CODEX_PROFILE=first-party/gpt-5.5
-export AAB_PI_PROFILE=opus-4.8
+export AAB_CLAUDE_DEFAULT_PROFILE=third-party/deepseek-v4
+export AAB_CODEX_DEFAULT_PROFILE=first-party/gpt-5.5
+export AAB_PI_DEFAULT_PROFILE=opus-4.8
 ```
 
 Every configured profile gets an explicit launcher:
@@ -125,12 +126,12 @@ All variables are optional unless a configured third-party profile needs the inf
 | --- | --- |
 | `AAB_CLAUDE_FIRST_PARTY_PROFILES` | Newline-delimited first-party Claude profiles. Defaults to the built-in versioned Opus profile. |
 | `AAB_CLAUDE_THIRD_PARTY_PROFILES` | Newline-delimited gateway-backed Claude profiles. |
-| `AAB_CLAUDE_PROFILE` | Selected `first-party/<name>` or `third-party/<name>` profile for the unqualified `claude` command. |
+| `AAB_CLAUDE_DEFAULT_PROFILE` | Default `first-party/<name>` or `third-party/<name>` profile used by the unqualified `claude` command. |
 | `AAB_CODEX_FIRST_PARTY_PROFILES` | Newline-delimited first-party Codex profiles. Defaults to the built-in versioned GPT profile. |
 | `AAB_CODEX_THIRD_PARTY_PROFILES` | Newline-delimited gateway-backed Codex profiles. |
-| `AAB_CODEX_PROFILE` | Selected `first-party/<name>` or `third-party/<name>` profile for the unqualified `codex` command. |
+| `AAB_CODEX_DEFAULT_PROFILE` | Default `first-party/<name>` or `third-party/<name>` profile used by the unqualified `codex` command. |
 | `AAB_PI_PROFILES` | Newline-delimited gateway-backed Pi profiles. |
-| `AAB_PI_PROFILE` | Selected profile name for the unqualified `pi` command. Defaults to the first configured Pi profile. |
+| `AAB_PI_DEFAULT_PROFILE` | Default profile used by the unqualified `pi` command. Defaults to the first configured Pi profile. |
 | `AAB_INFERENCE_GATEWAY_URL` | Shared base URL used by every third-party Claude/Codex profile and every Pi profile. |
 | `AAB_INFERENCE_GATEWAY_API_KEY` | Shared inference-gateway key. It is mapped to each harness without placing the key on a command line. |
 | `ANTHROPIC_API_KEY` | Optional first-party Anthropic key. If absent, Claude's existing interactive login is used. |

@@ -40,10 +40,11 @@ configure_pi_models() {
     local -A profile=()
     while IFS= read -r line; do
         _parse_model_profile_line pi third-party "$line" profile
-        printf '%s\t%s\t%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
             "${profile[name]}" \
             "${profile[model]}" \
             "${profile[effort]}" \
+            "${profile[thinking]}" \
             "${profile[context]}" \
             "${profile["max_tokens"]}" >> "$records"
     done < <(_model_profile_lines "$profiles")
@@ -56,20 +57,33 @@ import sys
 records_path, base_url, output_path = sys.argv[1:]
 models = {}
 with open(records_path, encoding="utf-8", newline="") as handle:
-    for name, model_id, effort, context, max_tokens in csv.reader(handle, delimiter="\t"):
+    for name, model_id, effort, thinking, context, max_tokens in csv.reader(handle, delimiter="\t"):
         candidate = {
             "id": model_id,
             "name": name,
-            "reasoning": effort != "off",
+            "reasoning": thinking != "off",
             "input": ["text"],
             "contextWindow": int(context or "128000"),
             "maxTokens": int(max_tokens or "16384"),
             "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
         }
+        if effort != thinking:
+            candidate["thinkingLevelMap"] = {thinking: effort}
         existing = models.get(model_id)
         if existing is None:
             models[model_id] = candidate
             continue
+        existing_map = existing.setdefault("thinkingLevelMap", {})
+        for level, provider_effort in candidate.get("thinkingLevelMap", {}).items():
+            previous = existing_map.get(level)
+            if previous is not None and previous != provider_effort:
+                raise SystemExit(
+                    f"Conflicting Pi effort mappings for model {model_id!r}: "
+                    f"{level} maps to both {previous!r} and {provider_effort!r}"
+                )
+            existing_map[level] = provider_effort
+        if not existing_map:
+            existing.pop("thinkingLevelMap", None)
         existing["reasoning"] = existing["reasoning"] or candidate["reasoning"]
         existing["contextWindow"] = max(existing["contextWindow"], candidate["contextWindow"])
         existing["maxTokens"] = max(existing["maxTokens"], candidate["maxTokens"])
