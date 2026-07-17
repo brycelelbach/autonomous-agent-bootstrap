@@ -11,8 +11,8 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
    - `~/.local/aab-bin/claude` plus explicit `claude-first-party`, `claude-third-party-anthropic`, `claude-third-party-deepseek`, and `claude-third-party-nemotron` launchers
    - `codex` plus explicit `codex-first-party` and `codex-third-party-openai` launchers
 5. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
-6. **gh CLI**, installed from the official `cli.github.com` apt repo.
-7. **CLI tools as uv tools** — `uv` (the Python installer) plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. The list pins `ruff` to match the `ruff-pre-commit` hook and adds `pre-commit`. The private `autocuda` package is then installed best-effort as its own uv tool (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin with Claude Code and Codex and copies the Codex worker subagent. The Debian packages the bootstrap installs with `apt-get` are listed in [`apt_packages.txt`](./apt_packages.txt).
+6. **gh CLI**, installed as a pinned, checksum-verified standalone release.
+7. **CLI tools as uv tools** — `uv` plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. Built-in tool names resolve to the versions in [`src/bootstrap/00_versions.bash`](./src/bootstrap/00_versions.bash). The private `autocuda` package is installed best-effort from the immutable ref in the same version file (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin with Claude Code and Codex and copies the Codex worker subagent. Ubuntu package versions remain in [`apt_packages.txt`](./apt_packages.txt), and agent plugins remain in [`agent_plugins.txt`](./agent_plugins.txt).
 8. **lifeboat** — a single-script home-directory backup tool fetched to `~/.local/bin/lifeboat`. It tars `$HOME`, keeping git history, source, and docs while dropping regenerable bulk (build artifacts, profiler dumps, caches, virtualenvs), to snapshot an agent's work before an ephemeral box is torn down. Compresses with `pigz` when present, falling back to `gzip`. Source: [`brycelelbach/lifeboat`](https://github.com/brycelelbach/lifeboat).
 9. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
 10. **Global agent rules** — a managed block in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule.
@@ -22,9 +22,9 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 ## Requirements
 
-- Ubuntu/Debian host with `bash` and `apt-get`
+- Ubuntu 22.04 host with `bash` and `apt-get`
 - Passwordless `sudo`, or run as root
-- A bare `ubuntu:22.04` image is valid; the bootstrap installs the [`apt_packages.txt`](./apt_packages.txt) base deps (`curl`, `python3`, `git`, `tar`, `pigz`, `gawk`, `ripgrep`, `pandoc`, `graphviz`, `graphviz-dev`, `pkg-config`, `build-essential`, `sudo`, `ca-certificates`) and `gh`
+- A bare `ubuntu:22.04` image is valid; the bootstrap installs the version-pinned [`apt_packages.txt`](./apt_packages.txt) dependencies in one centralized step, then installs a checksum-verified standalone `gh` release.
 
 ## Quick Start
 
@@ -51,13 +51,23 @@ AAB_GIT_AUTHOR_NAME=Your Name
 AAB_GIT_AUTHOR_EMAIL=you@example.com
 CONF
 
-curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/main/bootstrap.bash | bash -s -- /tmp/aab.conf
+curl -fsSL https://raw.githubusercontent.com/brycelelbach/autonomous-agent-bootstrap/generated/bootstrap.bash | bash -s -- /tmp/aab.conf
 source ~/.bashrc
 claude -p "Say hello from Claude Code"
 codex exec "Say hello from Codex"
 ```
 
 You can also pass the same keys as exported environment variables or pipe config on stdin. The file is sourced as bash, so quote values containing shell metacharacters.
+
+## Generated Bootstrap
+
+`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/bootstrap/`. All non-apt, non-plugin package versions and immutable refs live in `src/bootstrap/00_versions.bash`; update that file when upgrading an installer. Claude configuration lives in `src/bootstrap/13_configure_claude.bash`, while Codex configuration lives in `src/bootstrap/13_configure_codex.bash`. After editing a module, run:
+
+```bash
+python3 tools/compile_bootstrap.py
+```
+
+`./test.bash --lint` runs `python3 tools/compile_bootstrap.py --check`, so CI fails if `bootstrap.bash` is stale. The `Publish generated bootstrap` workflow compiles every pushed branch and publishes a curlable artifact branch in the same repository: `main` publishes to `generated`, and any other branch publishes to `generated/<branch-name>`. Forks publish to their own generated branches with the same workflow because the compiled script stamps the fork repository and generated ref into its side-file URLs.
 
 ## Provider Selection
 
@@ -164,9 +174,8 @@ All variables are optional unless you select a provider that needs its credentia
 | `AAB_GIT_AUTHOR_EMAIL` | `git config --global user.email`. |
 | `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key for GitHub SSH auth. |
 | `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key for git commit/tag signing. |
-| `AAB_AGENT_PLUGINS_FILE` | Path to a local plugin marketplace list. |
-| `AAB_AGENT_PLUGINS_URL` | URL for the plugin marketplace list when no local file is used. |
-| `AAB_APT_PACKAGES_FILE` | Path to a local list of Debian packages to install with `apt-get`. |
+| `AAB_AGENT_PLUGINS_FILE` | Optional local replacement for the plugin marketplace list compiled into `bootstrap.bash`. |
+| `AAB_APT_PACKAGES_FILE` | Path to a local list of version-pinned Ubuntu package specifications to install with `apt-get`. |
 | `AAB_APT_PACKAGES_URL` | URL for the Debian-package list when no local file is used. |
 | `AAB_UV_TOOLS_FILE` | Path to a local list of CLI tools to install with `uv tool install`. |
 | `AAB_UV_TOOLS_URL` | URL for the uv-tool list when no local file is used. |
@@ -242,7 +251,7 @@ The same global `pre-commit` hook scans every commit's staged changes for secret
 
 The scan runs after the identity check passes. It has two engines:
 
-1. **gitleaks (preferred).** The bootstrap installs the [gitleaks](https://github.com/gitleaks/gitleaks) binary (a single static MIT-licensed executable that scans entirely offline) at `~/.local/bin/gitleaks`, pinned to the same version — `8.18.4` — that the CI secret-scan job and the `--secrets` test use, and verified against its published SHA-256 before it is installed. The hook resolves gitleaks by name on `PATH` (falling back to the absolute install path) and runs `gitleaks protect --staged --redact --no-banner`; a finding fails the commit, with the secret value redacted from the output. The binary is only installed on linux x86_64 / arm64; on any other OS or architecture the install step is skipped cleanly.
+1. **gitleaks (preferred).** The bootstrap installs the [gitleaks](https://github.com/gitleaks/gitleaks) binary (a single static MIT-licensed executable that scans entirely offline) at `~/.local/bin/gitleaks`, pinned by [`src/bootstrap/00_versions.bash`](./src/bootstrap/00_versions.bash) to the same version and SHA-256 that CI uses. The hook resolves gitleaks by name on `PATH` (falling back to the absolute install path) and runs `gitleaks protect --staged --redact --no-banner`; a finding fails the commit, with the secret value redacted from the output. The binary is only installed on linux x86_64 / arm64; on any other OS or architecture the install step is skipped cleanly.
 
 2. **Built-in shell fallback.** If gitleaks is not available (install skipped on an unsupported platform, offline, or a checksum mismatch), the hook greps the staged diff's added lines for the highest-value credential shapes so a commit is never left wholly unscanned: GitHub tokens (`ghp_` / `gho_` / `ghs_` / `ghr_…`, `github_pat_…`), URL-embedded credentials (`https://user:pass@…`, `x-access-token:…`), AWS access-key ids (`AKIA…`), OpenAI / Anthropic-style `sk-…` keys, Google `AIza…` keys, Slack `xox…` tokens, PEM `-----BEGIN … PRIVATE KEY-----` blocks, and JWTs.
 

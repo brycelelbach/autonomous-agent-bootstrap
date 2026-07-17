@@ -11,6 +11,10 @@ You are operating in a safe sandbox without credentials that would allow you to 
 - Run live tests, then open the PR — don't wait to be asked.
 - Still pause for destructive actions whose blast radius is wider than the local tree: force-pushing to `main`, deleting branches, rotating shared credentials. The test is what happens if you run it twice — a second `git commit` is a no-op; a second `git push --force` to `main` is not.
 
+## Edit bootstrap source modules
+
+`bootstrap.bash` is generated. Do not hand-edit it directly except by running the compiler. Make behavioral changes in the ordered modules under `src/bootstrap/`, then run `python3 tools/compile_bootstrap.py` so the single curlable `bootstrap.bash` artifact is refreshed. `./test.bash --lint` checks that the generated artifact is current.
+
 ## Avoid documenting history
 
 Code and documentation describe what *is*, not what *was*. Git holds the history, the PR description explains the change, the issue thread carries the discussion — don't duplicate any of that into the tree. A reader walking into a file cold should see only what's true now; `git log` and `git blame` are one keystroke away.

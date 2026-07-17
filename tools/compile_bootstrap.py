@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Compile the modular bootstrap source tree into one curlable bash script."""
+
+from __future__ import annotations
+
+import argparse
+import difflib
+import os
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_DIR = ROOT / "src" / "bootstrap"
+OUTPUT = ROOT / "bootstrap.bash"
+AGENT_PLUGINS = ROOT / "agent_plugins.txt"
+
+GENERATED_HEADER = """# -----------------------------------------------------------------------------
+# GENERATED FILE: do not edit directly.
+#
+# Source lives in src/bootstrap/*.bash. Rebuild with:
+#   python3 tools/compile_bootstrap.py
+# -----------------------------------------------------------------------------
+
+"""
+
+
+def compile_bootstrap(
+    source_dir: Path = SOURCE_DIR,
+    *,
+    bootstrap_repo: str = "brycelelbach/autonomous-agent-bootstrap",
+    bootstrap_ref: str = "generated",
+) -> str:
+    parts: list[str] = []
+    for path in sorted(source_dir.glob("*.bash")):
+        text = path.read_text()
+        if not text.endswith("\n"):
+            text += "\n"
+        if path.name == "00_prelude.bash" and text.startswith("#!/usr/bin/env bash\n"):
+            shebang, rest = text.split("\n", 1)
+            parts.append(f"{shebang}\n{GENERATED_HEADER}{rest}")
+        else:
+            parts.append(f"\n# >>> src/bootstrap/{path.name} >>>\n{text}# <<< src/bootstrap/{path.name} <<<\n")
+    compiled = "".join(parts)
+    agent_plugins = AGENT_PLUGINS.read_text().rstrip("\n")
+    return (
+        compiled.replace("__AAB_BOOTSTRAP_REPO__", bootstrap_repo)
+        .replace("__AAB_BOOTSTRAP_REF__", bootstrap_ref)
+        .replace("__AAB_AGENT_PLUGINS__", agent_plugins)
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="fail if bootstrap.bash is stale")
+    parser.add_argument("--output", type=Path, default=OUTPUT, help="output path")
+    parser.add_argument(
+        "--bootstrap-repo",
+        default=os.environ.get("GITHUB_REPOSITORY", "brycelelbach/autonomous-agent-bootstrap"),
+        help="repo used by generated curl artifacts for side-file fetches",
+    )
+    parser.add_argument(
+        "--bootstrap-ref",
+        default=os.environ.get("AAB_BOOTSTRAP_REF", "generated"),
+        help="ref used by generated curl artifacts for side-file fetches",
+    )
+    args = parser.parse_args()
+
+    compiled = compile_bootstrap(
+        bootstrap_repo=args.bootstrap_repo,
+        bootstrap_ref=args.bootstrap_ref,
+    )
+    if args.check:
+        existing = args.output.read_text() if args.output.exists() else ""
+        if existing != compiled:
+            diff = difflib.unified_diff(
+                existing.splitlines(keepends=True),
+                compiled.splitlines(keepends=True),
+                fromfile=str(args.output),
+                tofile="compiled bootstrap.bash",
+            )
+            sys.stderr.writelines(diff)
+            return 1
+        return 0
+
+    args.output.write_text(compiled)
+    os.chmod(args.output, 0o755)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -45,7 +45,7 @@ setup() {
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           OPENAI_API_KEY GH_TOKEN GITHUB_TOKEN \
-          AAB_AGENT_PLUGINS_FILE AAB_AGENT_PLUGINS_URL \
+          AAB_AGENT_PLUGINS_FILE \
           AAB_APT_PACKAGES_FILE AAB_APT_PACKAGES_URL \
           AAB_UV_TOOLS_FILE AAB_UV_TOOLS_URL
     # shellcheck disable=SC1091
@@ -56,6 +56,24 @@ setup() {
 
 teardown() {
     rm -rf "$TEST_HOME"
+}
+
+@test "non-apt package versions are centralized" {
+    local package_variable definitions
+    for package_variable in \
+        CLAUDE_CODE_VERSION CODEX_VERSION BREV_VERSION LIFEBOAT_REF \
+        GH_VERSION UV_VERSION RUFF_VERSION PRE_COMMIT_VERSION \
+        AUTOCUDA_REF GITLEAKS_VERSION; do
+        [ -n "${!package_variable}" ]
+        definitions=$(grep -R "^${package_variable}=" "$REPO_ROOT/src/bootstrap" --include='*.bash')
+        [[ "$definitions" == "$REPO_ROOT/src/bootstrap/00_versions.bash:"* ]]
+        [ "$(printf '%s\n' "$definitions" | wc -l)" -eq 1 ]
+    done
+}
+
+@test "agent plugin defaults are compiled into bootstrap.bash" {
+    [ "$AGENT_PLUGINS_DEFAULT_CONTENT" = "$(cat "$REPO_ROOT/agent_plugins.txt")" ]
+    [[ "$AGENT_PLUGINS_DEFAULT_CONTENT" != *"__AAB_AGENT_PLUGINS__"* ]]
 }
 
 @test "log writes to stdout with bootstrap prefix" {
@@ -88,35 +106,35 @@ teardown() {
     [ "$(git config --global --get user.email)" = "alice@example.com" ]
 }
 
-@test "skip_brev_onboarding writes valid JSON to BREV_ONBOARDING" {
-    skip_brev_onboarding
+@test "configure_brev writes valid onboarding JSON" {
+    _write_brev_onboarding
     [ -f "$BREV_ONBOARDING" ]
     python3 -c "import json; json.load(open('$BREV_ONBOARDING'))"
     grep -q '"hasRunBrevShell": true' "$BREV_ONBOARDING"
 }
 
-@test "skip_brev_onboarding backs up pre-existing onboarding file" {
+@test "configure_brev backs up pre-existing onboarding file" {
     mkdir -p "$BREV_DIR"
     echo '{"old": true}' > "$BREV_ONBOARDING"
-    skip_brev_onboarding
+    _write_brev_onboarding
     local backup_count
     backup_count=$(find "$BREV_DIR" -maxdepth 1 -name 'onboarding_step.json.bak.*' | wc -l)
     [ "$backup_count" -ge 1 ]
 }
 
-@test "write_settings uses default model when first-party model unset" {
-    write_settings
+@test "write_claude_settings uses default model when first-party model unset" {
+    write_claude_settings
     [ -f "$SETTINGS_FILE" ]
     python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='$DEFAULT_CLAUDE_CODE_MODEL', d['model']"
 }
 
-@test "write_settings honors first-party model override" {
-    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-sonnet-4-6" write_settings
+@test "write_claude_settings honors first-party model override" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_MODEL="claude-sonnet-4-6" write_claude_settings
     python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='claude-sonnet-4-6', d['model']"
 }
 
-@test "write_settings honors AAB_CLAUDE_CODE_EFFORT override" {
-    AAB_CLAUDE_CODE_EFFORT="high" write_settings
+@test "write_claude_settings honors AAB_CLAUDE_CODE_EFFORT override" {
+    AAB_CLAUDE_CODE_EFFORT="high" write_claude_settings
     python3 - <<PY
 import json
 d = json.load(open("$SETTINGS_FILE"))
@@ -125,8 +143,8 @@ assert d["env"]["CLAUDE_CODE_EFFORT_LEVEL"] == "high", d
 PY
 }
 
-@test "write_settings sets bypassPermissions and sandbox env" {
-    write_settings
+@test "write_claude_settings sets bypassPermissions and sandbox env" {
+    write_claude_settings
     python3 - <<PY
 import json
 d = json.load(open("$SETTINGS_FILE"))
@@ -148,8 +166,8 @@ assert "ExitPlanMode" in deny, deny
 PY
 }
 
-@test "write_settings writes Claude managed deny policy when writable" {
-    SUDO="" write_settings
+@test "write_claude_settings writes Claude managed deny policy when writable" {
+    SUDO="" write_claude_settings
     [ -f "$CLAUDE_MANAGED_SETTINGS_FILE" ]
     python3 - "$CLAUDE_MANAGED_SETTINGS_FILE" <<'PY'
 import json, sys
@@ -179,8 +197,8 @@ SH
     [ ! -f "$CLAUDE_MANAGED_SETTINGS_FILE" ]
 }
 
-@test "write_settings sets network-resilience env" {
-    write_settings
+@test "write_claude_settings sets network-resilience env" {
+    write_claude_settings
     python3 - <<PY
 import json
 d = json.load(open("$SETTINGS_FILE"))
@@ -191,8 +209,8 @@ assert env["CLAUDE_CODE_MAX_RETRIES"] == "15", env
 PY
 }
 
-@test "write_settings pre-approves edits to ~/.claude/** and ~/.claude.json" {
-    write_settings
+@test "write_claude_settings pre-approves edits to ~/.claude/** and ~/.claude.json" {
+    write_claude_settings
     python3 - <<PY
 import json
 d = json.load(open("$SETTINGS_FILE"))
@@ -204,10 +222,10 @@ for op in ("Edit", "Write", "Read"):
 PY
 }
 
-@test "write_settings backs up pre-existing settings.json" {
+@test "write_claude_settings backs up pre-existing settings.json" {
     mkdir -p "$CLAUDE_DIR"
     echo '{"model": "old"}' > "$SETTINGS_FILE"
-    write_settings
+    write_claude_settings
     local backup_count
     backup_count=$(find "$CLAUDE_DIR" -maxdepth 1 -name 'settings.json.bak.*' | wc -l)
     [ "$backup_count" -ge 1 ]
@@ -423,6 +441,7 @@ fi
 if [ -t 0 ]; then
     echo stdin-tty-present > "$TEST_HOME/codex-installer-tty"
 fi
+printf '%s\n' "$*" > "$TEST_HOME/codex-installer-args"
 curl -fsSL https://api.github.com/repos/openai/codex/releases/latest >/dev/null
 curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz >/dev/null
 INSTALLER
@@ -438,6 +457,7 @@ fi
 if [ -t 0 ]; then
     echo stdin-tty-present > "$TEST_HOME/codex-installer-tty"
 fi
+printf '%s\n' "$*" > "$TEST_HOME/codex-installer-args"
 curl -fsSL https://api.github.com/repos/openai/codex/releases/latest >/dev/null
 curl -fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz >/dev/null
 INSTALLER
@@ -451,6 +471,8 @@ SH
     GH_TOKEN="github-test-token" run install_codex
     [ "$status" -eq 0 ]
     [[ "$output" == *"Using GitHub authentication for Codex release metadata requests."* ]]
+    grep -Fq "releases/download/rust-v${CODEX_VERSION}/install.sh" "$TEST_HOME/codex-installer-curl-invocations"
+    grep -Fxq -- "--release ${CODEX_VERSION}" "$TEST_HOME/codex-installer-args"
     grep -Eq '^--config .+ https://api.github.com/repos/openai/codex/releases/latest$' "$TEST_HOME/codex-installer-curl-invocations"
     grep -Fxq -- '-fsSL https://github.com/openai/codex/releases/download/rust-v0.133.0/codex.tar.gz' "$TEST_HOME/codex-installer-curl-invocations"
     grep -Fq 'header = "Authorization: Bearer github-test-token"' "$TEST_HOME/codex-installer-curl-configs"
@@ -472,11 +494,16 @@ SH
 # `uv tool install` exit non-zero, exercising the best-effort warning branches.
 setup_fake_uv() {
     export FAKE_UV_BIN="$TEST_HOME/fake-uv-bin"
+    export UV_VERSION
     mkdir -p "$FAKE_UV_BIN"
     cat > "$FAKE_UV_BIN/uv" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$TEST_HOME/uv-invocations"
+if [ "${1:-}" = "--version" ]; then
+    printf 'uv %s (fake)\n' "${UV_VERSION:?}"
+    exit 0
+fi
 if [ "${1:-}" = "tool" ] && [ "${2:-}" = "install" ] && [ "${UV_FAIL_TOOL_INSTALL:-0}" = "1" ]; then
     exit 1
 fi
@@ -491,6 +518,7 @@ SH
 # instead of reaching the network; the fetched uv records its invocations too.
 setup_fake_uv_installer() {
     export FAKE_UV_INSTALLER_BIN="$TEST_HOME/fake-uv-installer-bin"
+    export UV_VERSION
     mkdir -p "$FAKE_UV_INSTALLER_BIN"
     cat > "$FAKE_UV_INSTALLER_BIN/curl" <<'SH'
 #!/usr/bin/env bash
@@ -501,6 +529,9 @@ cat > "$HOME/.local/bin/uv" <<'UV'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$TEST_HOME/uv-invocations"
+if [ "${1:-}" = "--version" ]; then
+    printf 'uv %s (fake)\n' "${UV_VERSION:?}"
+fi
 UV
 chmod +x "$HOME/.local/bin/uv"
 SH
@@ -508,21 +539,21 @@ SH
     export PATH="$FAKE_UV_INSTALLER_BIN:$PATH"
 }
 
-@test "ensure_uv installs uv via the official installer when absent" {
+@test "install_uv installs the pinned uv release when absent" {
     # A PATH without uv forces the installer path; the fake curl provisions
-    # ~/.local/bin/uv, which ensure_uv then records as UV_BIN.
+    # ~/.local/bin/uv, which install_uv then records as UV_BIN.
     setup_fake_uv_installer
-    PATH="$FAKE_UV_INSTALLER_BIN:/usr/bin:/bin" run ensure_uv
+    PATH="$FAKE_UV_INSTALLER_BIN:/usr/bin:/bin" run install_uv
     [ "$status" -eq 0 ]
-    grep -Fq 'astral.sh/uv/install.sh' "$TEST_HOME/uv-installer-curl-invocations"
+    grep -Fq "astral.sh/uv/${UV_VERSION}/install.sh" "$TEST_HOME/uv-installer-curl-invocations"
 }
 
-@test "ensure_uv prepends ~/.local/bin to the live PATH so uv tool binaries resolve in-process" {
+@test "install_uv prepends ~/.local/bin to the live PATH so uv tool binaries resolve in-process" {
     setup_fake_uv
-    # A PATH without ~/.local/bin: ensure_uv must prepend it so executables that
+    # A PATH without ~/.local/bin: install_uv must prepend it so executables that
     # `uv tool install` symlinks there (ruff, pre-commit, autocuda) resolve
     # later in the same run.
-    PATH="$FAKE_UV_BIN:/usr/bin:/bin" ensure_uv
+    PATH="$FAKE_UV_BIN:/usr/bin:/bin" install_uv
     case ":${PATH}:" in
         *":${HOME}/.local/bin:"*) ;;
         *) printf 'PATH is %s\n' "$PATH"; return 1 ;;
@@ -533,7 +564,7 @@ SH
 
 @test "install_uv_tools runs uv tool install for each tool listed in the file" {
     setup_fake_uv
-    printf '%s\n' '# The linter, pinned.' 'ruff==0.15.12' '' '# The hook runner.' 'pre-commit' \
+    printf '%s\n' '# The linter, pinned.' "ruff==${RUFF_VERSION}" '' '# The hook runner.' 'pre-commit' \
         > "$TEST_HOME/uv-tools.txt"
     export AAB_UV_TOOLS_FILE="$TEST_HOME/uv-tools.txt"
 
@@ -541,8 +572,8 @@ SH
     [ "$status" -eq 0 ]
     # Each non-comment, non-blank line becomes its own `uv tool install`; the
     # comment and blank lines are stripped, not installed.
-    grep -Fxq 'tool install ruff==0.15.12' "$TEST_HOME/uv-invocations"
-    grep -Fxq 'tool install pre-commit' "$TEST_HOME/uv-invocations"
+    grep -Fxq "tool install ruff==${RUFF_VERSION}" "$TEST_HOME/uv-invocations"
+    grep -Fxq "tool install pre-commit==${PRE_COMMIT_VERSION}" "$TEST_HOME/uv-invocations"
     [ "$(grep -c 'tool install' "$TEST_HOME/uv-invocations")" -eq 2 ]
 }
 
@@ -553,25 +584,27 @@ SH
     UV_TOOLS_DEFAULT_FILE="$REPO_ROOT/uv_tools.txt" run install_uv_tools
     [ "$status" -eq 0 ]
     [[ "$output" == *"Reading uv tool list from $REPO_ROOT/uv_tools.txt."* ]]
-    grep -Fxq 'tool install ruff==0.15.12' "$TEST_HOME/uv-invocations"
-    grep -Fxq 'tool install pre-commit' "$TEST_HOME/uv-invocations"
+    grep -Fxq "tool install ruff==${RUFF_VERSION}" "$TEST_HOME/uv-invocations"
+    grep -Fxq "tool install pre-commit==${PRE_COMMIT_VERSION}" "$TEST_HOME/uv-invocations"
 }
 
 @test "install_uv_tools warns and continues when a tool install fails" {
     setup_fake_uv
-    printf '%s\n' 'ruff==0.15.12' > "$TEST_HOME/uv-tools.txt"
+    printf '%s\n' "ruff==${RUFF_VERSION}" > "$TEST_HOME/uv-tools.txt"
     export AAB_UV_TOOLS_FILE="$TEST_HOME/uv-tools.txt"
     export UV_FAIL_TOOL_INSTALL=1
 
     run install_uv_tools
     # Best effort: a failed tool install warns but does not abort the bootstrap.
     [ "$status" -eq 0 ]
-    [[ "$output" == *"WARN:"*"ruff==0.15.12"* ]]
+    [[ "$output" == *"WARN:"*"ruff==${RUFF_VERSION}"* ]]
 }
 
-@test "uv_tools.txt pins ruff to the ruff-pre-commit hook version" {
-    grep -Fxq 'ruff==0.15.12' "$REPO_ROOT/uv_tools.txt"
+@test "uv_tools.txt delegates built-in versions to the central version file" {
+    grep -Fxq 'ruff' "$REPO_ROOT/uv_tools.txt"
     grep -Fxq 'pre-commit' "$REPO_ROOT/uv_tools.txt"
+    [ -n "$RUFF_VERSION" ]
+    [ -n "$PRE_COMMIT_VERSION" ]
     # autocuda is private, so it must not be an installable tool line here (it
     # may be named in a comment explaining its absence). Strip comments and
     # blanks, then assert no remaining line names it.
@@ -579,44 +612,58 @@ SH
     [ "$status" -ne 0 ]
 }
 
-@test "install_private_autocuda installs autocuda from its git+https url as a uv tool" {
+@test "install_uv_tools rejects an unpinned custom tool" {
     setup_fake_uv
+    printf '%s\n' 'black' > "$TEST_HOME/uv-tools.txt"
+    export AAB_UV_TOOLS_FILE="$TEST_HOME/uv-tools.txt"
 
-    run install_private_autocuda
-    [ "$status" -eq 0 ]
-    # Installed as its own isolated uv tool, not into a shared interpreter.
-    grep -Fq "tool install git+https://github.com/${AUTOCUDA_PRIVATE_REPO}" "$TEST_HOME/uv-invocations"
+    run install_uv_tools
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is not version-pinned"* ]]
 }
 
-@test "install_private_autocuda warns and continues when the install fails" {
+@test "install_autocuda installs its package from a pinned git ref" {
+    setup_fake_uv
+
+    run _install_autocuda_package
+    [ "$status" -eq 0 ]
+    # Installed as its own isolated uv tool, not into a shared interpreter.
+    grep -Fq "tool install git+https://github.com/${AUTOCUDA_PRIVATE_REPO}@${AUTOCUDA_REF}" "$TEST_HOME/uv-invocations"
+}
+
+@test "install_autocuda package failure warns and continues" {
     setup_fake_uv
     export UV_FAIL_TOOL_INSTALL=1
 
-    run install_private_autocuda
+    run _install_autocuda_package
     # Best effort: a failed install is never fatal.
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN:"*"autocuda"* ]]
 }
 
-@test "install_private_autocuda authenticates private fetches via a github token rewrite" {
+@test "install_autocuda authenticates private fetches via a github token rewrite" {
     setup_fake_uv
     # Capture the environment uv runs under so the url.insteadOf rewrite is
     # observable; the token value itself never lands in the package spec.
     cat > "$FAKE_UV_BIN/uv" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
+if [ "${1:-}" = "--version" ]; then
+    printf 'uv %s (fake)\n' "${UV_VERSION:?}"
+    exit 0
+fi
 printf 'KEY0=%s VALUE0=%s\n' "${GIT_CONFIG_KEY_0:-}" "${GIT_CONFIG_VALUE_0:-}" >> "$TEST_HOME/uv-git-env"
 exit 0
 SH
     chmod +x "$FAKE_UV_BIN/uv"
     export AAB_GH_TOKEN="ghp_faketoken123"
 
-    run install_private_autocuda
+    run _install_autocuda_package
     [ "$status" -eq 0 ]
     grep -Fq 'KEY0=url.https://x-access-token:ghp_faketoken123@github.com/.insteadOf VALUE0=https://github.com/' "$TEST_HOME/uv-git-env"
 }
 
-@test "run_autocuda_install runs autocuda install when autocuda is on PATH" {
+@test "install_autocuda configures plugins when autocuda is on PATH" {
     local fake_bin="$TEST_HOME/fake-autocuda-bin"
     mkdir -p "$fake_bin"
     cat > "$fake_bin/autocuda" <<SH
@@ -624,24 +671,24 @@ SH
 printf '%s\n' "\$*" >> "$TEST_HOME/autocuda-invocations"
 SH
     chmod +x "$fake_bin/autocuda"
-    PATH="$fake_bin:$PATH" run run_autocuda_install
+    PATH="$fake_bin:$PATH" run _configure_autocuda
     [ "$status" -eq 0 ]
     grep -Fxq 'install' "$TEST_HOME/autocuda-invocations"
 }
 
-@test "run_autocuda_install warns and skips when autocuda is not on PATH" {
+@test "install_autocuda configuration warns and skips when autocuda is not on PATH" {
     # A PATH without autocuda: the private install was skipped, so this is a
     # graceful no-op warning rather than an error.
-    PATH="/usr/bin:/bin" run run_autocuda_install
+    PATH="/usr/bin:/bin" run _configure_autocuda
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN:"*"autocuda"* ]]
     [ ! -f "$TEST_HOME/autocuda-invocations" ]
 }
 
-@test "run_autocuda_install restores AAB-managed settings.json keys that autocuda install strips" {
+@test "install_autocuda restores AAB-managed settings.json keys that autocuda install strips" {
     # autocuda install shells out to claude's plugin CLI, which re-serialises
     # settings.json and drops top-level keys like effortLevel. The fake autocuda
-    # below reproduces that strip; run_autocuda_install must re-merge them.
+    # below reproduces that strip; _configure_autocuda must re-merge them.
     mkdir -p "$CLAUDE_DIR"
     cat > "$SETTINGS_FILE" <<'JSON'
 {
@@ -667,7 +714,7 @@ PY
 SH
     chmod +x "$fake_bin/autocuda"
 
-    PATH="$fake_bin:$PATH" run run_autocuda_install
+    PATH="$fake_bin:$PATH" run _configure_autocuda
     [ "$status" -eq 0 ]
     # effortLevel is re-merged from the snapshot; the marketplace autocuda
     # install added survives (live value wins where present).
@@ -967,38 +1014,38 @@ SH
     export PATH="$FAKE_BREV_BIN:$PATH"
 }
 
-@test "configure_brev_auth is a no-op when Brev API-key vars are unset" {
+@test "configure_brev auth is a no-op when API-key vars are unset" {
     setup_fake_brev
-    run configure_brev_auth
+    run _configure_brev_auth
     [ "$status" -eq 0 ]
     [ ! -f "$TEST_HOME/brev-invocations" ]
     [ ! -f "$HOME/.brev/credentials.json" ]
 }
 
-@test "configure_brev_auth ignores unprefixed Brev API-key vars" {
+@test "configure_brev auth ignores unprefixed Brev API-key vars" {
     setup_fake_brev
     BREV_API_KEY="brev-unprefixed-test-key" \
         BREV_ORG_ID="org-unprefixed-test" \
-        run configure_brev_auth
+        run _configure_brev_auth
     [ "$status" -eq 0 ]
     [ ! -f "$TEST_HOME/brev-invocations" ]
     [ ! -f "$HOME/.brev/credentials.json" ]
 }
 
-@test "configure_brev_auth requires API key and org ID together" {
+@test "configure_brev auth requires API key and org ID together" {
     setup_fake_brev
-    AAB_BREV_API_KEY="brev-test-key" run configure_brev_auth
+    AAB_BREV_API_KEY="brev-test-key" run _configure_brev_auth
     [ "$status" -ne 0 ]
     [[ "$output" == *"AAB_BREV_API_KEY and AAB_BREV_ORG_ID must both be set"* ]]
     [ ! -f "$TEST_HOME/brev-invocations" ]
     [ ! -f "$HOME/.brev/credentials.json" ]
 }
 
-@test "configure_brev_auth logs in with AAB_BREV_API_KEY and AAB_BREV_ORG_ID" {
+@test "configure_brev logs in with AAB_BREV_API_KEY and AAB_BREV_ORG_ID" {
     setup_fake_brev
     AAB_BREV_API_KEY="brev-test-key" \
         AAB_BREV_ORG_ID="org-test" \
-        run configure_brev_auth
+        run _configure_brev_auth
     [ "$status" -eq 0 ]
     grep -Fxq 'login --api-key brev-test-key --org-id org-test' "$TEST_HOME/brev-invocations"
     python3 - <<PY
@@ -1010,25 +1057,25 @@ PY
     [[ "$output" != *"brev-test-key"* ]]
 }
 
-@test "configure_brev_auth fails when Brev API-key login fails" {
+@test "configure_brev auth fails when Brev API-key login fails" {
     setup_fake_brev
     export FAKE_BREV_FAIL=1
     AAB_BREV_API_KEY="brev-test-key" \
         AAB_BREV_ORG_ID="org-test" \
-        run configure_brev_auth
+        run _configure_brev_auth
     [ "$status" -ne 0 ]
     [[ "$output" == *"brev login --api-key failed"* ]]
     [[ "$output" != *"brev-test-key"* ]]
 }
 
-@test "skip_onboarding creates .claude.json with hasCompletedOnboarding=true" {
-    skip_onboarding
+@test "skip_claude_onboarding creates .claude.json with hasCompletedOnboarding=true" {
+    skip_claude_onboarding
     [ -f "$CLAUDE_JSON" ]
     python3 -c "import json; d=json.load(open('$CLAUDE_JSON')); assert d['hasCompletedOnboarding'] is True"
 }
 
-@test "skip_onboarding pre-approves AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY fingerprint when set" {
-    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_onboarding
+@test "skip_claude_onboarding pre-approves AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY fingerprint when set" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_claude_onboarding
     python3 - <<PY
 import json
 d = json.load(open("$CLAUDE_JSON"))
@@ -1038,12 +1085,12 @@ assert "f0123456789abcdef" in approved[0], approved
 PY
 }
 
-@test "skip_onboarding preserves existing fields in .claude.json" {
+@test "skip_claude_onboarding preserves existing fields in .claude.json" {
     mkdir -p "$(dirname "$CLAUDE_JSON")"
     cat > "$CLAUDE_JSON" <<JSON
 {"userID": "u-123", "hasCompletedOnboarding": false}
 JSON
-    skip_onboarding
+    skip_claude_onboarding
     python3 - <<PY
 import json
 d = json.load(open("$CLAUDE_JSON"))
@@ -1052,9 +1099,9 @@ assert d["hasCompletedOnboarding"] is True
 PY
 }
 
-@test "skip_onboarding is idempotent (second call does not duplicate fingerprint)" {
-    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_onboarding
-    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_onboarding
+@test "skip_claude_onboarding is idempotent (second call does not duplicate fingerprint)" {
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_claude_onboarding
+    AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_claude_onboarding
     python3 - <<PY
 import json
 d = json.load(open("$CLAUDE_JSON"))
@@ -1117,14 +1164,22 @@ SH
     [ "$output" = "$HOME/.local/aab-bin/claude" ]
 }
 
-@test "update_bashrc exports DEBUG_SDK=1 (turns on Claude Code debug logging)" {
-    update_bashrc
-    grep -qE "^export DEBUG_SDK=('?\"?)1\\1?$" "$BASHRC"
+@test "write_claude_shell_config owns Claude shell defaults" {
+    AAB_CLAUDE_CODE_EFFORT="high" write_claude_shell_config
+    [ -f "$CLAUDE_SHELL_CONFIG_FILE" ]
+    grep -Fxq 'export CLAUDE_CODE_SANDBOXED=1' "$CLAUDE_SHELL_CONFIG_FILE"
+    grep -Fxq 'export DEBUG_SDK=1' "$CLAUDE_SHELL_CONFIG_FILE"
+    grep -Fxq 'export CLAUDE_CODE_EFFORT_LEVEL=high' "$CLAUDE_SHELL_CONFIG_FILE"
 }
 
-@test "update_bashrc exports CLAUDE_CODE_EFFORT_LEVEL from AAB_CLAUDE_CODE_EFFORT" {
-    AAB_CLAUDE_CODE_EFFORT="high" update_bashrc
-    grep -qE "^export CLAUDE_CODE_EFFORT_LEVEL=('?\"?)high\\1?$" "$BASHRC"
+@test "update_bashrc sources per-harness shell configuration" {
+    AAB_CLAUDE_CODE_EFFORT="high" write_claude_shell_config
+    update_bashrc
+    grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC"
+    ! grep -q '^export DEBUG_SDK=' "$BASHRC"
+    run env HOME="$HOME" bash -c 'unset DEBUG_SDK CLAUDE_CODE_EFFORT_LEVEL; . "$HOME/.bashrc"; printf "%s %s" "$DEBUG_SDK" "$CLAUDE_CODE_EFFORT_LEVEL"'
+    [ "$status" -eq 0 ]
+    [ "$output" = "1 high" ]
 }
 
 @test "update_bashrc does not write credentials or provider AAB vars" {
@@ -1195,7 +1250,7 @@ SH
     # attempted to install Claude Code via curl; instead the function is
     # merely defined.
     type main >/dev/null
-    # And no settings file should exist yet — write_settings was never
+    # And no settings file should exist yet — write_claude_settings was never
     # called by a main() invocation at source time.
     [ ! -f "$SETTINGS_FILE" ]
 }
@@ -1252,7 +1307,7 @@ SH
     make_apt_get_fakes "$fake_bin"
     # Comment and blank lines are stripped; the surviving packages are the whole
     # install list — no per-package marker check, the list goes in unconditionally.
-    printf '%s\n' '# A comment.' 'curl' '' 'ripgrep' 'graphviz-dev' \
+    printf '%s\n' '# A comment.' 'curl=7.81.0-*' '' 'ripgrep=13.0.0-*' 'libgraphviz-dev=2.42.2-*' \
         > "$TEST_HOME/apt-packages.txt"
     export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
 
@@ -1260,9 +1315,9 @@ SH
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"Reading apt package list from $TEST_HOME/apt-packages.txt."* ]]
-    [[ "$output" == *"Installing base deps: curl ripgrep graphviz-dev."* ]]
+    [[ "$output" == *"Installing pinned apt packages: curl=7.81.0-* ripgrep=13.0.0-* libgraphviz-dev=2.42.2-*."* ]]
     grep -Fxq 'update -y' "$TEST_HOME/apt-get-invocations"
-    grep -Fxq 'install -y --no-install-recommends curl ripgrep graphviz-dev' "$TEST_HOME/apt-get-invocations"
+    grep -Fxq 'install -y --allow-downgrades --no-install-recommends curl=7.81.0-* ripgrep=13.0.0-* libgraphviz-dev=2.42.2-*' "$TEST_HOME/apt-get-invocations"
 }
 
 @test "install_base_deps reads ./apt_packages.txt by default" {
@@ -1277,8 +1332,10 @@ SH
     [[ "$output" == *"Reading apt package list from $REPO_ROOT/apt_packages.txt."* ]]
     # The autocuda pygraphviz build toolchain is part of the default list, so it
     # gets installed alongside the rest.
-    grep -Eq 'install -y --no-install-recommends .*graphviz-dev.*build-essential' "$TEST_HOME/apt-get-invocations"
-    grep -Eq 'install -y --no-install-recommends .*ripgrep' "$TEST_HOME/apt-get-invocations"
+    grep -Eq 'install -y --allow-downgrades --no-install-recommends .*git=1:2[.]34[.]1-.*git-man=1:2[.]34[.]1-' "$TEST_HOME/apt-get-invocations"
+    grep -Eq 'install -y --allow-downgrades --no-install-recommends .*libgraphviz-dev=2[.]42[.]2-.*build-essential=12[.]9ubuntu3' "$TEST_HOME/apt-get-invocations"
+    grep -Eq 'install -y --allow-downgrades --no-install-recommends .*ripgrep=13[.]0[.]0-' "$TEST_HOME/apt-get-invocations"
+    grep -Eq 'install -y --allow-downgrades --no-install-recommends .*openssh-client=1:8[.]9p1-' "$TEST_HOME/apt-get-invocations"
 }
 
 @test "install_base_deps warns and skips when apt-get is unavailable" {
@@ -1287,14 +1344,14 @@ SH
     local fake_bin="$TEST_HOME/fake-base-deps-noapt-bin"
     mkdir -p "$fake_bin"
     ln -s "$(command -v cat)" "$fake_bin/cat"
-    printf '%s\n' 'curl' 'ripgrep' > "$TEST_HOME/apt-packages.txt"
+    printf '%s\n' 'curl=7.81.0-*' 'ripgrep=13.0.0-*' > "$TEST_HOME/apt-packages.txt"
     export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
 
     PATH="$fake_bin" run install_base_deps
     [ "$status" -eq 0 ]
     [[ "$output" == *"apt-get is not available"* ]]
     # Should NOT claim to be installing anything.
-    [[ "$output" != *"Installing base deps:"* ]]
+    [[ "$output" != *"Installing pinned apt packages:"* ]]
 }
 
 @test "install_base_deps warns and skips when passwordless sudo is unavailable" {
@@ -1309,13 +1366,13 @@ SH
 exit 0
 SH
     chmod +x "$fake_bin/sudo"
-    printf '%s\n' 'curl' 'ripgrep' > "$TEST_HOME/apt-packages.txt"
+    printf '%s\n' 'curl=7.81.0-*' 'ripgrep=13.0.0-*' > "$TEST_HOME/apt-packages.txt"
     export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
 
     SUDO="sudo" PATH="$fake_bin" run install_base_deps
     [ "$status" -eq 0 ]
     [[ "$output" == *"passwordless sudo is not available"* ]]
-    [[ "$output" != *"Installing base deps:"* ]]
+    [[ "$output" != *"Installing pinned apt packages:"* ]]
     [ ! -f "$TEST_HOME/apt-get-invocations" ]
 }
 
@@ -1330,6 +1387,30 @@ SH
     [ "$status" -eq 0 ]
     [[ "$output" == *"apt package list is empty"* ]]
     [ ! -f "$TEST_HOME/apt-get-invocations" ]
+}
+
+@test "install_base_deps rejects unpinned package entries" {
+    local fake_bin="$TEST_HOME/fake-base-deps-unpinned-bin"
+    make_apt_get_fakes "$fake_bin"
+    printf '%s\n' 'curl' > "$TEST_HOME/apt-packages.txt"
+    export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
+
+    SUDO="" PATH="$fake_bin" run install_base_deps
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is not version-pinned"* ]]
+    [ ! -f "$TEST_HOME/apt-get-invocations" ]
+}
+
+@test "apt-get calls are centralized in install_base_deps" {
+    run bash -c '
+        for source_file in "$1"/*.bash; do
+            if grep -Eq "(^|[[:space:]])apt-get([[:space:]]|$)" "$source_file"; then
+                printf "%s\n" "$source_file"
+            fi
+        done
+    ' _ "$REPO_ROOT/src/bootstrap"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$REPO_ROOT/src/bootstrap/01_install_base_deps.bash" ]
 }
 
 
@@ -1507,7 +1588,7 @@ JSON
     echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_settings
+    write_claude_settings
     install_agent_plugins
 
     python3 - <<PY
@@ -1526,7 +1607,7 @@ PY
     echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_settings
+    write_claude_settings
     install_agent_plugins
 
     python3 - <<PY
@@ -1545,7 +1626,7 @@ PY
     echo "acme/public-plugin" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_settings
+    write_claude_settings
     install_agent_plugins
 
     python3 - <<PY
@@ -1565,7 +1646,7 @@ PY
     printf '%s\n%s\n' "acme/public-plugin" "private/no-access" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_settings
+    write_claude_settings
     run install_agent_plugins
     [ "$status" -eq 0 ]
     # Soft log, not WARN, for the inaccessible repo.
@@ -1623,7 +1704,7 @@ JSON
     echo "acme/multi" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_settings
+    write_claude_settings
     install_agent_plugins
 
     grep -Fxq 'plugin marketplace add acme/multi' "$TEST_HOME/claude-invocations"
@@ -1648,7 +1729,7 @@ JSON
     echo "acme/private-plugin" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_settings
+    write_claude_settings
     install_agent_plugins
 
     grep -Fxq 'plugin marketplace add acme/private-plugin' "$TEST_HOME/claude-invocations"
@@ -1668,7 +1749,7 @@ JSON
     printf '%s\n%s\n' "alpha/m" "beta/m" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_settings
+    write_claude_settings
     install_agent_plugins
 
     grep -Fxq 'plugin marketplace add alpha/m' "$TEST_HOME/claude-invocations"
@@ -1691,7 +1772,7 @@ JSON
     echo "acme/m" > "$TEST_HOME/plugins.txt"
     export AAB_AGENT_PLUGINS_FILE="$TEST_HOME/plugins.txt"
 
-    write_settings
+    write_claude_settings
     run install_agent_plugins
     [ "$status" -eq 0 ]
     [[ "$output" == *"WARN:"*"claude binary not on PATH"* ]]
@@ -1932,8 +2013,8 @@ _setup_enforced_repo() {
     done
 }
 
-@test "emit_git_hook_script emits a syntactically valid bash hook" {
-    emit_git_hook_script > "$TEST_HOME/hook"
+@test "git hook renderer emits syntactically valid bash" {
+    _render_git_hook_script > "$TEST_HOME/hook"
     bash -n "$TEST_HOME/hook"
     head -1 "$TEST_HOME/hook" | grep -q '^#!/usr/bin/env bash$'
 }
@@ -2286,45 +2367,6 @@ STUB
 }
 
 # ---------------------------------------------------------------------------
-# update_etc_environment: removes stale AAB blocks from older installs.
-# ---------------------------------------------------------------------------
-
-_etc_env_sandbox() {
-    ETC_ENV="$TEST_HOME/environment"
-    SUDO=""
-}
-
-@test "update_etc_environment removes stale managed block and preserves other entries" {
-    _etc_env_sandbox
-    cat > "$ETC_ENV" <<EOF
-PATH="/usr/local/bin:/usr/bin"
-$ETC_ENV_MARKER_BEGIN
-AAB_CLAUDE_CODE_FIRST_PARTY_API_KEY="sk-ant-old"
-ANTHROPIC_API_KEY="sk-ant-old"
-$ETC_ENV_MARKER_END
-LC_ALL="C.UTF-8"
-EOF
-
-    update_etc_environment
-
-    grep -q '^PATH="/usr/local/bin:/usr/bin"$' "$ETC_ENV"
-    grep -q '^LC_ALL="C.UTF-8"$' "$ETC_ENV"
-    ! grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
-    ! grep -q 'sk-ant-old' "$ETC_ENV"
-    [ "$(stat -c '%a' "$ETC_ENV")" = "644" ]
-}
-
-@test "update_etc_environment is a no-op when no stale managed block exists" {
-    _etc_env_sandbox
-    cat > "$ETC_ENV" <<'EOF'
-PATH="/usr/local/bin:/usr/bin"
-EOF
-    update_etc_environment
-    grep -q '^PATH="/usr/local/bin:/usr/bin"$' "$ETC_ENV"
-    ! grep -qF "$ETC_ENV_MARKER_BEGIN" "$ETC_ENV"
-}
-
-# ---------------------------------------------------------------------------
 # load_config_file / load_config_stdin: covers the bash-source-backed config
 # loader used when main() is given a positional path or non-TTY stdin.
 # Exercises quoting, comments, env-beats-file precedence, the missing-file
@@ -2518,7 +2560,7 @@ SH
     run install_lifeboat
     [ "$status" -eq 0 ]
     # Fetched from the public lifeboat repo, to a file (not piped to bash).
-    grep -Fq 'raw.githubusercontent.com/brycelelbach/lifeboat/main/lifeboat' \
+    grep -Fq "raw.githubusercontent.com/${LIFEBOAT_REPO}/${LIFEBOAT_REF}/lifeboat" \
         "$TEST_HOME/lifeboat-curl-invocations"
     grep -Fq -- '-o ' "$TEST_HOME/lifeboat-curl-invocations"
     # Installed and executable; no leftover .tmp.
