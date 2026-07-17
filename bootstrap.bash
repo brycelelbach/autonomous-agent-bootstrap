@@ -398,6 +398,100 @@ install_brev() {
 }
 # <<< src/bootstrap/05_install_brev.bash <<<
 
+# >>> src/bootstrap/06_install_gitleaks.bash >>>
+# ---------------------------------------------------------------------------
+# Install gitleaks, the secret scanner the pre-commit hook runs. A
+# single static Go binary (MIT, offline — no network at scan time), pinned to
+# the same version and verified against the same per-arch SHA-256 the CI
+# secret-scan job uses, so a commit blocked locally is a commit blocked in CI.
+#
+# Landed in ~/.local/bin (front of the managed PATH) so the hook finds it by
+# name, with the absolute path as a fallback. Idempotent: a gitleaks already at
+# the pinned version is left untouched. OS/arch-guarded: only linux x86_64 /
+# arm64 release tarballs are pinned; anywhere else we skip cleanly and the hook
+# falls back to its built-in shell secret grep. The download is verified before
+# it is moved into place, so a corrupted or tampered fetch never installs.
+# ---------------------------------------------------------------------------
+install_gitleaks() {
+    # Already at the pinned version? Leave it. `gitleaks version` prints a bare
+    # version string (e.g. "8.18.4").
+    if [ -x "$GITLEAKS_BIN" ] \
+        && [ "$("$GITLEAKS_BIN" version 2>/dev/null | tr -d 'v[:space:]')" = "$GITLEAKS_VERSION" ]; then
+        log "gitleaks ${GITLEAKS_VERSION} already installed at ${GITLEAKS_BIN}."
+        return
+    fi
+    # A system-wide gitleaks at the pinned version (e.g. from CI's
+    # /usr/local/bin install) also satisfies the requirement; the hook resolves
+    # gitleaks via PATH first, so don't shadow it with a second copy.
+    if command -v gitleaks >/dev/null 2>&1 \
+        && [ "$(gitleaks version 2>/dev/null | tr -d 'v[:space:]')" = "$GITLEAKS_VERSION" ]; then
+        log "gitleaks ${GITLEAKS_VERSION} already on PATH ($(command -v gitleaks)); not installing a second copy."
+        return
+    fi
+
+    local os arch tarch sha
+    os=$(uname -s 2>/dev/null || echo unknown)
+    arch=$(uname -m 2>/dev/null || echo unknown)
+    if [ "$os" != "Linux" ]; then
+        warn "gitleaks: no pinned build for ${os}; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
+        return
+    fi
+    case "$arch" in
+        x86_64|amd64) tarch="linux_x64";   sha="$GITLEAKS_SHA256_LINUX_X64" ;;
+        aarch64|arm64) tarch="linux_arm64"; sha="$GITLEAKS_SHA256_LINUX_ARM64" ;;
+        *)
+            warn "gitleaks: no pinned build for ${arch}; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
+            return
+            ;;
+    esac
+
+    if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
+        warn "gitleaks: curl/tar unavailable; skipping install (the pre-commit hook's shell-grep fallback still scans commits)."
+        return
+    fi
+
+    local url tmp
+    url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_${tarch}.tar.gz"
+    tmp=$(mktemp -d)
+    log "Installing gitleaks ${GITLEAKS_VERSION} (${tarch}) for the pre-commit secret scan."
+    if ! curl -fsSL "$url" -o "${tmp}/gitleaks.tar.gz"; then
+        warn "gitleaks: download failed from ${url}; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
+        rm -rf "$tmp"
+        return
+    fi
+
+    # Verify the tarball checksum before trusting its contents. Prefer
+    # sha256sum, fall back to shasum -a 256 (neither is guaranteed on a bare
+    # image, so degrade to a skip rather than install an unverified binary).
+    local actual=""
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "${tmp}/gitleaks.tar.gz" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        actual=$(shasum -a 256 "${tmp}/gitleaks.tar.gz" | awk '{print $1}')
+    else
+        warn "gitleaks: no sha256sum/shasum to verify the download; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
+        rm -rf "$tmp"
+        return
+    fi
+    if [ "$actual" != "$sha" ]; then
+        warn "gitleaks: checksum mismatch (expected ${sha}, got ${actual}); refusing to install. The pre-commit hook's shell-grep fallback still scans commits."
+        rm -rf "$tmp"
+        return
+    fi
+
+    if ! tar -xzf "${tmp}/gitleaks.tar.gz" -C "$tmp" gitleaks 2>/dev/null; then
+        warn "gitleaks: could not extract the binary from the tarball; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
+        rm -rf "$tmp"
+        return
+    fi
+    mkdir -p "$(dirname "$GITLEAKS_BIN")"
+    chmod 0755 "${tmp}/gitleaks"
+    mv -f "${tmp}/gitleaks" "$GITLEAKS_BIN"
+    rm -rf "$tmp"
+    log "Installed gitleaks ${GITLEAKS_VERSION} at ${GITLEAKS_BIN}."
+}
+# <<< src/bootstrap/06_install_gitleaks.bash <<<
+
 # >>> src/bootstrap/07_install_lifeboat.bash >>>
 # ---------------------------------------------------------------------------
 # 3c. Install the lifeboat home-directory backup tool.
@@ -607,6 +701,281 @@ install_uv_tools() {
     done
 }
 # <<< src/bootstrap/10_install_uv_tools.bash <<<
+
+# >>> src/bootstrap/11_install_agent_plugins.bash >>>
+# ---------------------------------------------------------------------------
+# Install agent plugins listed in agent_plugins.txt.
+#
+# Each line is a GitHub owner/repo that hosts a plugin marketplace
+# containing .claude-plugin/marketplace.json. Claude Code and Codex both
+# understand that marketplace manifest. We fetch it once to discover the
+# marketplace name and plugin names, then install the same resolved plugin
+# selectors into both CLIs.
+#
+# The compiler embeds agent_plugins.txt below. AAB_AGENT_PLUGINS_FILE can
+# replace the compiled list for a one-off local build.
+# ---------------------------------------------------------------------------
+AGENT_PLUGINS_DEFAULT_CONTENT=$(cat <<'AAB_AGENT_PLUGINS_EOF'
+# Agent plugin marketplaces installed by bootstrap.bash.
+#
+# One GitHub "owner/repo" per line. The repo must contain
+# .claude-plugin/marketplace.json at the repository root. Claude Code and
+# Codex both read that marketplace manifest to discover the marketplace
+# name and the plugin name(s) to install.
+#
+# Lines beginning with '#' and blank lines are ignored. To install
+# additional plugins, add their marketplace repos below.
+
+brycelelbach/agitentic
+brycelelbach-private/autocuda
+AAB_AGENT_PLUGINS_EOF
+)
+install_agent_plugins() {
+    command -v python3 >/dev/null 2>&1 || { warn "python3 required for plugin install; skipping."; return; }
+    local plugins_file="${AAB_AGENT_PLUGINS_FILE:-}"
+    local content="$AGENT_PLUGINS_DEFAULT_CONTENT"
+    if [ -n "$plugins_file" ]; then
+        if [ ! -f "$plugins_file" ]; then
+            warn "Plugin list file ${plugins_file} does not exist; skipping plugin install."
+            return
+        fi
+        content=$(cat "$plugins_file")
+        log "Reading plugin list override from ${plugins_file}."
+    else
+        log "Reading plugin list compiled into bootstrap.bash."
+    fi
+
+    # Strip comments and blanks into one repo per line.
+    local -a repos=()
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        # trim
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [ -z "$line" ] && continue
+        repos+=("$line")
+    done <<< "$content"
+
+    if [ ${#repos[@]} -eq 0 ]; then
+        log "Plugin list is empty; skipping plugin install."
+        return
+    fi
+
+    # Private plugin repos need an authenticated fetch. Prefer `gh api` when
+    # it's installed and authenticated (works for both public and private
+    # repos); fall back to unauthenticated raw.githubusercontent.com so
+    # public plugins still work on hosts without a gh login.
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+    local -a github_env=(env)
+    if [ -n "$github_token" ]; then
+        github_env=(env "GH_TOKEN=$github_token")
+    fi
+    local use_gh=0
+    if command -v gh >/dev/null 2>&1 && "${github_env[@]}" gh auth status >/dev/null 2>&1; then
+        use_gh=1
+    fi
+
+    # Collect resolved tuples (repo|marketplace|plugin) for every plugin.
+    local -a tuples=()
+    local repo marketplace_json marketplace_name plugin_names plugin_name
+    for repo in "${repos[@]}"; do
+        marketplace_json=""
+        for branch in main master; do
+            if [ $use_gh -eq 1 ]; then
+                marketplace_json=$("${github_env[@]}" gh api -H "Accept: application/vnd.github.v3.raw" \
+                    "repos/${repo}/contents/.claude-plugin/marketplace.json?ref=${branch}" 2>/dev/null) \
+                    || marketplace_json=""
+            fi
+            if [ -z "$marketplace_json" ]; then
+                marketplace_json=$(curl -fsSL "https://raw.githubusercontent.com/${repo}/${branch}/.claude-plugin/marketplace.json" 2>/dev/null) \
+                    || marketplace_json=""
+            fi
+            [ -n "$marketplace_json" ] && break
+        done
+        if [ -z "$marketplace_json" ]; then
+            # Most commonly this means the repo is private and the caller
+            # lacks access (or gh isn't authenticated). Plugin install is an
+            # optional step; log and move on without failing the bootstrap.
+            log "Could not fetch .claude-plugin/marketplace.json from ${repo} (private repo without access?); skipping."
+            continue
+        fi
+        marketplace_name=$(printf '%s' "$marketplace_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))') || marketplace_name=""
+        if [ -z "$marketplace_name" ]; then
+            warn "${repo}/.claude-plugin/marketplace.json has no 'name'; skipping."
+            continue
+        fi
+        plugin_names=$(printf '%s' "$marketplace_json" | python3 -c 'import json,sys; [print(p["name"]) for p in json.load(sys.stdin).get("plugins",[]) if p.get("name")]')
+        if [ -z "$plugin_names" ]; then
+            warn "${repo} marketplace lists no plugins; skipping."
+            continue
+        fi
+        while IFS= read -r plugin_name; do
+            [ -z "$plugin_name" ] && continue
+            tuples+=("${repo}|${marketplace_name}|${plugin_name}")
+        done <<< "$plugin_names"
+    done
+
+    if [ ${#tuples[@]} -eq 0 ]; then
+        warn "No plugins resolved; skipping plugin install."
+        return
+    fi
+
+    install_claude_code_plugins "${tuples[@]}"
+    install_codex_plugins "${tuples[@]}"
+}
+
+install_claude_code_plugins() {
+    local -a tuples=("$@")
+    [ ${#tuples[@]} -eq 0 ] && return
+
+    # Merge into ~/.claude/settings.json. write_claude_settings has already run,
+    # so the file exists and is valid JSON.
+    python3 - "$SETTINGS_FILE" "${tuples[@]}" <<'PY'
+import json, sys
+path = sys.argv[1]
+tuples = sys.argv[2:]
+with open(path) as f:
+    data = json.load(f)
+extra = data.setdefault("extraKnownMarketplaces", {})
+enabled = data.setdefault("enabledPlugins", {})
+for t in tuples:
+    repo, marketplace, plugin = t.split("|", 2)
+    extra[marketplace] = {"source": {"source": "github", "repo": repo}}
+    enabled[f"{plugin}@{marketplace}"] = True
+    print(f"[bootstrap] Enabled plugin {plugin}@{marketplace} from github {repo}.")
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+PY
+
+    # settings.json's extraKnownMarketplaces and enabledPlugins are
+    # advisory: Claude Code's `plugin` CLI maintains its own registry
+    # at ~/.claude/plugins/{known_marketplaces,installed_plugins}.json
+    # that only `claude plugin marketplace add` + `claude plugin
+    # install` populate. Without those, every `claude` (and every
+    # ACP-driven harness like @openclaw/acpx that spawns claude) starts
+    # with an empty installed_plugins.json — the agent's session-start
+    # skills list contains only the bundled defaults, none of the
+    # user-configured plugins. Materialise the install here so the
+    # bootstrap leaves the user with a fully-registered plugin set.
+    local claude_bin=""
+    if [ -x "${HOME}/.local/bin/claude-aab-real" ]; then
+        claude_bin="${HOME}/.local/bin/claude-aab-real"
+    elif command -v claude >/dev/null 2>&1; then
+        claude_bin=$(command -v claude)
+    elif [ -x "${HOME}/.local/bin/claude" ]; then
+        claude_bin="${HOME}/.local/bin/claude"
+    else
+        warn "claude binary not on PATH; skipping Claude Code plugin install (settings.json was still written)."
+        return
+    fi
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+    local -a github_env=(env)
+    if [ -n "$github_token" ]; then
+        github_env=(env "GH_TOKEN=$github_token")
+    fi
+
+    # Snapshot the post-write_claude_settings + post-merge settings.json so
+    # the re-merge below can restore AAB-managed top-level keys that
+    # Claude Code's plugin CLI strips on re-serialise.
+    cp "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak"
+
+    # Dedupe repos before `marketplace add` (one marketplace can ship
+    # several plugins; a 1-to-1 add per tuple would re-clone N times).
+    local -A seen_repos=()
+    local t repo marketplace plugin
+    for t in "${tuples[@]}"; do
+        repo="${t%%|*}"
+        if [ -z "${seen_repos[$repo]:-}" ]; then
+            log "Adding marketplace ${repo} to claude's plugin registry."
+            "${github_env[@]}" "$claude_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
+                warn "claude plugin marketplace add ${repo} returned non-zero (private repo without access? skipping)."
+            seen_repos[$repo]=1
+        fi
+    done
+
+    for t in "${tuples[@]}"; do
+        repo="${t%%|*}"
+        marketplace="${t#*|}"
+        plugin="${marketplace#*|}"
+        marketplace="${marketplace%|*}"
+        log "Installing Claude Code plugin ${plugin}@${marketplace}."
+        "${github_env[@]}" "$claude_bin" plugin install "${plugin}@${marketplace}" --scope user 2>&1 | sed 's/^/  /' || \
+            warn "claude plugin install ${plugin}@${marketplace} returned non-zero."
+    done
+
+    # `claude plugin marketplace add` / `claude plugin install --scope
+    # user` re-serialise ~/.claude/settings.json against Claude Code's
+    # internal schema, which drops any top-level keys the schema
+    # doesn't enumerate (notably `effortLevel` — written by
+    # write_claude_settings, asserted by tests/e2e-assertions.bash). Re-merge
+    # the AAB-managed top-level keys back in from a snapshot taken
+    # before the claude calls ran so the on-disk shape stays a
+    # superset of what write_claude_settings produced.
+    if [ -f "${SETTINGS_FILE}.pre-plugin-install.bak" ]; then
+        python3 - "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak" <<'PY'
+import json, sys
+live_path, snap_path = sys.argv[1], sys.argv[2]
+with open(live_path) as f:
+    live = json.load(f)
+with open(snap_path) as f:
+    snap = json.load(f)
+# Re-merge keys that AAB owns but Claude Code's plugin CLI strips on
+# re-serialise. Keep the live values for keys the CLI updated.
+for k in ("model", "effortLevel", "permissions", "skipDangerousModePermissionPrompt", "env"):
+    if k in snap and k not in live:
+        live[k] = snap[k]
+with open(live_path, "w") as f:
+    json.dump(live, f, indent=2)
+PY
+        rm -f "${SETTINGS_FILE}.pre-plugin-install.bak"
+    fi
+}
+
+install_codex_plugins() {
+    local -a tuples=("$@")
+    [ ${#tuples[@]} -eq 0 ] && return
+
+    local codex_bin=""
+    if [ -x "${HOME}/.local/bin/codex-aab-real" ]; then
+        codex_bin="${HOME}/.local/bin/codex-aab-real"
+    elif command -v codex >/dev/null 2>&1; then
+        codex_bin=$(command -v codex)
+    elif [ -x "${HOME}/.local/bin/codex" ]; then
+        codex_bin="${HOME}/.local/bin/codex"
+    else
+        warn "codex binary not on PATH; skipping Codex plugin install."
+        return
+    fi
+    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
+    local -a github_env=(env)
+    if [ -n "$github_token" ]; then
+        github_env=(env "GH_TOKEN=$github_token")
+    fi
+
+    # Dedupe repos before `marketplace add`.
+    local -A seen_repos=()
+    local t repo marketplace plugin
+    for t in "${tuples[@]}"; do
+        repo="${t%%|*}"
+        if [ -z "${seen_repos[$repo]:-}" ]; then
+            log "Adding marketplace ${repo} to codex's plugin registry."
+            "${github_env[@]}" "$codex_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
+                warn "codex plugin marketplace add ${repo} returned non-zero (private repo without access? skipping)."
+            seen_repos[$repo]=1
+        fi
+    done
+
+    for t in "${tuples[@]}"; do
+        repo="${t%%|*}"
+        marketplace="${t#*|}"
+        plugin="${marketplace#*|}"
+        marketplace="${marketplace%|*}"
+        log "Installing Codex plugin ${plugin}@${marketplace}."
+        "${github_env[@]}" "$codex_bin" plugin add "${plugin}@${marketplace}" 2>&1 | sed 's/^/  /' || \
+            warn "codex plugin add ${plugin}@${marketplace} returned non-zero."
+    done
+}
+# <<< src/bootstrap/11_install_agent_plugins.bash <<<
 
 # >>> src/bootstrap/11_install_autocuda.bash >>>
 # ---------------------------------------------------------------------------
@@ -1444,9 +1813,9 @@ configure_git() {
 
 # <<< src/bootstrap/20_configure_git.bash <<<
 
-# >>> src/bootstrap/21_install_ssh_keys.bash >>>
+# >>> src/bootstrap/21_write_ssh_keys.bash >>>
 # ---------------------------------------------------------------------------
-# 9b. Install SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
+# Write SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
 # github.com auth: clone/push over SSH) and/or
 # $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 (for git commit/tag signing). These are
 # two separate roles and the
@@ -1534,11 +1903,11 @@ PY
     chmod 0600 "$SSH_CONFIG"
 }
 
-# install_auth_ssh_key: Decode $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 to
+# write_auth_ssh_key: Decode $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_auth and wire it as the IdentityFile for github.com in
 # ~/.ssh/config. Does NOT touch git signing config. Silent no-op when the
 # env var is unset.
-install_auth_ssh_key() {
+write_auth_ssh_key() {
     local encoded="${AAB_GH_AUTH_SSH_PRIVATE_KEY_B64:-}"
     local label="AAB_GH_AUTH_SSH_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
@@ -1547,18 +1916,18 @@ install_auth_ssh_key() {
         warn "base64 not installed; cannot decode ${label}; skipping."
         return
     fi
-    _require_ssh_keygen || { warn "Skipping ${label} install (ssh-keygen unavailable)."; return; }
+    _require_ssh_keygen || { warn "Skipping ${label} write (ssh-keygen unavailable)."; return; }
     _decode_ssh_key "$encoded" "$AUTH_KEY" "$label" || return 0
 
     _rewrite_ssh_config_block "$AUTH_KEY"
-    log "Installed GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
+    log "Wrote GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
 }
 
-# install_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
+# write_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
 # ~/.ssh/id_aab_signing and configure git to sign commits/tags with it.
 # Does NOT touch ~/.ssh/config — this key is for signing only. Silent
 # no-op when the env var is unset.
-install_signing_ssh_key() {
+write_signing_ssh_key() {
     local encoded="${AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64:-}"
     local label="AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64"
     [ -z "$encoded" ] && return
@@ -1567,7 +1936,7 @@ install_signing_ssh_key() {
         warn "base64 not installed; cannot decode ${label}; skipping."
         return
     fi
-    _require_ssh_keygen || { warn "Skipping ${label} install (ssh-keygen unavailable)."; return; }
+    _require_ssh_keygen || { warn "Skipping ${label} write (ssh-keygen unavailable)."; return; }
     _decode_ssh_key "$encoded" "$SIGNING_KEY" "$label" || return 0
 
     if command -v git >/dev/null 2>&1; then
@@ -1580,106 +1949,11 @@ install_signing_ssh_key() {
         warn "git not installed; skipping SSH signing config."
     fi
 }
-# <<< src/bootstrap/21_install_ssh_keys.bash <<<
+# <<< src/bootstrap/21_write_ssh_keys.bash <<<
 
-# >>> src/bootstrap/22_install_gitleaks.bash >>>
+# >>> src/bootstrap/23_configure_git_hooks.bash >>>
 # ---------------------------------------------------------------------------
-# 9b-bis. Install gitleaks, the secret scanner the pre-commit hook runs. A
-# single static Go binary (MIT, offline — no network at scan time), pinned to
-# the same version and verified against the same per-arch SHA-256 the CI
-# secret-scan job uses, so a commit blocked locally is a commit blocked in CI.
-#
-# Landed in ~/.local/bin (front of the managed PATH) so the hook finds it by
-# name, with the absolute path as a fallback. Idempotent: a gitleaks already at
-# the pinned version is left untouched. OS/arch-guarded: only linux x86_64 /
-# arm64 release tarballs are pinned; anywhere else we skip cleanly and the hook
-# falls back to its built-in shell secret grep. The download is verified before
-# it is moved into place, so a corrupted or tampered fetch never installs.
-# ---------------------------------------------------------------------------
-install_gitleaks() {
-    # Already at the pinned version? Leave it. `gitleaks version` prints a bare
-    # version string (e.g. "8.18.4").
-    if [ -x "$GITLEAKS_BIN" ] \
-        && [ "$("$GITLEAKS_BIN" version 2>/dev/null | tr -d 'v[:space:]')" = "$GITLEAKS_VERSION" ]; then
-        log "gitleaks ${GITLEAKS_VERSION} already installed at ${GITLEAKS_BIN}."
-        return
-    fi
-    # A system-wide gitleaks at the pinned version (e.g. from CI's
-    # /usr/local/bin install) also satisfies the requirement; the hook resolves
-    # gitleaks via PATH first, so don't shadow it with a second copy.
-    if command -v gitleaks >/dev/null 2>&1 \
-        && [ "$(gitleaks version 2>/dev/null | tr -d 'v[:space:]')" = "$GITLEAKS_VERSION" ]; then
-        log "gitleaks ${GITLEAKS_VERSION} already on PATH ($(command -v gitleaks)); not installing a second copy."
-        return
-    fi
-
-    local os arch tarch sha
-    os=$(uname -s 2>/dev/null || echo unknown)
-    arch=$(uname -m 2>/dev/null || echo unknown)
-    if [ "$os" != "Linux" ]; then
-        warn "gitleaks: no pinned build for ${os}; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
-        return
-    fi
-    case "$arch" in
-        x86_64|amd64) tarch="linux_x64";   sha="$GITLEAKS_SHA256_LINUX_X64" ;;
-        aarch64|arm64) tarch="linux_arm64"; sha="$GITLEAKS_SHA256_LINUX_ARM64" ;;
-        *)
-            warn "gitleaks: no pinned build for ${arch}; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
-            return
-            ;;
-    esac
-
-    if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
-        warn "gitleaks: curl/tar unavailable; skipping install (the pre-commit hook's shell-grep fallback still scans commits)."
-        return
-    fi
-
-    local url tmp
-    url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_${tarch}.tar.gz"
-    tmp=$(mktemp -d)
-    log "Installing gitleaks ${GITLEAKS_VERSION} (${tarch}) for the pre-commit secret scan."
-    if ! curl -fsSL "$url" -o "${tmp}/gitleaks.tar.gz"; then
-        warn "gitleaks: download failed from ${url}; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
-        rm -rf "$tmp"
-        return
-    fi
-
-    # Verify the tarball checksum before trusting its contents. Prefer
-    # sha256sum, fall back to shasum -a 256 (neither is guaranteed on a bare
-    # image, so degrade to a skip rather than install an unverified binary).
-    local actual=""
-    if command -v sha256sum >/dev/null 2>&1; then
-        actual=$(sha256sum "${tmp}/gitleaks.tar.gz" | awk '{print $1}')
-    elif command -v shasum >/dev/null 2>&1; then
-        actual=$(shasum -a 256 "${tmp}/gitleaks.tar.gz" | awk '{print $1}')
-    else
-        warn "gitleaks: no sha256sum/shasum to verify the download; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
-        rm -rf "$tmp"
-        return
-    fi
-    if [ "$actual" != "$sha" ]; then
-        warn "gitleaks: checksum mismatch (expected ${sha}, got ${actual}); refusing to install. The pre-commit hook's shell-grep fallback still scans commits."
-        rm -rf "$tmp"
-        return
-    fi
-
-    if ! tar -xzf "${tmp}/gitleaks.tar.gz" -C "$tmp" gitleaks 2>/dev/null; then
-        warn "gitleaks: could not extract the binary from the tarball; skipping (the pre-commit hook's shell-grep fallback still scans commits)."
-        rm -rf "$tmp"
-        return
-    fi
-    mkdir -p "$(dirname "$GITLEAKS_BIN")"
-    chmod 0755 "${tmp}/gitleaks"
-    mv -f "${tmp}/gitleaks" "$GITLEAKS_BIN"
-    rm -rf "$tmp"
-    log "Installed gitleaks ${GITLEAKS_VERSION} at ${GITLEAKS_BIN}."
-}
-
-# <<< src/bootstrap/22_install_gitleaks.bash <<<
-
-# >>> src/bootstrap/23_install_git_hooks.bash >>>
-# ---------------------------------------------------------------------------
-# 9c. Install a global git hook that enforces the bootstrap-configured git
+# Configure a global git hook that enforces the bootstrap-configured git
 # identity (and signing, when configured) on every commit, regardless of the
 # repository the agent is working in.
 #
@@ -1696,7 +1970,7 @@ install_gitleaks() {
 # because nothing scanned the diff locally.
 #
 # _render_git_hook_script writes the dispatcher to stdout so it can be both
-# installed and linted (test.bash --lint shellchecks the emitted script). The
+# written and linted (test.bash --lint shellchecks the emitted script). The
 # dispatcher reads the expected identity from --global (which -c / env / config
 # overrides cannot poison) and the actual identity from `git var`, which does
 # reflect --author and GIT_*_ env vars. It then chains through to the repo's
@@ -1706,7 +1980,7 @@ install_gitleaks() {
 _render_git_hook_script() {
     cat <<'HOOK'
 #!/usr/bin/env bash
-# autonomous-agent-bootstrap global git hook dispatcher. Installed by
+# autonomous-agent-bootstrap global git hook dispatcher. Configured by
 # bootstrap.bash and pointed to by the global core.hooksPath. Every git hook
 # name is a symlink to this one script.
 #
@@ -1770,7 +2044,7 @@ _aab_enforce_commit_identity() {
             echo "  author:    ${a_name} <${a_email}>"
             echo "  committer: ${c_name} <${c_email}>"
             echo "  Use the configured identity: plain 'git commit', without -c user.*, --author, or GIT_AUTHOR_*/GIT_COMMITTER_*."
-            echo "  This rule is installed by autonomous-agent-bootstrap. See ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md."
+            echo "  This rule is configured by autonomous-agent-bootstrap. See ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md."
         } >&2
         return 1
     fi
@@ -1911,7 +2185,7 @@ exit 0
 HOOK
 }
 
-install_git_hooks() {
+configure_git_hooks() {
     if ! command -v git >/dev/null 2>&1; then
         warn "git not installed — skipping git hook enforcement."
         return
@@ -1930,9 +2204,9 @@ install_git_hooks() {
     done
 
     git config --global core.hooksPath "${GIT_HOOKS_DIR}"
-    log "Installed global git hooks at ${GIT_HOOKS_DIR} and set core.hooksPath (enforces the global commit identity and scans staged commits for secrets)."
+    log "Configured global git hooks at ${GIT_HOOKS_DIR} and set core.hooksPath (enforces the global commit identity and scans staged commits for secrets)."
 }
-# <<< src/bootstrap/23_install_git_hooks.bash <<<
+# <<< src/bootstrap/23_configure_git_hooks.bash <<<
 
 # >>> src/bootstrap/24_write_agent_rules.bash >>>
 # ---------------------------------------------------------------------------
@@ -1996,284 +2270,9 @@ write_agent_rules() {
 }
 # <<< src/bootstrap/24_write_agent_rules.bash <<<
 
-# >>> src/bootstrap/25_install_agent_plugins.bash >>>
+# >>> src/bootstrap/26_write_launchers.bash >>>
 # ---------------------------------------------------------------------------
-# 10. Install agent plugins listed in agent_plugins.txt.
-#
-# Each line is a GitHub owner/repo that hosts a plugin marketplace
-# containing .claude-plugin/marketplace.json. Claude Code and Codex both
-# understand that marketplace manifest. We fetch it once to discover the
-# marketplace name and plugin names, then install the same resolved plugin
-# selectors into both CLIs.
-#
-# The compiler embeds agent_plugins.txt below. AAB_AGENT_PLUGINS_FILE can
-# replace the compiled list for a one-off local build.
-# ---------------------------------------------------------------------------
-AGENT_PLUGINS_DEFAULT_CONTENT=$(cat <<'AAB_AGENT_PLUGINS_EOF'
-# Agent plugin marketplaces installed by bootstrap.bash.
-#
-# One GitHub "owner/repo" per line. The repo must contain
-# .claude-plugin/marketplace.json at the repository root. Claude Code and
-# Codex both read that marketplace manifest to discover the marketplace
-# name and the plugin name(s) to install.
-#
-# Lines beginning with '#' and blank lines are ignored. To install
-# additional plugins, add their marketplace repos below.
-
-brycelelbach/agitentic
-brycelelbach-private/autocuda
-AAB_AGENT_PLUGINS_EOF
-)
-install_agent_plugins() {
-    command -v python3 >/dev/null 2>&1 || { warn "python3 required for plugin install; skipping."; return; }
-    local plugins_file="${AAB_AGENT_PLUGINS_FILE:-}"
-    local content="$AGENT_PLUGINS_DEFAULT_CONTENT"
-    if [ -n "$plugins_file" ]; then
-        if [ ! -f "$plugins_file" ]; then
-            warn "Plugin list file ${plugins_file} does not exist; skipping plugin install."
-            return
-        fi
-        content=$(cat "$plugins_file")
-        log "Reading plugin list override from ${plugins_file}."
-    else
-        log "Reading plugin list compiled into bootstrap.bash."
-    fi
-
-    # Strip comments and blanks into one repo per line.
-    local -a repos=()
-    while IFS= read -r line; do
-        line="${line%%#*}"
-        # trim
-        line="${line#"${line%%[![:space:]]*}"}"
-        line="${line%"${line##*[![:space:]]}"}"
-        [ -z "$line" ] && continue
-        repos+=("$line")
-    done <<< "$content"
-
-    if [ ${#repos[@]} -eq 0 ]; then
-        log "Plugin list is empty; skipping plugin install."
-        return
-    fi
-
-    # Private plugin repos need an authenticated fetch. Prefer `gh api` when
-    # it's installed and authenticated (works for both public and private
-    # repos); fall back to unauthenticated raw.githubusercontent.com so
-    # public plugins still work on hosts without a gh login.
-    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
-    local -a github_env=(env)
-    if [ -n "$github_token" ]; then
-        github_env=(env "GH_TOKEN=$github_token")
-    fi
-    local use_gh=0
-    if command -v gh >/dev/null 2>&1 && "${github_env[@]}" gh auth status >/dev/null 2>&1; then
-        use_gh=1
-    fi
-
-    # Collect resolved tuples (repo|marketplace|plugin) for every plugin.
-    local -a tuples=()
-    local repo marketplace_json marketplace_name plugin_names plugin_name
-    for repo in "${repos[@]}"; do
-        marketplace_json=""
-        for branch in main master; do
-            if [ $use_gh -eq 1 ]; then
-                marketplace_json=$("${github_env[@]}" gh api -H "Accept: application/vnd.github.v3.raw" \
-                    "repos/${repo}/contents/.claude-plugin/marketplace.json?ref=${branch}" 2>/dev/null) \
-                    || marketplace_json=""
-            fi
-            if [ -z "$marketplace_json" ]; then
-                marketplace_json=$(curl -fsSL "https://raw.githubusercontent.com/${repo}/${branch}/.claude-plugin/marketplace.json" 2>/dev/null) \
-                    || marketplace_json=""
-            fi
-            [ -n "$marketplace_json" ] && break
-        done
-        if [ -z "$marketplace_json" ]; then
-            # Most commonly this means the repo is private and the caller
-            # lacks access (or gh isn't authenticated). Plugin install is an
-            # optional step; log and move on without failing the bootstrap.
-            log "Could not fetch .claude-plugin/marketplace.json from ${repo} (private repo without access?); skipping."
-            continue
-        fi
-        marketplace_name=$(printf '%s' "$marketplace_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("name",""))') || marketplace_name=""
-        if [ -z "$marketplace_name" ]; then
-            warn "${repo}/.claude-plugin/marketplace.json has no 'name'; skipping."
-            continue
-        fi
-        plugin_names=$(printf '%s' "$marketplace_json" | python3 -c 'import json,sys; [print(p["name"]) for p in json.load(sys.stdin).get("plugins",[]) if p.get("name")]')
-        if [ -z "$plugin_names" ]; then
-            warn "${repo} marketplace lists no plugins; skipping."
-            continue
-        fi
-        while IFS= read -r plugin_name; do
-            [ -z "$plugin_name" ] && continue
-            tuples+=("${repo}|${marketplace_name}|${plugin_name}")
-        done <<< "$plugin_names"
-    done
-
-    if [ ${#tuples[@]} -eq 0 ]; then
-        warn "No plugins resolved; skipping plugin install."
-        return
-    fi
-
-    install_claude_code_plugins "${tuples[@]}"
-    install_codex_plugins "${tuples[@]}"
-}
-
-install_claude_code_plugins() {
-    local -a tuples=("$@")
-    [ ${#tuples[@]} -eq 0 ] && return
-
-    # Merge into ~/.claude/settings.json. write_claude_settings has already run,
-    # so the file exists and is valid JSON.
-    python3 - "$SETTINGS_FILE" "${tuples[@]}" <<'PY'
-import json, sys
-path = sys.argv[1]
-tuples = sys.argv[2:]
-with open(path) as f:
-    data = json.load(f)
-extra = data.setdefault("extraKnownMarketplaces", {})
-enabled = data.setdefault("enabledPlugins", {})
-for t in tuples:
-    repo, marketplace, plugin = t.split("|", 2)
-    extra[marketplace] = {"source": {"source": "github", "repo": repo}}
-    enabled[f"{plugin}@{marketplace}"] = True
-    print(f"[bootstrap] Enabled plugin {plugin}@{marketplace} from github {repo}.")
-with open(path, "w") as f:
-    json.dump(data, f, indent=2)
-PY
-
-    # settings.json's extraKnownMarketplaces and enabledPlugins are
-    # advisory: Claude Code's `plugin` CLI maintains its own registry
-    # at ~/.claude/plugins/{known_marketplaces,installed_plugins}.json
-    # that only `claude plugin marketplace add` + `claude plugin
-    # install` populate. Without those, every `claude` (and every
-    # ACP-driven harness like @openclaw/acpx that spawns claude) starts
-    # with an empty installed_plugins.json — the agent's session-start
-    # skills list contains only the bundled defaults, none of the
-    # user-configured plugins. Materialise the install here so the
-    # bootstrap leaves the user with a fully-registered plugin set.
-    local claude_bin=""
-    if [ -x "${HOME}/.local/bin/claude-aab-real" ]; then
-        claude_bin="${HOME}/.local/bin/claude-aab-real"
-    elif command -v claude >/dev/null 2>&1; then
-        claude_bin=$(command -v claude)
-    elif [ -x "${HOME}/.local/bin/claude" ]; then
-        claude_bin="${HOME}/.local/bin/claude"
-    else
-        warn "claude binary not on PATH; skipping Claude Code plugin install (settings.json was still written)."
-        return
-    fi
-    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
-    local -a github_env=(env)
-    if [ -n "$github_token" ]; then
-        github_env=(env "GH_TOKEN=$github_token")
-    fi
-
-    # Snapshot the post-write_claude_settings + post-merge settings.json so
-    # the re-merge below can restore AAB-managed top-level keys that
-    # Claude Code's plugin CLI strips on re-serialise.
-    cp "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak"
-
-    # Dedupe repos before `marketplace add` (one marketplace can ship
-    # several plugins; a 1-to-1 add per tuple would re-clone N times).
-    local -A seen_repos=()
-    local t repo marketplace plugin
-    for t in "${tuples[@]}"; do
-        repo="${t%%|*}"
-        if [ -z "${seen_repos[$repo]:-}" ]; then
-            log "Adding marketplace ${repo} to claude's plugin registry."
-            "${github_env[@]}" "$claude_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
-                warn "claude plugin marketplace add ${repo} returned non-zero (private repo without access? skipping)."
-            seen_repos[$repo]=1
-        fi
-    done
-
-    for t in "${tuples[@]}"; do
-        repo="${t%%|*}"
-        marketplace="${t#*|}"
-        plugin="${marketplace#*|}"
-        marketplace="${marketplace%|*}"
-        log "Installing Claude Code plugin ${plugin}@${marketplace}."
-        "${github_env[@]}" "$claude_bin" plugin install "${plugin}@${marketplace}" --scope user 2>&1 | sed 's/^/  /' || \
-            warn "claude plugin install ${plugin}@${marketplace} returned non-zero."
-    done
-
-    # `claude plugin marketplace add` / `claude plugin install --scope
-    # user` re-serialise ~/.claude/settings.json against Claude Code's
-    # internal schema, which drops any top-level keys the schema
-    # doesn't enumerate (notably `effortLevel` — written by
-    # write_claude_settings, asserted by tests/e2e-assertions.bash). Re-merge
-    # the AAB-managed top-level keys back in from a snapshot taken
-    # before the claude calls ran so the on-disk shape stays a
-    # superset of what write_claude_settings produced.
-    if [ -f "${SETTINGS_FILE}.pre-plugin-install.bak" ]; then
-        python3 - "$SETTINGS_FILE" "${SETTINGS_FILE}.pre-plugin-install.bak" <<'PY'
-import json, sys
-live_path, snap_path = sys.argv[1], sys.argv[2]
-with open(live_path) as f:
-    live = json.load(f)
-with open(snap_path) as f:
-    snap = json.load(f)
-# Re-merge keys that AAB owns but Claude Code's plugin CLI strips on
-# re-serialise. Keep the live values for keys the CLI updated.
-for k in ("model", "effortLevel", "permissions", "skipDangerousModePermissionPrompt", "env"):
-    if k in snap and k not in live:
-        live[k] = snap[k]
-with open(live_path, "w") as f:
-    json.dump(live, f, indent=2)
-PY
-        rm -f "${SETTINGS_FILE}.pre-plugin-install.bak"
-    fi
-}
-
-install_codex_plugins() {
-    local -a tuples=("$@")
-    [ ${#tuples[@]} -eq 0 ] && return
-
-    local codex_bin=""
-    if [ -x "${HOME}/.local/bin/codex-aab-real" ]; then
-        codex_bin="${HOME}/.local/bin/codex-aab-real"
-    elif command -v codex >/dev/null 2>&1; then
-        codex_bin=$(command -v codex)
-    elif [ -x "${HOME}/.local/bin/codex" ]; then
-        codex_bin="${HOME}/.local/bin/codex"
-    else
-        warn "codex binary not on PATH; skipping Codex plugin install."
-        return
-    fi
-    local github_token="${GH_TOKEN:-${GITHUB_TOKEN:-${AAB_GH_TOKEN:-}}}"
-    local -a github_env=(env)
-    if [ -n "$github_token" ]; then
-        github_env=(env "GH_TOKEN=$github_token")
-    fi
-
-    # Dedupe repos before `marketplace add`.
-    local -A seen_repos=()
-    local t repo marketplace plugin
-    for t in "${tuples[@]}"; do
-        repo="${t%%|*}"
-        if [ -z "${seen_repos[$repo]:-}" ]; then
-            log "Adding marketplace ${repo} to codex's plugin registry."
-            "${github_env[@]}" "$codex_bin" plugin marketplace add "$repo" 2>&1 | sed 's/^/  /' || \
-                warn "codex plugin marketplace add ${repo} returned non-zero (private repo without access? skipping)."
-            seen_repos[$repo]=1
-        fi
-    done
-
-    for t in "${tuples[@]}"; do
-        repo="${t%%|*}"
-        marketplace="${t#*|}"
-        plugin="${marketplace#*|}"
-        marketplace="${marketplace%|*}"
-        log "Installing Codex plugin ${plugin}@${marketplace}."
-        "${github_env[@]}" "$codex_bin" plugin add "${plugin}@${marketplace}" 2>&1 | sed 's/^/  /' || \
-            warn "codex plugin add ${plugin}@${marketplace} returned non-zero."
-    done
-}
-# <<< src/bootstrap/25_install_agent_plugins.bash <<<
-
-# >>> src/bootstrap/26_install_launchers.bash >>>
-# ---------------------------------------------------------------------------
-# 10b. Install Claude and Codex launcher wrapper families.
+# Write Claude and Codex launcher wrapper families.
 # ---------------------------------------------------------------------------
 _is_aab_launcher_symlink_target() {
     case "$(basename "$1")" in
@@ -2290,7 +2289,7 @@ _prepare_launcher_real_binary() {
     local agent_name="$1" agent_bin="$2" real_bin="$3" marker="$4"
 
     if [ ! -e "$agent_bin" ]; then
-        warn "${agent_name} binary not found at ${agent_bin}; cannot install launcher wrappers."
+        warn "${agent_name} binary not found at ${agent_bin}; cannot write launcher wrappers."
         exit 1
     fi
 
@@ -2299,7 +2298,7 @@ _prepare_launcher_real_binary() {
         target=$(readlink "$agent_bin")
         if _is_aab_launcher_symlink_target "$target"; then
             if [ ! -e "$real_bin" ]; then
-                warn "${agent_name} launcher is installed but ${real_bin} is missing."
+                warn "${agent_name} launcher exists but ${real_bin} is missing."
                 exit 1
             fi
             return
@@ -2308,7 +2307,7 @@ _prepare_launcher_real_binary() {
     elif ! grep -q "$marker" "$agent_bin" 2>/dev/null; then
         mv "$agent_bin" "$real_bin"
     elif [ ! -e "$real_bin" ]; then
-        warn "${agent_name} launcher is installed but ${real_bin} is missing."
+        warn "${agent_name} launcher exists but ${real_bin} is missing."
         exit 1
     fi
 }
@@ -2444,7 +2443,7 @@ BASH
     mv -f "$tmp" "$launcher"
 }
 
-install_claude_launcher() {
+write_claude_launchers() {
     local launcher_dir="${HOME}/.local/aab-bin"
     local claude_bin="${HOME}/.local/bin/claude"
     local real_bin="${HOME}/.local/bin/claude-aab-real"
@@ -2452,7 +2451,7 @@ install_claude_launcher() {
     selected_provider=$(normalize_claude_code_inference_provider "${AAB_CLAUDE_CODE_INFERENCE_PROVIDER:-$DEFAULT_CLAUDE_CODE_INFERENCE_PROVIDER}")
 
     if [ ! -e "$claude_bin" ]; then
-        warn "claude binary not found at ${claude_bin}; cannot install launcher wrappers."
+        warn "claude binary not found at ${claude_bin}; cannot write launcher wrappers."
         exit 1
     fi
 
@@ -2473,7 +2472,7 @@ install_claude_launcher() {
     # is a regular launcher file rather than a symlink to a provider wrapper.
     mkdir -p "$launcher_dir"
     _write_claude_launcher "$selected_provider" "${launcher_dir}/claude"
-    log "Installed Claude launcher wrappers (selected=${selected_provider}); entrypoint at ${launcher_dir}/claude."
+    log "Wrote Claude launcher wrappers (selected=${selected_provider}); entrypoint at ${launcher_dir}/claude."
 }
 
 _write_codex_launcher() {
@@ -2610,7 +2609,7 @@ BASH
     mv -f "$tmp" "$launcher"
 }
 
-install_codex_launcher() {
+write_codex_launchers() {
     local codex_bin="${HOME}/.local/bin/codex"
     local real_bin="${HOME}/.local/bin/codex-aab-real"
     local selected_provider
@@ -2622,10 +2621,9 @@ install_codex_launcher() {
     _write_codex_launcher "third-party-nemotron" "${HOME}/.local/bin/codex-third-party-nemotron"
     _write_codex_launcher "third-party-deepseek" "${HOME}/.local/bin/codex-third-party-deepseek"
     _write_codex_launcher "$selected_provider" "$codex_bin"
-    log "Installed Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
+    log "Wrote Codex launcher wrappers at ${HOME}/.local/bin (selected=${selected_provider})."
 }
-
-# <<< src/bootstrap/26_install_launchers.bash <<<
+# <<< src/bootstrap/26_write_launchers.bash <<<
 
 # >>> src/bootstrap/27_update_bashrc.bash >>>
 # ---------------------------------------------------------------------------
@@ -2856,13 +2854,13 @@ main() {
     configure_claude
     configure_codex
     configure_git
-    install_auth_ssh_key
-    install_signing_ssh_key
-    install_git_hooks
+    write_auth_ssh_key
+    write_signing_ssh_key
+    configure_git_hooks
     write_agent_rules
     install_agent_plugins
-    install_claude_launcher
-    install_codex_launcher
+    write_claude_launchers
+    write_codex_launchers
     install_autocuda
     enable_user_linger
     update_bashrc

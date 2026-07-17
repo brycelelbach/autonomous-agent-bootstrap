@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# 9c. Install a global git hook that enforces the bootstrap-configured git
+# Configure a global git hook that enforces the bootstrap-configured git
 # identity (and signing, when configured) on every commit, regardless of the
 # repository the agent is working in.
 #
@@ -16,7 +16,7 @@
 # because nothing scanned the diff locally.
 #
 # _render_git_hook_script writes the dispatcher to stdout so it can be both
-# installed and linted (test.bash --lint shellchecks the emitted script). The
+# written and linted (test.bash --lint shellchecks the emitted script). The
 # dispatcher reads the expected identity from --global (which -c / env / config
 # overrides cannot poison) and the actual identity from `git var`, which does
 # reflect --author and GIT_*_ env vars. It then chains through to the repo's
@@ -26,7 +26,7 @@
 _render_git_hook_script() {
     cat <<'HOOK'
 #!/usr/bin/env bash
-# autonomous-agent-bootstrap global git hook dispatcher. Installed by
+# autonomous-agent-bootstrap global git hook dispatcher. Configured by
 # bootstrap.bash and pointed to by the global core.hooksPath. Every git hook
 # name is a symlink to this one script.
 #
@@ -90,7 +90,7 @@ _aab_enforce_commit_identity() {
             echo "  author:    ${a_name} <${a_email}>"
             echo "  committer: ${c_name} <${c_email}>"
             echo "  Use the configured identity: plain 'git commit', without -c user.*, --author, or GIT_AUTHOR_*/GIT_COMMITTER_*."
-            echo "  This rule is installed by autonomous-agent-bootstrap. See ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md."
+            echo "  This rule is configured by autonomous-agent-bootstrap. See ~/.claude/CLAUDE.md and ~/.codex/AGENTS.md."
         } >&2
         return 1
     fi
@@ -231,7 +231,7 @@ exit 0
 HOOK
 }
 
-install_git_hooks() {
+configure_git_hooks() {
     if ! command -v git >/dev/null 2>&1; then
         warn "git not installed — skipping git hook enforcement."
         return
@@ -250,5 +250,5 @@ install_git_hooks() {
     done
 
     git config --global core.hooksPath "${GIT_HOOKS_DIR}"
-    log "Installed global git hooks at ${GIT_HOOKS_DIR} and set core.hooksPath (enforces the global commit identity and scans staged commits for secrets)."
+    log "Configured global git hooks at ${GIT_HOOKS_DIR} and set core.hooksPath (enforces the global commit identity and scans staged commits for secrets)."
 }

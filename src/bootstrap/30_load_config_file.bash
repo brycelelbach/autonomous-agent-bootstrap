@@ -81,13 +81,13 @@ main() {
     configure_claude
     configure_codex
     configure_git
-    install_auth_ssh_key
-    install_signing_ssh_key
-    install_git_hooks
+    write_auth_ssh_key
+    write_signing_ssh_key
+    configure_git_hooks
     write_agent_rules
     install_agent_plugins
-    install_claude_launcher
-    install_codex_launcher
+    write_claude_launchers
+    write_codex_launchers
     install_autocuda
     enable_user_linger
     update_bashrc
