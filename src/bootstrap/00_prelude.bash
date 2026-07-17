@@ -10,11 +10,13 @@
 #   codex plus codex-first-party-<profile> and codex-third-party-<profile>
 #   pi plus pi-<profile>
 #
-# AAB_CLAUDE_PROFILE and AAB_CODEX_PROFILE select the unqualified launchers.
+# AAB_CLAUDE_DEFAULT_PROFILE and AAB_CODEX_DEFAULT_PROFILE select the
+# unqualified launchers.
 # Source remains part of each profile rather than being selected harness-wide.
 #
-# AAB_PI_PROFILE selects the unqualified Pi launcher. Pi is always routed
-# through the shared inference gateway, so its aliases omit "third-party".
+# AAB_PI_DEFAULT_PROFILE selects the unqualified Pi launcher. Pi is always
+# routed through the shared inference gateway, so its aliases omit
+# "third-party".
 #
 # Provider credentials and model names are kept out of ~/.bashrc and
 # /etc/environment. The managed ~/.bashrc block only puts ~/.local/bin on PATH

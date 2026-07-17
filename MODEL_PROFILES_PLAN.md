@@ -39,15 +39,15 @@ opus-4.8 model=anthropic/claude-opus-4-8 effort=high
 '
 ```
 
-The selected unqualified launchers are controlled independently:
+The default profiles used by the unqualified launchers are controlled independently:
 
 ```bash
-export AAB_CLAUDE_PROFILE=first-party/opus-4.8
-export AAB_CODEX_PROFILE=first-party/gpt-5.5
-export AAB_PI_PROFILE=opus-4.8
+export AAB_CLAUDE_DEFAULT_PROFILE=first-party/opus-4.8
+export AAB_CODEX_DEFAULT_PROFILE=first-party/gpt-5.5
+export AAB_PI_DEFAULT_PROFILE=opus-4.8
 ```
 
-Selection only chooses what `claude`, `codex`, or `pi` runs. It does not make backend selection harness-wide; every explicit profile retains its own first-party or third-party route.
+Default selection only chooses what the unqualified `claude`, `codex`, or `pi` command runs. It does not make backend selection harness-wide; every explicit profile retains its own first-party or third-party route.
 
 Third-party profiles share one gateway:
 
@@ -61,7 +61,7 @@ First-party Claude and Codex use `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` when p
 ## Profile Semantics
 
 - `model` defaults to the profile alias when omitted.
-- `effort` is profile-specific and maps to the harness's native effort setting.
+- `effort` is profile-specific and maps to the harness's native effort setting. Pi uses its native six levels directly and maps any provider-specific value, such as `ultra`, through Pi's `xhigh` level.
 - Claude always receives `ANTHROPIC_MODEL` plus all three tier variables. `haiku`, `sonnet`, and `opus` each inherit `model` unless explicitly overridden.
 - Claude `subagent` optionally overrides `CLAUDE_CODE_SUBAGENT_MODEL`; otherwise it inherits the resolved primary model.
 - Claude `context` optionally enables the explicit auto-compaction window required by unknown third-party model identifiers.

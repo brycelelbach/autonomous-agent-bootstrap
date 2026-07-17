@@ -60,6 +60,7 @@ _parse_model_profile_line() {
     result[context]=""
     result["max_tokens"]=""
     result[subagent]=""
+    result[thinking]=""
     case "$harness" in
         claude)
             result[effort]="$DEFAULT_CLAUDE_CODE_EFFORT"
@@ -132,6 +133,15 @@ _parse_model_profile_line() {
         result[sonnet]="${result[sonnet]:-${result[model]}}"
         result[opus]="${result[opus]:-${result[model]}}"
         result[subagent]="${result[subagent]:-${result[model]}}"
+    elif [ "$harness" = "pi" ]; then
+        case "${result[effort]}" in
+            off|minimal|low|medium|high|xhigh)
+                result[thinking]="${result[effort]}"
+                ;;
+            *)
+                result[thinking]="xhigh"
+                ;;
+        esac
     fi
 }
 
@@ -192,24 +202,24 @@ resolve_model_profile() {
 
     case "$harness" in
         claude)
-            if [ "${AAB_CLAUDE_PROFILE+x}" = x ]; then
-                selection="$AAB_CLAUDE_PROFILE"
+            if [ "${AAB_CLAUDE_DEFAULT_PROFILE+x}" = x ]; then
+                selection="$AAB_CLAUDE_DEFAULT_PROFILE"
                 explicit_selection=1
             else
                 selection="$DEFAULT_CLAUDE_PROFILE"
             fi
             ;;
         codex)
-            if [ "${AAB_CODEX_PROFILE+x}" = x ]; then
-                selection="$AAB_CODEX_PROFILE"
+            if [ "${AAB_CODEX_DEFAULT_PROFILE+x}" = x ]; then
+                selection="$AAB_CODEX_DEFAULT_PROFILE"
                 explicit_selection=1
             else
                 selection="$DEFAULT_CODEX_PROFILE"
             fi
             ;;
         pi)
-            if [ "${AAB_PI_PROFILE+x}" = x ]; then
-                selection="$AAB_PI_PROFILE"
+            if [ "${AAB_PI_DEFAULT_PROFILE+x}" = x ]; then
+                selection="$AAB_PI_DEFAULT_PROFILE"
                 explicit_selection=1
             else
                 selection="$DEFAULT_PI_PROFILE"
@@ -218,7 +228,7 @@ resolve_model_profile() {
                 return 0
             fi
             if [ "$explicit_selection" -eq 1 ]; then
-                warn "AAB_PI_PROFILE='${selection}' does not name a configured Pi profile."
+                warn "AAB_PI_DEFAULT_PROFILE='${selection}' does not name a configured Pi profile."
                 return 1
             fi
             _first_model_profile pi third-party "$result_name"
@@ -240,7 +250,7 @@ resolve_model_profile() {
     case "$source" in
         first-party|third-party) ;;
         *)
-            warn "AAB_${harness^^}_PROFILE='${selection}' must use first-party/<profile> or third-party/<profile>."
+            warn "AAB_${harness^^}_DEFAULT_PROFILE='${selection}' must use first-party/<profile> or third-party/<profile>."
             return 1
             ;;
     esac
@@ -249,7 +259,7 @@ resolve_model_profile() {
         return 0
     fi
     if [ "$explicit_selection" -eq 1 ]; then
-        warn "AAB_${harness^^}_PROFILE='${selection}' does not name a configured ${harness} profile."
+        warn "AAB_${harness^^}_DEFAULT_PROFILE='${selection}' does not name a configured ${harness} profile."
         return 1
     fi
     if _first_model_profile "$harness" first-party "$result_name"; then

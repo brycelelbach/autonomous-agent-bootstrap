@@ -10,11 +10,11 @@ setup() {
     export REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
     # Unset env vars the script looks at so each test controls its own.
     unset AAB_CLAUDE_FIRST_PARTY_PROFILES AAB_CLAUDE_THIRD_PARTY_PROFILES \
-          AAB_CLAUDE_PROFILE \
+          AAB_CLAUDE_DEFAULT_PROFILE \
           AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_THIRD_PARTY_PROFILES \
-          AAB_CODEX_PROFILE AAB_CODEX_SERVICE_TIER \
+          AAB_CODEX_DEFAULT_PROFILE AAB_CODEX_SERVICE_TIER \
           AAB_CODEX_AGENT_MAX_THREADS \
-          AAB_PI_PROFILES AAB_PI_PROFILE \
+          AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
           AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
@@ -85,7 +85,7 @@ teardown() {
 
 @test "Claude profiles inherit unspecified tier models from the primary model" {
     export AAB_CLAUDE_THIRD_PARTY_PROFILES="deepseek-v4 model=deepseek-v4-pro haiku=deepseek-v4-flash effort=high"
-    export AAB_CLAUDE_PROFILE="third-party/deepseek-v4"
+    export AAB_CLAUDE_DEFAULT_PROFILE="third-party/deepseek-v4"
     local -A profile=()
 
     resolve_model_profile claude profile
@@ -103,11 +103,11 @@ teardown() {
     export AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.5 model=gateway/gpt-5.5 effort=high"
     local -A profile=()
 
-    AAB_CODEX_PROFILE="first-party/gpt-5.5" resolve_model_profile codex profile
+    AAB_CODEX_DEFAULT_PROFILE="first-party/gpt-5.5" resolve_model_profile codex profile
     [ "${profile[source]}" = "first-party" ]
     [ "${profile[model]}" = "gpt-5.5" ]
 
-    AAB_CODEX_PROFILE="third-party/gpt-5.5" resolve_model_profile codex profile
+    AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" resolve_model_profile codex profile
     [ "${profile[source]}" = "third-party" ]
     [ "${profile[model]}" = "gateway/gpt-5.5" ]
 }
@@ -120,6 +120,22 @@ teardown() {
     AAB_PI_PROFILES=$'opus-4.8 model=one effort=high\nopus-4.8 model=two effort=max' run validate_model_profiles
     [ "$status" -ne 0 ]
     [[ "$output" == *"Duplicate pi third-party profile 'opus-4.8'"* ]]
+}
+
+@test "Pi maps provider-specific effort values through xhigh" {
+    local -A profile=()
+
+    _parse_model_profile_line pi third-party \
+        "gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra" profile
+
+    [ "${profile[effort]}" = "ultra" ]
+    [ "${profile[thinking]}" = "xhigh" ]
+
+    _parse_model_profile_line pi third-party \
+        "opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max" profile
+
+    [ "${profile[effort]}" = "max" ]
+    [ "${profile[thinking]}" = "xhigh" ]
 }
 
 @test "configure_git uses AAB-prefixed git identity vars" {
@@ -155,7 +171,7 @@ teardown() {
 
 @test "configure_claude_settings honors first-party model override" {
     AAB_CLAUDE_FIRST_PARTY_PROFILES="sonnet-4.6 model=claude-sonnet-4-6 effort=high" \
-        AAB_CLAUDE_PROFILE="first-party/sonnet-4.6" \
+        AAB_CLAUDE_DEFAULT_PROFILE="first-party/sonnet-4.6" \
         configure_claude_settings
     python3 -c "import json; d=json.load(open('$SETTINGS_FILE')); assert d['model']=='claude-sonnet-4-6', d['model']"
 }
@@ -260,11 +276,11 @@ PY
 
 @test "configure_aab_env_file writes AAB config and credentials with private permissions" {
     AAB_CLAUDE_THIRD_PARTY_PROFILES="deepseek-v4 model=deepseek-v4-pro haiku=deepseek-v4-flash effort=high" \
-        AAB_CLAUDE_PROFILE="third-party/deepseek-v4" \
+        AAB_CLAUDE_DEFAULT_PROFILE="third-party/deepseek-v4" \
         AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.5 effort=xhigh" \
-        AAB_CODEX_PROFILE="third-party/gpt-5.5" \
+        AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
         AAB_PI_PROFILES="opus-4.8 model=anthropic/claude-opus-4-8 effort=high" \
-        AAB_PI_PROFILE="opus-4.8" \
+        AAB_PI_DEFAULT_PROFILE="opus-4.8" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
         AAB_GH_TOKEN="ghp_test_token" \
@@ -275,10 +291,10 @@ PY
     [ "$(stat -c '%a' "$AAB_DIR")" = "700" ]
     # shellcheck disable=SC1090
     . "$AAB_ENV_FILE"
-    [ "$AAB_CLAUDE_PROFILE" = "third-party/deepseek-v4" ]
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "third-party/deepseek-v4" ]
     [[ "$AAB_CLAUDE_THIRD_PARTY_PROFILES" == *"deepseek-v4-pro"* ]]
-    [ "$AAB_CODEX_PROFILE" = "third-party/gpt-5.5" ]
-    [ "$AAB_PI_PROFILE" = "opus-4.8" ]
+    [ "$AAB_CODEX_DEFAULT_PROFILE" = "third-party/gpt-5.5" ]
+    [ "$AAB_PI_DEFAULT_PROFILE" = "opus-4.8" ]
     [ "$AAB_INFERENCE_GATEWAY_URL" = "https://gateway.example.com/v1" ]
     [ "$AAB_INFERENCE_GATEWAY_API_KEY" = "gateway-test-key" ]
     [ "$AAB_GH_TOKEN" = "ghp_test_token" ]
@@ -346,7 +362,7 @@ PY
 
 @test "configure_codex_config honors model, reasoning-effort, service-tier, and agent thread overrides" {
     AAB_CODEX_FIRST_PARTY_PROFILES="gpt-5.4 effort=high" \
-        AAB_CODEX_PROFILE="first-party/gpt-5.4" \
+        AAB_CODEX_DEFAULT_PROFILE="first-party/gpt-5.4" \
         AAB_CODEX_SERVICE_TIER="flex" \
         AAB_CODEX_AGENT_MAX_THREADS="24" \
         configure_codex_config
@@ -358,7 +374,7 @@ PY
 
 @test "configure_codex_config can target a third-party OpenAI-compatible Responses endpoint" {
     AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.5 model=openai/openai/gpt-5.5 effort=xhigh" \
-        AAB_CODEX_PROFILE="third-party/gpt-5.5" \
+        AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
         AAB_INFERENCE_GATEWAY_URL="https://inference-api.nvidia.com/v1" \
         configure_codex_config
 
@@ -811,18 +827,18 @@ SH
     cat > "$TEST_HOME/real-codex" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
-printf '%s\n' "\${AAB_CODEX_PROFILE:-}" > "$TEST_HOME/codex-launcher-profile"
+printf '%s\n' "\${AAB_CODEX_DEFAULT_PROFILE:-}" > "$TEST_HOME/codex-launcher-default-profile"
 SH
     chmod +x "$TEST_HOME/real-codex"
     ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
 
     AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.5 model=vendor/model effort=ultra" \
-        AAB_CODEX_PROFILE="third-party/gpt-5.5" \
+        AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
         configure_aab_env_file
     AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.5 model=vendor/model effort=ultra" \
-        AAB_CODEX_PROFILE="third-party/gpt-5.5" \
+        AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_codex_launchers
 
@@ -832,12 +848,15 @@ SH
     grep -q '^profile_source=third-party$' "$HOME/.local/bin/codex"
     "$HOME/.local/bin/codex" exec hello
 
-    [ "$(cat "$TEST_HOME/codex-launcher-profile")" = "third-party/gpt-5.5" ]
+    [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.5" ]
     grep -Fxq 'model="vendor/model"' "$TEST_HOME/codex-launcher-args"
     grep -Fxq 'model_reasoning_effort="ultra"' "$TEST_HOME/codex-launcher-args"
     grep -Fxq 'model_provider="aab-gateway"' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'env_key="AAB_INFERENCE_GATEWAY_API_KEY"' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'base_url="https://gateway.example.com/v1"' "$TEST_HOME/codex-launcher-args"
+
+    "$HOME/.local/bin/codex-first-party-gpt-5.5" exec hello
+    [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.5" ]
 }
 
 @test "configure_claude_launchers expands a gateway profile into every Claude model slot" {
@@ -846,7 +865,7 @@ SH
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$TEST_HOME/claude-launcher-args"
 {
-    printf 'profile=%s\n' "\${AAB_CLAUDE_PROFILE:-}"
+    printf 'default_profile=%s\n' "\${AAB_CLAUDE_DEFAULT_PROFILE:-}"
     printf 'base_url=%s\n' "\${ANTHROPIC_BASE_URL:-}"
     printf 'auth_token=%s\n' "\${ANTHROPIC_AUTH_TOKEN:-}"
     printf 'api_key=%s\n' "\${ANTHROPIC_API_KEY:-}"
@@ -864,13 +883,13 @@ SH
     ln -s "$TEST_HOME/real-claude" "$HOME/.local/bin/claude"
 
     AAB_CLAUDE_THIRD_PARTY_PROFILES="deepseek-v4 model=deepseek-v4-pro haiku=deepseek-v4-flash effort=high context=1000000" \
-        AAB_CLAUDE_PROFILE="third-party/deepseek-v4" \
+        AAB_CLAUDE_DEFAULT_PROFILE="third-party/deepseek-v4" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
         ANTHROPIC_API_KEY="first-party-key" \
         configure_aab_env_file
     AAB_CLAUDE_THIRD_PARTY_PROFILES="deepseek-v4 model=deepseek-v4-pro haiku=deepseek-v4-flash effort=high context=1000000" \
-        AAB_CLAUDE_PROFILE="third-party/deepseek-v4" \
+        AAB_CLAUDE_DEFAULT_PROFILE="third-party/deepseek-v4" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_claude_launchers
 
@@ -886,7 +905,7 @@ SH
     "$HOME/.local/aab-bin/claude" -p hello
 
     grep -Fxq -- '--dangerously-skip-permissions' "$TEST_HOME/claude-launcher-args"
-    grep -Fxq 'profile=third-party/deepseek-v4' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'default_profile=third-party/deepseek-v4' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'base_url=https://gateway.example.com/v1' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'auth_token=gateway-test-key' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'api_key=' "$TEST_HOME/claude-launcher-env"
@@ -903,6 +922,9 @@ SH
     grep -Fxq 'subagent_model=deepseek-v4-pro[1m]' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'auto_compact_window=1000000' "$TEST_HOME/claude-launcher-env"
+
+    "$HOME/.local/bin/claude-first-party-opus-4.8" -p hello
+    grep -Fxq 'default_profile=third-party/deepseek-v4' "$TEST_HOME/claude-launcher-env"
 }
 
 @test "configure_claude_launchers supports mixed gateway models" {
@@ -921,11 +943,11 @@ SH
     ln -s "$TEST_HOME/real-claude" "$HOME/.local/bin/claude"
 
     AAB_CLAUDE_THIRD_PARTY_PROFILES="opus-4.8 model=bedrock/opus-4-8 haiku=azure/haiku-4-5 sonnet=bedrock/sonnet-4-8 effort=max" \
-        AAB_CLAUDE_PROFILE="third-party/opus-4.8" \
+        AAB_CLAUDE_DEFAULT_PROFILE="third-party/opus-4.8" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com" \
         configure_aab_env_file
     AAB_CLAUDE_THIRD_PARTY_PROFILES="opus-4.8 model=bedrock/opus-4-8 haiku=azure/haiku-4-5 sonnet=bedrock/sonnet-4-8 effort=max" \
-        AAB_CLAUDE_PROFILE="third-party/opus-4.8" \
+        AAB_CLAUDE_DEFAULT_PROFILE="third-party/opus-4.8" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com" \
         configure_claude_launchers
 
@@ -978,40 +1000,42 @@ SH
     cat > "$HOME/.local/bin/pi-aab-real" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$TEST_HOME/pi-launcher-args"
-printf '%s\n' "\${AAB_PI_PROFILE:-}" > "$TEST_HOME/pi-launcher-profile"
+printf '%s\n' "\${AAB_PI_DEFAULT_PROFILE:-}" > "$TEST_HOME/pi-launcher-default-profile"
 printf '%s\n' "\${OTEL_SERVICE_NAME:-}" > "$TEST_HOME/pi-launcher-otel-service"
 SH
     chmod +x "$HOME/.local/bin/pi-aab-real"
     mkdir -p "$(dirname "$PI_OBSERVABILITY_ENV_FILE")"
     printf '%s\n' 'export OTEL_SERVICE_NAME=pi-test-service' > "$PI_OBSERVABILITY_ENV_FILE"
 
-    AAB_PI_PROFILES="opus-4.8 model=anthropic/claude-opus-4-8 effort=max context=200000 max_tokens=32000" \
-        AAB_PI_PROFILE="opus-4.8" \
+    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000' \
+        AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
         configure_aab_env_file
-    AAB_PI_PROFILES="opus-4.8 model=anthropic/claude-opus-4-8 effort=max context=200000 max_tokens=32000" \
-        AAB_PI_PROFILE="opus-4.8" \
+    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000' \
+        AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_pi_models
-    AAB_PI_PROFILES="opus-4.8 model=anthropic/claude-opus-4-8 effort=max context=200000 max_tokens=32000" \
-        AAB_PI_PROFILE="opus-4.8" \
+    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000' \
+        AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_pi_launchers
 
+    [ -x "$HOME/.local/bin/pi-gpt-5.6" ]
     [ -x "$HOME/.local/bin/pi-opus-4.8" ]
-    [ ! -e "$HOME/.local/bin/pi-third-party-opus-4.8" ]
-    "$HOME/.local/bin/pi-opus-4.8" -p hello
-    [ "$(cat "$TEST_HOME/pi-launcher-profile")" = "opus-4.8" ]
+    [ ! -e "$HOME/.local/bin/pi-third-party-gpt-5.6" ]
+    "$HOME/.local/bin/pi-gpt-5.6" -p hello
+    [ "$(cat "$TEST_HOME/pi-launcher-default-profile")" = "gpt-5.6" ]
     grep -Fxq -- '--provider' "$TEST_HOME/pi-launcher-args"
     grep -Fxq 'aab-gateway' "$TEST_HOME/pi-launcher-args"
     grep -Fxq -- '--model' "$TEST_HOME/pi-launcher-args"
-    grep -Fxq 'anthropic/claude-opus-4-8' "$TEST_HOME/pi-launcher-args"
+    grep -Fxq 'openai/openai/gpt-5.6-sol' "$TEST_HOME/pi-launcher-args"
     grep -Fxq -- '--thinking' "$TEST_HOME/pi-launcher-args"
-    grep -Fxq 'max' "$TEST_HOME/pi-launcher-args"
+    grep -Fxq 'xhigh' "$TEST_HOME/pi-launcher-args"
+    ! grep -Fxq 'ultra' "$TEST_HOME/pi-launcher-args"
     [ "$(cat "$TEST_HOME/pi-launcher-otel-service")" = "pi-test-service" ]
 
-    "$HOME/.local/bin/pi-opus-4.8" install npm:example@1.0.0
+    "$HOME/.local/bin/pi-gpt-5.6" install npm:example@1.0.0
     [ "$(sed -n '1p' "$TEST_HOME/pi-launcher-args")" = "install" ]
     [ "$(sed -n '2p' "$TEST_HOME/pi-launcher-args")" = "npm:example@1.0.0" ]
     [ "$(wc -l < "$TEST_HOME/pi-launcher-args")" -eq 2 ]
@@ -1021,16 +1045,33 @@ d = json.load(open("$PI_MODELS_FILE"))
 p = d["providers"]["aab-gateway"]
 assert p["baseUrl"] == "https://gateway.example.com/v1", p
 assert p["apiKey"] == "\$AAB_INFERENCE_GATEWAY_API_KEY", p
-assert p["models"] == [{
-    "id": "anthropic/claude-opus-4-8",
-    "name": "opus-4.8",
-    "reasoning": True,
-    "input": ["text"],
-    "contextWindow": 200000,
-    "maxTokens": 32000,
-    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-}], p
+assert p["models"] == [
+    {
+        "id": "aws/anthropic/bedrock-claude-opus-4-8",
+        "name": "opus-4.8",
+        "reasoning": True,
+        "input": ["text"],
+        "contextWindow": 1000000,
+        "maxTokens": 128000,
+        "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+        "thinkingLevelMap": {"xhigh": "max"},
+    },
+    {
+        "id": "openai/openai/gpt-5.6-sol",
+        "name": "gpt-5.6",
+        "reasoning": True,
+        "input": ["text"],
+        "contextWindow": 1050000,
+        "maxTokens": 128000,
+        "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+        "thinkingLevelMap": {"xhigh": "ultra"},
+    },
+], p
 PY
+
+    _write_pi_launcher "deepseek-v4" "deepseek-v4-pro" "high" "$HOME/.local/bin/pi-deepseek-v4"
+    "$HOME/.local/bin/pi-deepseek-v4" -p hello
+    [ "$(cat "$TEST_HOME/pi-launcher-default-profile")" = "gpt-5.6" ]
 }
 
 @test "configure_pi_launchers removes stale aliases when profiles are disabled" {
@@ -1058,7 +1099,7 @@ SH
 
 @test "configure_pi_settings writes machine-independent unattended defaults" {
     AAB_PI_PROFILES=$'opus-4.8 model=anthropic/claude-opus-4-8 effort=high\ndeepseek-v4 model=deepseek-v4-pro effort=high' \
-        AAB_PI_PROFILE="deepseek-v4" \
+        AAB_PI_DEFAULT_PROFILE="deepseek-v4" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_pi_settings
 
@@ -1180,7 +1221,7 @@ PY
 
 @test "configure_codex_auth keeps first-party auth available when the selected profile is third-party" {
     setup_fake_codex
-    AAB_CODEX_PROFILE="third-party/gpt-5.5" \
+    AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
         OPENAI_API_KEY="codex-first-party-test-key" \
         run configure_codex_auth
     [ "$status" -eq 0 ]
@@ -2593,27 +2634,27 @@ STUB
 
 @test "load_config_file populates unset env vars from KEY=VALUE lines" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-AAB_CLAUDE_PROFILE=third-party/deepseek-v4
+AAB_CLAUDE_DEFAULT_PROFILE=third-party/deepseek-v4
 AAB_INFERENCE_GATEWAY_URL=https://gateway.example.com
 AAB_GIT_AUTHOR_NAME="Alice Example"
 AAB_GIT_AUTHOR_EMAIL=alice@example.com
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_PROFILE" = "third-party/deepseek-v4" ]
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "third-party/deepseek-v4" ]
     [ "$AAB_INFERENCE_GATEWAY_URL" = "https://gateway.example.com" ]
     [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
     [ "$AAB_GIT_AUTHOR_EMAIL" = "alice@example.com" ]
 }
 
 @test "load_config_file: env var already set in the shell WINS over the file" {
-    export AAB_CLAUDE_PROFILE="first-party/opus-4.8"
+    export AAB_CLAUDE_DEFAULT_PROFILE="first-party/opus-4.8"
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-AAB_CLAUDE_PROFILE=first-party/sonnet-4.8
+AAB_CLAUDE_DEFAULT_PROFILE=first-party/sonnet-4.8
 AAB_GIT_AUTHOR_NAME="Alice Example"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
     # Env-set value preserved.
-    [ "$AAB_CLAUDE_PROFILE" = "first-party/opus-4.8" ]
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "first-party/opus-4.8" ]
     # File-only value still loaded.
     [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
 }
@@ -2630,12 +2671,12 @@ EOF
 
 @test "load_config_file handles double- and single-quoted values, and leading 'export '" {
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-AAB_CLAUDE_PROFILE="first-party/sonnet-4.8"
+AAB_CLAUDE_DEFAULT_PROFILE="first-party/sonnet-4.8"
 AAB_GIT_AUTHOR_NAME='Alice Example'
 export AAB_GH_TOKEN=ghp_abc123
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_PROFILE" = "first-party/sonnet-4.8" ]
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "first-party/sonnet-4.8" ]
     [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
     [ "$AAB_GH_TOKEN" = "ghp_abc123" ]
 }
@@ -2653,7 +2694,7 @@ EOF
 # comment at top
 
 # another comment
-AAB_CLAUDE_PROFILE=first-party/opus-4.8  # trailing comment
+AAB_CLAUDE_DEFAULT_PROFILE=first-party/opus-4.8  # trailing comment
 
 EOF
     run load_config_file "$TEST_HOME/aab.conf"
@@ -2661,18 +2702,18 @@ EOF
 
     # Verify the one real key actually landed (re-run in-process).
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_PROFILE" = "first-party/opus-4.8" ]
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "first-party/opus-4.8" ]
 }
 
 @test "load_config_file expands \${VAR:-default} parameter expansions" {
     # bash sourcing means the file has access to the live shell — defaults,
     # parameter expansion, command substitution all work.
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-AAB_CLAUDE_PROFILE="${AAB_CLAUDE_PROFILE:-first-party/opus-4.8}"
+AAB_CLAUDE_DEFAULT_PROFILE="${AAB_CLAUDE_DEFAULT_PROFILE:-first-party/opus-4.8}"
 AAB_GIT_AUTHOR_NAME="Default $(echo Alice)"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_CLAUDE_PROFILE" = "first-party/opus-4.8" ]
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "first-party/opus-4.8" ]
     [ "$AAB_GIT_AUTHOR_NAME" = "Default Alice" ]
 }
 
@@ -2687,7 +2728,7 @@ EOF
     # that re-enables `set -euo pipefail`.
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 this-line-has-no-equals
-AAB_CLAUDE_PROFILE=first-party/opus-4.8
+AAB_CLAUDE_DEFAULT_PROFILE=first-party/opus-4.8
 EOF
     run bash -c "
         set -euo pipefail
@@ -2707,20 +2748,20 @@ EOF
 
 @test "load_config_stdin reads KEY=VALUE pairs piped on stdin" {
     load_config_stdin <<'EOF'
-AAB_CLAUDE_PROFILE=first-party/sonnet-4.8
+AAB_CLAUDE_DEFAULT_PROFILE=first-party/sonnet-4.8
 AAB_GIT_AUTHOR_NAME="Alice Example"
 EOF
-    [ "$AAB_CLAUDE_PROFILE" = "first-party/sonnet-4.8" ]
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "first-party/sonnet-4.8" ]
     [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
 }
 
 @test "load_config_stdin: env beats stdin" {
-    export AAB_CLAUDE_PROFILE="first-party/opus-4.8"
+    export AAB_CLAUDE_DEFAULT_PROFILE="first-party/opus-4.8"
     load_config_stdin <<'EOF'
-AAB_CLAUDE_PROFILE=first-party/sonnet-4.8
+AAB_CLAUDE_DEFAULT_PROFILE=first-party/sonnet-4.8
 AAB_GIT_AUTHOR_NAME=Alice
 EOF
-    [ "$AAB_CLAUDE_PROFILE" = "first-party/opus-4.8" ]
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "first-party/opus-4.8" ]
     [ "$AAB_GIT_AUTHOR_NAME" = "Alice" ]
 }
 

@@ -203,12 +203,12 @@ pass "bashrc managed block present exactly once."
 [ "$(stat -c '%a' "$AAB_ENV_FILE")" = "600" ] || fail "$AAB_ENV_FILE mode is not 600."
 expected_claude_selector="${expected_claude_profile[source]}/${expected_claude_profile[name]}"
 expected_codex_selector="${expected_codex_profile[source]}/${expected_codex_profile[name]}"
-grep -Fq "export AAB_CLAUDE_PROFILE=${expected_claude_selector}" "$AAB_ENV_FILE" \
-    || fail "Claude profile selector not written to $AAB_ENV_FILE."
-grep -Fq "export AAB_CODEX_PROFILE=${expected_codex_selector}" "$AAB_ENV_FILE" \
-    || fail "Codex profile selector not written to $AAB_ENV_FILE."
-grep -Fq "export AAB_PI_PROFILE=${expected_pi_profile[name]}" "$AAB_ENV_FILE" \
-    || fail "Pi profile selector not written to $AAB_ENV_FILE."
+grep -Fq "export AAB_CLAUDE_DEFAULT_PROFILE=${expected_claude_selector}" "$AAB_ENV_FILE" \
+    || fail "Claude default profile selector not written to $AAB_ENV_FILE."
+grep -Fq "export AAB_CODEX_DEFAULT_PROFILE=${expected_codex_selector}" "$AAB_ENV_FILE" \
+    || fail "Codex default profile selector not written to $AAB_ENV_FILE."
+grep -Fq "export AAB_PI_DEFAULT_PROFILE=${expected_pi_profile[name]}" "$AAB_ENV_FILE" \
+    || fail "Pi default profile selector not written to $AAB_ENV_FILE."
 if [ -n "${OPENAI_API_KEY:-}" ]; then
     grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE" \
         || fail "OPENAI_API_KEY not written to $AAB_ENV_FILE."
