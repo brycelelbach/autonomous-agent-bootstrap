@@ -10,9 +10,6 @@ curl
 python3
 git
 tar
-# The Hermes installer downloads a Node.js runtime as a .tar.xz and pipes it
-# through tar, which needs the xz binary.
-xz-utils
 gawk
 ripgrep
 # The autocuda agent plugin's report skills render their markdown reports to
