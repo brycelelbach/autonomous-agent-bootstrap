@@ -26,9 +26,8 @@ configure_bashrc() {
             '# ensures the AAB launcher dir (~/.local/aab-bin) is ahead of' \
             '# ~/.local/bin on PATH, so the native auto-updater that owns' \
             '# ~/.local/bin/claude cannot shadow the AAB provider wrapper.' \
-            '# ~/.local/bin also carries the uv tool symlinks (ruff,' \
-            '# pre-commit, autocuda), so a bare `ruff` / `pre-commit` resolves' \
-            '# there ahead of the system dirs.' \
+            '# ~/.local/bin also carries uv tool symlinks, which resolve there' \
+            '# ahead of the system dirs.' \
             'if [ -f "$HOME/.local/bin/env" ]; then' \
             '    . "$HOME/.local/bin/env"' \
             'fi' \
@@ -94,9 +93,8 @@ configure_profile() {
             '# Keep the AAB launcher dir ahead of ~/.local/bin for login shells,' \
             '# whose ~/.profile re-prepends ~/.local/bin after sourcing ~/.bashrc.' \
             '# The aab-bin prepend must be the last PATH mutation in the' \
-            '# login-shell sequence; ~/.local/bin (with the uv tool symlinks for' \
-            '# ruff / pre-commit / autocuda) stays ahead of the system dirs but' \
-            '# behind it.' \
+            '# login-shell sequence; ~/.local/bin and its uv tool symlinks stay' \
+            '# ahead of the system dirs but behind it.' \
             'export PATH="$HOME/.local/aab-bin:$PATH"'
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${PROFILE}"

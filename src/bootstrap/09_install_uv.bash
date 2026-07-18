@@ -7,10 +7,9 @@
 #
 # The official installer wires ~/.local/bin into the managed ~/.bashrc /
 # ~/.profile blocks, which only affect future shells — it is not on this live
-# bootstrap process's PATH. uv's own shim and the executables `uv tool install`
-# symlinks (ruff, pre-commit, autocuda) all land there, so we prepend it to the
-# live PATH here, regardless of whether uv was already installed, so the
-# install steps that follow in this process can find the tools they install.
+# bootstrap process's PATH. uv's own shim and installed tool executables all
+# land there, so we prepend it to the live PATH here, regardless of whether uv
+# was already installed, so later install steps can find those tools.
 # ---------------------------------------------------------------------------
 install_uv() {
     if command -v uv >/dev/null 2>&1 \

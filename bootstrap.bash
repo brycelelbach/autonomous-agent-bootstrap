@@ -154,10 +154,8 @@ SUDO=$(need_sudo)
 
 # >>> src/bootstrap/00_versions.bash >>>
 # ---------------------------------------------------------------------------
-# Versions for every non-apt package AAB installs. Keep release versions,
-# immutable git refs, and release-asset checksums together here so package
-# upgrades are reviewable in one place. Ubuntu packages remain in
-# apt_packages.txt; agent plugins remain in agent_plugins.txt.
+# Versions, immutable git refs, and release-asset checksums used directly by
+# bootstrap modules. Package-list pins remain in their sidecar files.
 # ---------------------------------------------------------------------------
 CLAUDE_CODE_VERSION="2.1.212"
 CODEX_VERSION="0.144.5"
@@ -181,8 +179,6 @@ GH_SHA256_LINUX_AMD64="83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b
 GH_SHA256_LINUX_ARM64="06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf909"
 
 UV_VERSION="0.11.29"
-RUFF_VERSION="0.15.12"
-PRE_COMMIT_VERSION="4.6.0"
 
 AUTOCUDA_PRIVATE_REPO="robobryce/autocuda"
 AUTOCUDA_REF="5f26f2c5d73a0349e505548e1837832a4cb4fcb8"
@@ -690,10 +686,9 @@ install_gh() {
 #
 # The official installer wires ~/.local/bin into the managed ~/.bashrc /
 # ~/.profile blocks, which only affect future shells — it is not on this live
-# bootstrap process's PATH. uv's own shim and the executables `uv tool install`
-# symlinks (ruff, pre-commit, autocuda) all land there, so we prepend it to the
-# live PATH here, regardless of whether uv was already installed, so the
-# install steps that follow in this process can find the tools they install.
+# bootstrap process's PATH. uv's own shim and installed tool executables all
+# land there, so we prepend it to the live PATH here, regardless of whether uv
+# was already installed, so later install steps can find those tools.
 # ---------------------------------------------------------------------------
 install_uv() {
     if command -v uv >/dev/null 2>&1 \
@@ -741,9 +736,8 @@ _github_git_env() {
 # 4d. Install the CLI tools listed in uv_tools.txt with `uv tool install`. Each
 # tool gets its own isolated environment and its executables are symlinked into
 # ~/.local/bin, which the managed PATH and the live-PATH prepend in install_uv
-# both put ahead of the system dirs. This is the public, always-installable set
-# (ruff, pre-commit); the private autocuda package is installed separately
-# below. Idempotent: `uv tool install` is a no-op when the tool is already
+# both put ahead of the system dirs. The private autocuda package is installed
+# separately. Idempotent: `uv tool install` is a no-op when the tool is already
 # installed at the requested version.
 #
 # The list is taken from (in order): $AAB_UV_TOOLS_FILE, then ./uv_tools.txt
@@ -779,10 +773,6 @@ install_uv_tools() {
         line="${line#"${line%%[![:space:]]*}"}"
         line="${line%"${line##*[![:space:]]}"}"
         [ -z "$line" ] && continue
-        case "$line" in
-            ruff) line="ruff==${RUFF_VERSION}" ;;
-            pre-commit) line="pre-commit==${PRE_COMMIT_VERSION}" ;;
-        esac
         case "$line" in
             *==?*) ;;
             *)
@@ -4176,9 +4166,8 @@ configure_bashrc() {
             '# ensures the AAB launcher dir (~/.local/aab-bin) is ahead of' \
             '# ~/.local/bin on PATH, so the native auto-updater that owns' \
             '# ~/.local/bin/claude cannot shadow the AAB provider wrapper.' \
-            '# ~/.local/bin also carries the uv tool symlinks (ruff,' \
-            '# pre-commit, autocuda), so a bare `ruff` / `pre-commit` resolves' \
-            '# there ahead of the system dirs.' \
+            '# ~/.local/bin also carries uv tool symlinks, which resolve there' \
+            '# ahead of the system dirs.' \
             'if [ -f "$HOME/.local/bin/env" ]; then' \
             '    . "$HOME/.local/bin/env"' \
             'fi' \
@@ -4244,9 +4233,8 @@ configure_profile() {
             '# Keep the AAB launcher dir ahead of ~/.local/bin for login shells,' \
             '# whose ~/.profile re-prepends ~/.local/bin after sourcing ~/.bashrc.' \
             '# The aab-bin prepend must be the last PATH mutation in the' \
-            '# login-shell sequence; ~/.local/bin (with the uv tool symlinks for' \
-            '# ruff / pre-commit / autocuda) stays ahead of the system dirs but' \
-            '# behind it.' \
+            '# login-shell sequence; ~/.local/bin and its uv tool symlinks stay' \
+            '# ahead of the system dirs but behind it.' \
             'export PATH="$HOME/.local/aab-bin:$PATH"'
         printf '%s\n' "${BASHRC_MARKER_END}"
     } >> "${PROFILE}"

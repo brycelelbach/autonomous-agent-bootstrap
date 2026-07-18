@@ -2,9 +2,8 @@
 # 4d. Install the CLI tools listed in uv_tools.txt with `uv tool install`. Each
 # tool gets its own isolated environment and its executables are symlinked into
 # ~/.local/bin, which the managed PATH and the live-PATH prepend in install_uv
-# both put ahead of the system dirs. This is the public, always-installable set
-# (ruff, pre-commit); the private autocuda package is installed separately
-# below. Idempotent: `uv tool install` is a no-op when the tool is already
+# both put ahead of the system dirs. The private autocuda package is installed
+# separately. Idempotent: `uv tool install` is a no-op when the tool is already
 # installed at the requested version.
 #
 # The list is taken from (in order): $AAB_UV_TOOLS_FILE, then ./uv_tools.txt
@@ -40,10 +39,6 @@ install_uv_tools() {
         line="${line#"${line%%[![:space:]]*}"}"
         line="${line%"${line##*[![:space:]]}"}"
         [ -z "$line" ] && continue
-        case "$line" in
-            ruff) line="ruff==${RUFF_VERSION}" ;;
-            pre-commit) line="pre-commit==${PRE_COMMIT_VERSION}" ;;
-        esac
         case "$line" in
             *==?*) ;;
             *)

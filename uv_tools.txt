@@ -9,13 +9,14 @@
 # brycelelbach-private and bootstrap.bash installs it in its own best-effort
 # step that tolerates a host without repository access.
 
-# Versions for these built-in tools live in src/bootstrap/00_versions.bash.
-# Custom lists may add additional tools, but every custom entry must use an
-# explicit `package==version` specifier.
+# Every entry uses an explicit `package==version` specifier.
 
 # ruff: the linter / formatter.
-ruff
+ruff==0.15.12
 
 # pre-commit: the hook runner projects bootstrapped on this host run locally
 # and in CI.
-pre-commit
+pre-commit==4.6.0
+
+# modal: the CLI for deploying and managing Modal applications.
+modal==1.5.2
