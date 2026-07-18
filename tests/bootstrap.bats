@@ -368,6 +368,74 @@ PY
     grep -Fxq 'You are Codex, an agent based on GPT-5. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.' "$CODEX_MODEL_INSTRUCTIONS_FILE"
 }
 
+setup_fake_codex_catalog() {
+    local fake_codex_bin="$TEST_HOME/fake-codex-catalog-bin"
+    mkdir -p "$fake_codex_bin"
+    export FAKE_CODEX_CATALOG_BIN="$fake_codex_bin/codex"
+    cat > "$FAKE_CODEX_CATALOG_BIN" <<SH
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "\$*" >> "$TEST_HOME/codex-catalog-invocations"
+if [ "\$*" = "debug models --bundled" ]; then
+    cat <<'JSON'
+{
+  "models": [
+    {
+      "slug": "gpt-5.6-sol",
+      "display_name": "GPT-5.6-Sol",
+      "context_window": 372000,
+      "supported_reasoning_levels": [
+        {"effort": "max"},
+        {"effort": "ultra"}
+      ],
+      "service_tiers": [{"id": "priority", "name": "Fast"}]
+    },
+    {
+      "slug": "gpt-5.5",
+      "display_name": "GPT-5.5",
+      "context_window": 272000,
+      "service_tiers": []
+    }
+  ]
+}
+JSON
+    exit 0
+fi
+printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
+printf '%s\n' "\${AAB_CODEX_DEFAULT_PROFILE:-}" > "$TEST_HOME/codex-launcher-default-profile"
+printf '%s\n' "\${OPENAI_API_KEY:-}" > "$TEST_HOME/codex-launcher-api-key"
+SH
+    chmod +x "$FAKE_CODEX_CATALOG_BIN"
+}
+
+@test "_write_codex_gateway_model_catalog copies bundled metadata onto gateway-qualified aliases" {
+    setup_fake_codex_catalog
+    export AAB_CODEX_THIRD_PARTY_PROFILES=$'gpt-5.6-sol model=openai/openai/gpt-5.6-sol effort=ultra\nnemotron-3-ultra model=nvidia/nvidia/nemotron-3-ultra effort=high'
+
+    _write_codex_gateway_model_catalog "$FAKE_CODEX_CATALOG_BIN"
+
+    grep -Fxq 'debug models --bundled' "$TEST_HOME/codex-catalog-invocations"
+    [ -f "$CODEX_GATEWAY_MODEL_CATALOG" ]
+    python3 - "$CODEX_GATEWAY_MODEL_CATALOG" <<'PY'
+import json
+import sys
+
+models = json.load(open(sys.argv[1], encoding="utf-8"))["models"]
+by_slug = {model["slug"]: model for model in models}
+assert set(by_slug) == {
+    "gpt-5.5",
+    "gpt-5.6-sol",
+    "openai/openai/gpt-5.6-sol",
+}, by_slug.keys()
+template = dict(by_slug["gpt-5.6-sol"])
+alias = dict(by_slug["openai/openai/gpt-5.6-sol"])
+template.pop("slug")
+alias.pop("slug")
+assert alias == template, (alias, template)
+assert "nvidia/nvidia/nemotron-3-ultra" not in by_slug
+PY
+}
+
 @test "configure_codex_config writes unattended yolo-mode defaults" {
     configure_codex_config
     [ -f "$CODEX_CONFIG" ]
@@ -881,14 +949,8 @@ SH
 
 @test "configure_codex_launchers generates source-explicit profiles and injects gateway config" {
     mkdir -p "$HOME/.local/bin"
-    cat > "$TEST_HOME/real-codex" <<SH
-#!/usr/bin/env bash
-printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
-printf '%s\n' "\${AAB_CODEX_DEFAULT_PROFILE:-}" > "$TEST_HOME/codex-launcher-default-profile"
-printf '%s\n' "\${OPENAI_API_KEY:-}" > "$TEST_HOME/codex-launcher-api-key"
-SH
-    chmod +x "$TEST_HOME/real-codex"
-    ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
+    setup_fake_codex_catalog
+    ln -s "$FAKE_CODEX_CATALOG_BIN" "$HOME/.local/bin/codex"
 
     AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra fast=true" \
         AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.6" \
@@ -928,11 +990,16 @@ import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
-    model = json.load(handle)["models"][0]
-assert model["slug"] == "openai/openai/gpt-5.6-sol", model
-assert model["supported_reasoning_levels"] == [], model
-assert model["additional_speed_tiers"] == ["fast"], model
-assert "priority" in [tier["id"] for tier in model["service_tiers"]], model
+    models = json.load(handle)["models"]
+by_slug = {model["slug"]: model for model in models}
+template = dict(by_slug["gpt-5.6-sol"])
+alias = dict(by_slug["openai/openai/gpt-5.6-sol"])
+template.pop("slug")
+alias.pop("slug")
+assert alias == template, (alias, template)
+assert alias["context_window"] == 372000, alias
+assert "ultra" in [level["effort"] for level in alias["supported_reasoning_levels"]], alias
+assert "priority" in [tier["id"] for tier in alias["service_tiers"]], alias
 PY
 }
 
