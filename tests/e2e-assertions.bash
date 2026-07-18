@@ -360,7 +360,14 @@ node --version 2>&1 | grep -Fxq "v${NODE_VERSION}" \
 [ ! -e "$HOME/.local/bin/pi-third-party-${expected_pi_profile[name]}" ] \
     || fail "Pi aliases must not include third-party."
 [ -f "$PI_MODELS_FILE" ] || fail "Pi models.json not written."
-grep -Fq '"aab-gateway"' "$PI_MODELS_FILE" || fail "Pi AAB gateway provider missing."
+python3 - "$PI_MODELS_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    provider = json.load(handle)["providers"]["aab-gateway"]
+assert provider["api"] == "openai-completions", provider
+PY
 "$HOME/.local/bin/pi-aab-real" --version 2>&1 | grep -Fq "$PI_VERSION" \
     || fail "Pi is not the pinned version $PI_VERSION."
 [ -f "$PI_SETTINGS_FILE" ] || fail "Pi settings.json not written."

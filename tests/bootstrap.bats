@@ -1052,6 +1052,7 @@ import json
 d = json.load(open("$PI_MODELS_FILE"))
 p = d["providers"]["aab-gateway"]
 assert p["baseUrl"] == "https://gateway.example.com/v1", p
+assert p["api"] == "openai-completions", p
 assert p["apiKey"] == "\$AAB_INFERENCE_GATEWAY_API_KEY", p
 assert p["models"] == [
     {
