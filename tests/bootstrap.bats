@@ -1182,6 +1182,27 @@ SH
     [ -x "$HOME/.local/bin/pi-aab-real" ]
 }
 
+@test "configure_pi_launchers removes legacy AAB symlink aliases" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real"
+    ln -s pi-aab-launch "$HOME/.local/bin/pi-gpt"
+    ln -s pi-opus-legacy "$HOME/.local/bin/pi-opus"
+    ln -s external-pi "$HOME/.local/bin/pi-custom"
+
+    AAB_PI_PROFILES="opus-4.8 model=anthropic/claude-opus-4-8 effort=max" \
+        AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
+        configure_pi_launchers
+
+    [ ! -L "$HOME/.local/bin/pi-gpt" ]
+    [ ! -L "$HOME/.local/bin/pi-opus" ]
+    [ -L "$HOME/.local/bin/pi-custom" ]
+    [ -x "$HOME/.local/bin/pi-aab-real" ]
+}
+
 @test "configure_pi_settings writes machine-independent unattended defaults" {
     AAB_PI_PROFILES=$'opus-4.8 model=anthropic/claude-opus-4-8 effort=high\ndeepseek-v4 model=deepseek-v4-pro effort=high fast=true' \
         AAB_PI_DEFAULT_PROFILE="deepseek-v4" \
@@ -1504,15 +1525,21 @@ SH
     ! grep -q '^export CLAUDE_CODE_EFFORT_LEVEL=' "$CLAUDE_SHELL_CONFIG_FILE"
 }
 
-@test "configure_bashrc sources AAB shell configuration" {
+@test "configure_bashrc sources only the shared GitHub shell configuration" {
     configure_claude_shell
     AAB_GH_TOKEN="github-test-token" configure_github_shell
+    mkdir -p "$(dirname "$PI_OBSERVABILITY_ENV_FILE")"
+    printf '%s\n' \
+        'export NODE_OPTIONS=pi-preload' \
+        'export OTEL_SERVICE_NAME=pi-coding-agent' \
+        > "$PI_OBSERVABILITY_ENV_FILE"
     configure_bashrc
-    grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC"
+    grep -Fq '. "$HOME/.aab/shell/github.env"' "$BASHRC"
+    ! grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC"
     ! grep -q '^export DEBUG_SDK=' "$BASHRC"
-    run env HOME="$HOME" bash -c 'unset DEBUG_SDK CLAUDE_CODE_EFFORT_LEVEL GH_TOKEN; . "$HOME/.bashrc"; printf "%s %s %s" "$DEBUG_SDK" "${CLAUDE_CODE_EFFORT_LEVEL:-UNSET}" "$GH_TOKEN"'
+    run env HOME="$HOME" bash -c 'unset DEBUG_SDK CLAUDE_CODE_EFFORT_LEVEL GH_TOKEN NODE_OPTIONS OTEL_SERVICE_NAME; . "$HOME/.bashrc"; printf "%s %s %s %s %s" "${DEBUG_SDK:-UNSET}" "${CLAUDE_CODE_EFFORT_LEVEL:-UNSET}" "$GH_TOKEN" "${NODE_OPTIONS:-UNSET}" "${OTEL_SERVICE_NAME:-UNSET}"'
     [ "$status" -eq 0 ]
-    [ "$output" = "1 UNSET github-test-token" ]
+    [ "$output" = "UNSET UNSET github-test-token UNSET UNSET" ]
 }
 
 @test "configure_github_shell writes a private GH_TOKEN mapping and clears stale values" {

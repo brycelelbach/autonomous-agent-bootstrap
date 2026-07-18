@@ -34,11 +34,10 @@ configure_bashrc() {
             'fi' \
             'export PATH="$HOME/.local/bin:$PATH"' \
             'export PATH="$HOME/.local/aab-bin:$PATH"' \
-            '# Source AAB-managed shell environment fragments.' \
-            'for _aab_shell_config in "$HOME"/.aab/shell/*.env; do' \
-            '    [ -f "$_aab_shell_config" ] && . "$_aab_shell_config"' \
-            'done' \
-            'unset _aab_shell_config' \
+            '# Export the GitHub credential used by gh and git.' \
+            'if [ -f "$HOME/.aab/shell/github.env" ]; then' \
+            '    . "$HOME/.aab/shell/github.env"' \
+            'fi' \
             '# Neutralize a dead SSH agent socket. A forwarded SSH_AUTH_SOCK from' \
             '# an SSH login that has since disconnected lingers as a dead socket,' \
             '# and tmux re-injects it into every new pane. Nothing here consumes' \
