@@ -14,6 +14,7 @@ CLAUDE_MANAGED_SETTINGS_FILE="/etc/claude-code/managed-settings.json"
 CLAUDE_JSON="${HOME}/.claude.json"
 CODEX_CONFIG="${HOME}/.codex/config.toml"
 CODEX_MODEL_INSTRUCTIONS_FILE="${HOME}/.codex/codex-instructions.md"
+CODEX_GATEWAY_MODEL_CATALOG="${HOME}/.aab/codex-gateway-model-catalog.json"
 CODEX_AUTH="${HOME}/.codex/auth.json"
 BREV_ONBOARDING="${HOME}/.brev/onboarding_step.json"
 BASHRC="${HOME}/.bashrc"
@@ -26,6 +27,7 @@ PI_SETTINGS_FILE="${HOME}/.pi/agent/settings.json"
 PI_OBSERVABILITY_ENV_FILE="${HOME}/.aab/shell/pi-observability.env"
 PI_OBSERVABILITY_PRELOAD="${HOME}/.pi/agent/npm/pi-observability-preload.cjs"
 PI_LIST_TOOLS_EXTENSION="${HOME}/.pi/agent/extensions/list-tools.ts"
+PI_FAST_MODE_EXTENSION="${HOME}/.pi/agent/extensions/fast-mode.ts"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
@@ -104,11 +106,19 @@ expected_codex_model="${expected_codex_profile[model]}"
 expected_codex_base_url="${AAB_INFERENCE_GATEWAY_URL:-}"
 expected_codex_agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-64}"
 expected_codex_agent_max_threads_valid=1
-case "$expected_codex_service_tier" in
-    priority|flex|default) ;;
-    fast) expected_codex_service_tier="priority" ;;
-    *) expected_codex_service_tier="priority" ;;
+case "${expected_codex_profile[fast]}" in
+    true) expected_codex_service_tier="priority" ;;
+    false) expected_codex_service_tier="default" ;;
+    "")
+        case "$expected_codex_service_tier" in
+            priority|flex|default) ;;
+            fast) expected_codex_service_tier="priority" ;;
+            *) expected_codex_service_tier="priority" ;;
+        esac
+        ;;
 esac
+expected_codex_fast_mode=false
+[ "$expected_codex_service_tier" != priority ] || expected_codex_fast_mode=true
 grep -Fxq "model = \"${expected_codex_model}\"" "$CODEX_CONFIG" \
     || fail "Codex model is not ${expected_codex_model}."
 grep -Fxq "model_instructions_file = \"${CODEX_MODEL_INSTRUCTIONS_FILE}\"" "$CODEX_CONFIG" \
@@ -124,6 +134,23 @@ if [ "$expected_codex_source" = "third-party" ]; then
         || fail "Codex inference-gateway env key is not AAB_INFERENCE_GATEWAY_API_KEY."
     grep -q '^requires_openai_auth = false$' "$CODEX_CONFIG" \
         || fail "Codex inference-gateway provider unexpectedly requires OpenAI login."
+    if [ "$expected_codex_service_tier" != default ]; then
+        [ -f "$CODEX_GATEWAY_MODEL_CATALOG" ] \
+            || fail "Codex gateway model catalog not written."
+        python3 - "$CODEX_GATEWAY_MODEL_CATALOG" "$expected_codex_model" \
+            "$expected_codex_service_tier" <<'PY'
+import json
+import sys
+
+catalog_path, expected_model, expected_tier = sys.argv[1:]
+with open(catalog_path, encoding="utf-8") as handle:
+    models = json.load(handle)["models"]
+model = next(candidate for candidate in models if candidate["slug"] == expected_model)
+assert expected_tier in [tier["id"] for tier in model["service_tiers"]], model
+if expected_tier == "priority":
+    assert model["additional_speed_tiers"] == ["fast"], model
+PY
+    fi
 fi
 case "$expected_codex_agent_max_threads" in
     [1-9]*)
@@ -150,6 +177,8 @@ grep -Fxq 'show_raw_agent_reasoning = true' "$CODEX_CONFIG" \
     || fail "Codex raw agent reasoning is not enabled."
 grep -Fxq "service_tier = \"${expected_codex_service_tier}\"" "$CODEX_CONFIG" \
     || fail "Codex service tier is not ${expected_codex_service_tier}."
+grep -Fxq "fast_mode = ${expected_codex_fast_mode}" "$CODEX_CONFIG" \
+    || fail "Codex fast-mode feature is not ${expected_codex_fast_mode}."
 grep -q '^check_for_update_on_startup = false$' "$CODEX_CONFIG" \
     || fail "Codex startup update check is not disabled."
 grep -q '^\[otel\]$' "$CODEX_CONFIG" \
@@ -353,13 +382,19 @@ node --version 2>&1 | grep -Fxq "v${NODE_VERSION}" \
 [ ! -e "$HOME/.local/bin/pi-third-party-${expected_pi_profile[name]}" ] \
     || fail "Pi aliases must not include third-party."
 [ -f "$PI_MODELS_FILE" ] || fail "Pi models.json not written."
-python3 - "$PI_MODELS_FILE" <<'PY'
+python3 - "$PI_MODELS_FILE" "${expected_pi_profile[model]}" "${expected_pi_profile[fast]}" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as handle:
-    provider = json.load(handle)["providers"]["aab-gateway"]
+    providers = json.load(handle)["providers"]
+provider = providers["aab-gateway"]
 assert provider["api"] == "openai-completions", provider
+expected_model, fast = sys.argv[2:]
+if fast == "true":
+    fast_provider = providers["aab-gateway-fast"]
+    assert fast_provider["api"] == "aab-openai-responses-fast", fast_provider
+    assert expected_model in [model["id"] for model in fast_provider["models"]], fast_provider
 PY
 "$HOME/.local/bin/pi-aab-real" --version 2>&1 | grep -Fq "$PI_VERSION" \
     || fail "Pi is not the pinned version $PI_VERSION."
@@ -367,17 +402,19 @@ PY
 [ -f "$PI_OBSERVABILITY_ENV_FILE" ] || fail "Pi observability environment file not written."
 [ -f "$PI_OBSERVABILITY_PRELOAD" ] || fail "Pi observability preload not written."
 [ -f "$PI_LIST_TOOLS_EXTENSION" ] || fail "Pi list-tools extension not written."
+[ -f "$PI_FAST_MODE_EXTENSION" ] || fail "Pi fast-mode extension not written."
 [ -f "$HOME/.pi/agent/npm/node_modules/@opentelemetry/auto-instrumentations-node/build/src/register.js" ] \
     || fail "Pi OpenTelemetry auto-instrumentation is not installed."
-python3 - "$PI_SETTINGS_FILE" "$PI_LIST_TOOLS_EXTENSION" "$REPO_ROOT/pi_plugins.txt" \
-    "${expected_pi_profile[model]}" <<'PY'
+python3 - "$PI_SETTINGS_FILE" "$PI_LIST_TOOLS_EXTENSION" "$PI_FAST_MODE_EXTENSION" \
+    "$REPO_ROOT/pi_plugins.txt" "${expected_pi_profile[model]}" "${expected_pi_profile[fast]}" <<'PY'
 import json
 import sys
 
-settings_path, extension_path, plugins_path, expected_model = sys.argv[1:]
+settings_path, list_tools_extension, fast_mode_extension, plugins_path, expected_model, fast = sys.argv[1:]
 with open(settings_path, encoding="utf-8") as handle:
     data = json.load(handle)
-assert data["defaultProvider"] == "aab-gateway", data
+expected_provider = "aab-gateway-fast" if fast == "true" else "aab-gateway"
+assert data["defaultProvider"] == expected_provider, data
 assert data["defaultModel"] == expected_model, data
 assert data["defaultThinkingLevel"] == "high", data
 assert data["defaultProjectTrust"] == "always", data
@@ -390,7 +427,7 @@ assert data["retry"] == {
     "maxRetries": 15,
     "provider": {"timeoutMs": 240000, "maxRetries": 0},
 }, data
-assert data["extensions"] == [extension_path], data
+assert data["extensions"] == [list_tools_extension, fast_mode_extension], data
 assert "trackingId" not in data and "lastChangelogVersion" not in data, data
 expected_packages = []
 with open(plugins_path, encoding="utf-8") as handle:
@@ -413,13 +450,21 @@ grep -Fq 'PI_DEBUG_LOG_FILE' "$PI_OBSERVABILITY_PRELOAD" \
     || fail "Pi JSONL debug preload is incomplete."
 grep -Fq 'pi.registerFlag("list-tools"' "$PI_LIST_TOOLS_EXTENSION" \
     || fail "Pi list-tools extension is incomplete."
+grep -Fq 'serviceTier: "priority"' "$PI_FAST_MODE_EXTENSION" \
+    || fail "Pi fast-mode extension is incomplete."
+pi_models_output=$(pi --list-models "${expected_pi_profile[model]}" 2>&1) \
+    || fail "Pi model listing failed with the configured extensions."
+case "$pi_models_output" in
+    *"${expected_pi_profile[model]}"*) ;;
+    *) fail "Pi selected model is missing from the model listing." ;;
+esac
 mkdir -p "$HOME/.pi/agent/debug"
 debug_logs_before=$(find "$HOME/.pi/agent/debug" -maxdepth 1 -type f -name 'pi-*.jsonl' 2>/dev/null | wc -l)
 pi list >/dev/null 2>&1 || fail "Pi package list failed through the profile launcher."
 debug_logs_after=$(find "$HOME/.pi/agent/debug" -maxdepth 1 -type f -name 'pi-*.jsonl' 2>/dev/null | wc -l)
 [ "$debug_logs_after" -gt "$debug_logs_before" ] \
     || fail "Pi launcher did not create a JSONL debug log."
-pass "Pi profile, packages, audit extension, JSONL logging, and OpenTelemetry are configured."
+pass "Pi profile, fast mode, packages, audit extension, JSONL logging, and OpenTelemetry are configured."
 if [ "$expected_codex_source" = "first-party" ] && [ -n "${AAB_OPENAI_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
     AAB_EXPECTED_CODEX_API_KEY="$AAB_OPENAI_API_KEY" \

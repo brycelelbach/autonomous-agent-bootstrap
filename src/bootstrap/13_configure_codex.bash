@@ -181,6 +181,30 @@ _toml_escape() {
     printf '%s' "$s"
 }
 
+_normalize_codex_service_tier() {
+    local service_tier="${1:-$DEFAULT_CODEX_SERVICE_TIER}"
+    case "$service_tier" in
+        priority|flex|default)
+            printf '%s' "$service_tier"
+            ;;
+        fast)
+            printf '%s' priority
+            ;;
+        *)
+            warn "AAB_CODEX_SERVICE_TIER='${service_tier}' is not one of priority, flex, default, or fast; defaulting to ${DEFAULT_CODEX_SERVICE_TIER}."
+            printf '%s' "$DEFAULT_CODEX_SERVICE_TIER"
+            ;;
+    esac
+}
+
+_codex_profile_service_tier() {
+    case "$1" in
+        true) printf '%s' priority ;;
+        false) printf '%s' default ;;
+        "") _normalize_codex_service_tier "${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}" ;;
+    esac
+}
+
 configure_codex_config() {
     mkdir -p "${CODEX_DIR}"
     local preserved_plugin_config=""
@@ -204,18 +228,10 @@ configure_codex_config() {
 
     local model="${profile[model]}"
     local effort="${profile[effort]}"
-    local service_tier="${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
+    local service_tier fast_mode=false
+    service_tier=$(_codex_profile_service_tier "${profile[fast]}")
+    [ "$service_tier" != priority ] || fast_mode=true
     local agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-$DEFAULT_CODEX_AGENT_MAX_THREADS}"
-    case "$service_tier" in
-        priority|flex|default) ;;
-        fast)
-            service_tier="priority"
-            ;;
-        *)
-            warn "AAB_CODEX_SERVICE_TIER='${service_tier}' is not one of priority, flex, default, or fast; defaulting to ${DEFAULT_CODEX_SERVICE_TIER}."
-            service_tier="$DEFAULT_CODEX_SERVICE_TIER"
-            ;;
-    esac
     local agent_max_threads_valid=1
     case "$agent_max_threads" in
         [1-9]*)
@@ -261,6 +277,9 @@ approval_policy = "never"
 sandbox_mode = "danger-full-access"
 web_search = "live"
 check_for_update_on_startup = false
+
+[features]
+fast_mode = ${fast_mode}
 
 [otel]
 environment = "dev"
@@ -316,7 +335,7 @@ ${preserved_plugin_config}
 TOML
     fi
 
-    log "Wrote ${CODEX_CONFIG} (profile=${profile[source]}/${profile[name]}, model=${model}, effort=${effort}, service_tier=${service_tier}, agent_max_threads=${agent_max_threads}, approval=never, sandbox=danger-full-access)."
+    log "Wrote ${CODEX_CONFIG} (profile=${profile[source]}/${profile[name]}, model=${model}, effort=${effort}, service_tier=${service_tier}, fast=${fast_mode}, agent_max_threads=${agent_max_threads}, approval=never, sandbox=danger-full-access)."
 }
 
 # ---------------------------------------------------------------------------

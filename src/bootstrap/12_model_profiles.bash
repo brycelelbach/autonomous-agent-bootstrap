@@ -61,6 +61,7 @@ _parse_model_profile_line() {
     result["max_tokens"]=""
     result[subagent]=""
     result[thinking]=""
+    result["fast"]=""
     case "$harness" in
         claude)
             result[effort]="$DEFAULT_CLAUDE_CODE_EFFORT"
@@ -103,7 +104,7 @@ _parse_model_profile_line() {
         seen_fields[$key]=1
 
         case "${harness}/${key}" in
-            claude/model|claude/effort|claude/context|claude/subagent|claude/haiku|claude/sonnet|claude/opus|codex/model|codex/effort|pi/model|pi/effort|pi/context|pi/max_tokens)
+            claude/model|claude/effort|claude/context|claude/subagent|claude/haiku|claude/sonnet|claude/opus|codex/model|codex/effort|codex/fast|pi/model|pi/effort|pi/context|pi/max_tokens|pi/fast)
                 result[$key]="$value"
                 ;;
             *)
@@ -124,6 +125,13 @@ _parse_model_profile_line() {
         "") ;;
         *[!0-9]*|0)
             warn "max_tokens='${result["max_tokens"]}' in ${harness} ${source} profile '${result[name]}' is not a positive integer."
+            return 1
+            ;;
+    esac
+    case "${result[fast]}" in
+        ""|true|false) ;;
+        *)
+            warn "fast='${result[fast]}' in ${harness} ${source} profile '${result[name]}' must be true or false."
             return 1
             ;;
     esac

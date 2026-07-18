@@ -199,8 +199,109 @@ configure_claude_launchers() {
     log "Wrote Claude profile launchers (selected=${selected[source]}/${selected[name]})."
 }
 
+_write_codex_gateway_model_catalog() {
+    local profiles line records tmp
+    local -A profile=()
+    profiles=$(_profile_list_for codex third-party)
+    if [ -z "$(_model_profile_lines "$profiles")" ]; then
+        rm -f "$CODEX_GATEWAY_MODEL_CATALOG"
+        return
+    fi
+
+    mkdir -p "$AAB_DIR"
+    records=$(mktemp)
+    tmp=$(mktemp "${CODEX_GATEWAY_MODEL_CATALOG}.tmp.XXXXXX")
+    while IFS= read -r line; do
+        _parse_model_profile_line codex third-party "$line" profile
+        printf '%s\t%s\t%s\n' \
+            "${profile[name]}" \
+            "${profile[model]}" \
+            "$(_codex_profile_service_tier "${profile[fast]}")" >> "$records"
+    done < <(_model_profile_lines "$profiles")
+
+    python3 - "$records" "$tmp" <<'PY'
+import csv
+import json
+import sys
+
+records_path, output_path = sys.argv[1:]
+models = {}
+with open(records_path, encoding="utf-8", newline="") as handle:
+    for name, model_id, service_tier in csv.reader(handle, delimiter="\t"):
+        model = models.setdefault(
+            model_id,
+            {
+                "name": name,
+                "service_tiers": [],
+            },
+        )
+        if service_tier != "default" and service_tier not in model["service_tiers"]:
+            model["service_tiers"].append(service_tier)
+
+tier_details = {
+    "priority": {
+        "id": "priority",
+        "name": "Fast",
+        "description": "Priority processing",
+    },
+    "flex": {
+        "id": "flex",
+        "name": "Flex",
+        "description": "Flexible processing",
+    },
+}
+payload = {"models": []}
+for model_id, model in models.items():
+    service_tiers = [tier_details[tier] for tier in model["service_tiers"]]
+    payload["models"].append(
+        {
+            "slug": model_id,
+            "display_name": model["name"],
+            "description": None,
+            "default_reasoning_level": None,
+            "supported_reasoning_levels": [],
+            "shell_type": "default",
+            "visibility": "none",
+            "supported_in_api": True,
+            "priority": 99,
+            "additional_speed_tiers": ["fast"] if "priority" in model["service_tiers"] else [],
+            "service_tiers": service_tiers,
+            "default_service_tier": None,
+            "availability_nux": None,
+            "upgrade": None,
+            "base_instructions": "",
+            "model_messages": None,
+            "include_skills_usage_instructions": False,
+            "supports_reasoning_summaries": False,
+            "default_reasoning_summary": "auto",
+            "support_verbosity": False,
+            "default_verbosity": None,
+            "apply_patch_tool_type": None,
+            "web_search_tool_type": "text",
+            "truncation_policy": {"mode": "bytes", "limit": 10000},
+            "supports_parallel_tool_calls": False,
+            "supports_image_detail_original": False,
+            "context_window": 272000,
+            "max_context_window": 272000,
+            "experimental_supported_tools": [],
+            "input_modalities": ["text", "image"],
+            "supports_search_tool": False,
+            "use_responses_lite": False,
+        }
+    )
+
+with open(output_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2)
+    handle.write("\n")
+PY
+    rm -f "$records"
+    chmod 600 "$tmp"
+    mv -f "$tmp" "$CODEX_GATEWAY_MODEL_CATALOG"
+}
+
 _write_codex_launcher() {
-    local source="$1" name="$2" model="$3" effort="$4" launcher="$5" tmp
+    local source="$1" name="$2" model="$3" effort="$4" service_tier="$5"
+    local fast_mode="$6" model_catalog="$7" launcher="$8" tmp
     tmp=$(mktemp "${launcher}.tmp.XXXXXX")
     {
         printf '%s\n' '#!/usr/bin/env bash'
@@ -209,6 +310,9 @@ _write_codex_launcher() {
         printf 'profile_name=%q\n' "$name"
         printf 'profile_model=%q\n' "$model"
         printf 'profile_effort=%q\n' "$effort"
+        printf 'profile_service_tier=%q\n' "$service_tier"
+        printf 'profile_fast_mode=%q\n' "$fast_mode"
+        printf 'profile_model_catalog=%q\n' "$model_catalog"
         cat <<'BASH'
 set -euo pipefail
 
@@ -247,7 +351,17 @@ canonical_dir() {
 
 model_escaped=$(toml_escape "$profile_model")
 effort_escaped=$(toml_escape "$profile_effort")
-config_args=(-c "model=\"${model_escaped}\"" -c "model_reasoning_effort=\"${effort_escaped}\"")
+service_tier_escaped=$(toml_escape "$profile_service_tier")
+config_args=(
+    -c "model=\"${model_escaped}\""
+    -c "model_reasoning_effort=\"${effort_escaped}\""
+    -c "service_tier=\"${service_tier_escaped}\""
+    -c "features.fast_mode=${profile_fast_mode}"
+)
+if [ -n "$profile_model_catalog" ]; then
+    model_catalog_escaped=$(toml_escape "$profile_model_catalog")
+    config_args+=(-c "model_catalog_json=\"${model_catalog_escaped}\"")
+fi
 unset OPENAI_API_KEY
 case "$profile_source" in
     first-party)
@@ -313,7 +427,7 @@ BASH
 configure_codex_launchers() {
     local codex_bin="${HOME}/.local/bin/codex"
     local real_bin="${HOME}/.local/bin/codex-aab-real"
-    local source profiles line launcher
+    local source profiles line launcher service_tier fast_mode model_catalog
     local -A profile=() selected=()
 
     _prepare_launcher_real_binary "codex" "$codex_bin" "$real_bin" "Autonomous-agent-bootstrap Codex launcher"
@@ -321,6 +435,7 @@ configure_codex_launchers() {
         'Autonomous-agent-bootstrap Codex launcher' \
         "${HOME}/.local/bin/codex-first-party*" \
         "${HOME}/.local/bin/codex-third-party-*"
+    _write_codex_gateway_model_catalog
 
     for source in first-party third-party; do
         profiles=$(_profile_list_for codex "$source")
@@ -329,8 +444,17 @@ configure_codex_launchers() {
             if [ "$source" = "third-party" ]; then
                 require_inference_gateway "Codex profile '${profile[name]}'"
             fi
+            service_tier=$(_codex_profile_service_tier "${profile[fast]}")
+            fast_mode=false
+            [ "$service_tier" != priority ] || fast_mode=true
+            model_catalog=""
+            if [ "$source" = "third-party" ] && [ "$service_tier" != default ]; then
+                model_catalog="$CODEX_GATEWAY_MODEL_CATALOG"
+            fi
             launcher="${HOME}/.local/bin/codex-${source}-${profile[name]}"
-            _write_codex_launcher "$source" "${profile[name]}" "${profile[model]}" "${profile[effort]}" "$launcher"
+            _write_codex_launcher \
+                "$source" "${profile[name]}" "${profile[model]}" "${profile[effort]}" \
+                "$service_tier" "$fast_mode" "$model_catalog" "$launcher"
         done < <(_model_profile_lines "$profiles")
     done
 
@@ -341,12 +465,13 @@ configure_codex_launchers() {
 }
 
 _write_pi_launcher() {
-    local name="$1" model="$2" thinking="$3" launcher="$4" tmp
+    local name="$1" provider="$2" model="$3" thinking="$4" launcher="$5" tmp
     tmp=$(mktemp "${launcher}.tmp.XXXXXX")
     {
         printf '%s\n' '#!/usr/bin/env bash'
         printf '%s\n' '# Autonomous-agent-bootstrap Pi launcher.'
         printf 'profile_name=%q\n' "$name"
+        printf 'profile_provider=%q\n' "$provider"
         printf 'profile_model=%q\n' "$model"
         printf 'profile_thinking=%q\n' "$thinking"
         cat <<'BASH'
@@ -396,7 +521,7 @@ done
 
 extra_args=()
 if [ -n "$profile_name" ]; then
-    [ "$has_provider" -eq 1 ] || extra_args+=(--provider aab-gateway)
+    [ "$has_provider" -eq 1 ] || extra_args+=(--provider "$profile_provider")
     [ "$has_model" -eq 1 ] || extra_args+=(--model "$profile_model")
     [ "$has_thinking" -eq 1 ] || extra_args+=(--thinking "$profile_thinking")
 fi
@@ -410,7 +535,7 @@ BASH
 configure_pi_launchers() {
     local pi_bin="${HOME}/.local/bin/pi"
     local real_bin="${HOME}/.local/bin/pi-aab-real"
-    local profiles line launcher
+    local profiles line launcher provider
     local -A profile=() selected=()
 
     if [ ! -x "$real_bin" ]; then
@@ -424,7 +549,7 @@ configure_pi_launchers() {
         "${HOME}/.local/bin/pi-*"
 
     if [ -z "$(_model_profile_lines "$profiles")" ]; then
-        _write_pi_launcher "" "" "" "$pi_bin"
+        _write_pi_launcher "" "" "" "" "$pi_bin"
         log "Wrote unconfigured Pi launcher with observability at ${pi_bin}."
         return
     fi
@@ -432,11 +557,21 @@ configure_pi_launchers() {
     require_inference_gateway "Pi profiles"
     while IFS= read -r line; do
         _parse_model_profile_line pi third-party "$line" profile
+        if [ "${profile[fast]}" = true ]; then
+            provider="aab-gateway-fast"
+        else
+            provider="aab-gateway"
+        fi
         launcher="${HOME}/.local/bin/pi-${profile[name]}"
-        _write_pi_launcher "${profile[name]}" "${profile[model]}" "${profile[thinking]}" "$launcher"
+        _write_pi_launcher "${profile[name]}" "$provider" "${profile[model]}" "${profile[thinking]}" "$launcher"
     done < <(_model_profile_lines "$profiles")
 
     resolve_model_profile pi selected
-    _write_pi_launcher "${selected[name]}" "${selected[model]}" "${selected[thinking]}" "$pi_bin"
+    if [ "${selected[fast]}" = true ]; then
+        provider="aab-gateway-fast"
+    else
+        provider="aab-gateway"
+    fi
+    _write_pi_launcher "${selected[name]}" "$provider" "${selected[model]}" "${selected[thinking]}" "$pi_bin"
     log "Wrote Pi profile launchers (selected=${selected[name]})."
 }
