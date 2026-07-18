@@ -88,12 +88,8 @@ Pi is always gateway-backed, so its aliases omit `third-party`:
 3. Resolve the selected Claude and Codex profiles when writing their base configuration.
 4. Generate one launcher per configured profile and make the unqualified command use its selected profile.
 5. Replace model-name-specific Claude context handling with the optional `context` field.
-6. Install Pi's official npm package on pinned Node.js, generate its gateway provider catalog from `AAB_PI_PROFILES`, install the pinned `pi_plugins.txt` package set, write its unattended/observability configuration, and generate `pi-${profile}` launchers.
+6. Install Pi's official npm package on pinned Node.js, generate its gateway provider catalog from `AAB_PI_PROFILES`, install the pinned `pi_plugins.txt` package set, write its unattended configuration, and generate `pi-${profile}` launchers.
 7. Remove stale AAB-owned launchers when profiles are deleted or renamed.
 8. Update README examples and the environment-variable reference.
-9. Add parser, inheritance, routing, effort, alias, persistence, Pi package, logging, and OpenTelemetry tests.
+9. Add parser, inheritance, routing, effort, alias, persistence, Pi package, and fast-mode tests.
 10. Regenerate `bootstrap.bash`, then run lint, unit, Docker end-to-end, and secret-scan validation.
-
-## Compatibility Boundary
-
-The generated profile aliases replace the fixed provider/model launcher matrix. The unqualified `claude` and `codex` commands keep first-party defaults when no profile variables are supplied. Existing interactive authentication remains valid because first-party launchers do not invent or require API keys.

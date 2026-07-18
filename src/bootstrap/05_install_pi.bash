@@ -1,8 +1,7 @@
 # ---------------------------------------------------------------------------
 # Install / upgrade Pi from its official npm package. The Node-backed CLI is
-# required because launcher-only NODE_OPTIONS preloads provide Pi's local
-# debug log and OpenTelemetry instrumentation, and Pi package installation
-# shells out to npm for runtime dependencies.
+# required because Pi package installation shells out to npm for runtime
+# dependencies.
 # ---------------------------------------------------------------------------
 install_pi() {
     if ! command -v npm >/dev/null 2>&1; then

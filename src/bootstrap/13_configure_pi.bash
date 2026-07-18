@@ -1,21 +1,30 @@
 # ---------------------------------------------------------------------------
 # Configure Pi's generated inference-gateway model catalog, unattended
-# defaults, audit extension, and launcher-only observability assets.
+# defaults, and local fast-mode extension.
 # ---------------------------------------------------------------------------
-PI_OBSERVABILITY_ENV_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_ENV_EOF'
-__AAB_PI_OBSERVABILITY_ENV__
-AAB_PI_OBSERVABILITY_ENV_EOF
-)
-PI_OBSERVABILITY_PRELOAD_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_PRELOAD_EOF'
-__AAB_PI_OBSERVABILITY_PRELOAD__
-AAB_PI_OBSERVABILITY_PRELOAD_EOF
-)
-PI_LIST_TOOLS_EXTENSION_CONTENT=$(cat <<'AAB_PI_LIST_TOOLS_EXTENSION_EOF'
-__AAB_PI_LIST_TOOLS_EXTENSION__
-AAB_PI_LIST_TOOLS_EXTENSION_EOF
-)
 PI_FAST_MODE_EXTENSION_CONTENT=$(cat <<'AAB_PI_FAST_MODE_EXTENSION_EOF'
-__AAB_PI_FAST_MODE_EXTENSION__
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { clampThinkingLevel, streamOpenAIResponses } from "@earendil-works/pi-ai/compat";
+
+export default function fastMode(pi: ExtensionAPI) {
+	pi.registerProvider("aab-gateway-fast", {
+		api: "aab-openai-responses-fast",
+		streamSimple(model, context, options) {
+			const responseModel = { ...model, api: "openai-responses" as const };
+			const clampedReasoning = options?.reasoning
+				? clampThinkingLevel(responseModel, options.reasoning)
+				: undefined;
+			const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
+
+			return streamOpenAIResponses(responseModel, context, {
+				...options,
+				maxTokens: options?.maxTokens ?? model.maxTokens,
+				reasoningEffort,
+				serviceTier: "priority",
+			});
+		},
+	});
+}
 AAB_PI_FAST_MODE_EXTENSION_EOF
 )
 
@@ -156,7 +165,7 @@ configure_pi_settings() {
         selected_model="${selected[model]}"
     fi
 
-    mkdir -p "$PI_DIR" "$(dirname "$PI_LIST_TOOLS_EXTENSION")"
+    mkdir -p "$PI_DIR" "$(dirname "$PI_FAST_MODE_EXTENSION")"
     if [ -f "$PI_SETTINGS_FILE" ]; then
         local backup
         backup="${PI_SETTINGS_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
@@ -166,13 +175,13 @@ configure_pi_settings() {
 
     local tmp
     tmp=$(mktemp "${PI_SETTINGS_FILE}.tmp.XXXXXX")
-    python3 - "$PI_SETTINGS_FILE" "$records" "$PI_LIST_TOOLS_EXTENSION" \
-        "$PI_FAST_MODE_EXTENSION" "$selected_provider" "$selected_model" "$tmp" <<'PY'
+    python3 - "$PI_SETTINGS_FILE" "$records" "$PI_FAST_MODE_EXTENSION" \
+        "$selected_provider" "$selected_model" "$tmp" <<'PY'
 import json
 from pathlib import Path
 import sys
 
-settings_path, models_path, list_tools_extension, fast_mode_extension, provider, model, output_path = sys.argv[1:]
+settings_path, models_path, fast_mode_extension, provider, model, output_path = sys.argv[1:]
 data = {}
 try:
     with open(settings_path, encoding="utf-8") as handle:
@@ -195,7 +204,7 @@ data.update(
             "maxRetries": 15,
             "provider": {"timeoutMs": 240000, "maxRetries": 0},
         },
-        "extensions": [list_tools_extension, fast_mode_extension],
+        "extensions": [fast_mode_extension],
         "packages": [],
     }
 )
@@ -233,24 +242,7 @@ _write_pi_embedded_asset() {
     mv -f "$tmp" "$path"
 }
 
-configure_pi_observability() {
-    _write_pi_embedded_asset "$PI_OBSERVABILITY_ENV_FILE" "$PI_OBSERVABILITY_ENV_CONTENT" 600
-    _write_pi_embedded_asset "$PI_OBSERVABILITY_PRELOAD" "$PI_OBSERVABILITY_PRELOAD_CONTENT" 600
-    _write_pi_embedded_asset "$PI_LIST_TOOLS_EXTENSION" "$PI_LIST_TOOLS_EXTENSION_CONTENT" 600
+configure_pi_extensions() {
     _write_pi_embedded_asset "$PI_FAST_MODE_EXTENSION" "$PI_FAST_MODE_EXTENSION_CONTENT" 600
-
-    if ! command -v npm >/dev/null 2>&1; then
-        warn "npm is unavailable; Pi OpenTelemetry dependencies were not installed."
-        return
-    fi
-    log "Installing Pi OpenTelemetry instrumentation dependencies."
-    npm install --prefix "$PI_NPM_DIR" --save-exact --ignore-scripts --no-audit --no-fund \
-        '@opentelemetry/auto-instrumentations-node@0.78.0' \
-        '@opentelemetry/exporter-logs-otlp-http@0.220.0' \
-        '@opentelemetry/exporter-metrics-otlp-http@0.220.0' \
-        '@opentelemetry/exporter-trace-otlp-http@0.220.0' \
-        '@opentelemetry/instrumentation-http@0.220.0' \
-        '@opentelemetry/instrumentation-undici@0.30.0' \
-        '@opentelemetry/sdk-node@0.220.0'
-    log "Wrote Pi JSONL logging and OpenTelemetry launcher configuration."
+    log "Wrote Pi fast-mode extension."
 }

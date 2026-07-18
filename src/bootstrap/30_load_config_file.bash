@@ -79,7 +79,7 @@ main() {
     configure_codex
     configure_pi_models
     configure_pi_settings
-    configure_pi_observability
+    configure_pi_extensions
     configure_git
     configure_auth_ssh_key
     configure_signing_ssh_key
