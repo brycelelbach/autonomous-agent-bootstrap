@@ -56,12 +56,11 @@ teardown() {
     fi
 }
 
-@test "non-apt package versions are centralized" {
+@test "module package versions are centralized" {
     local package_variable definitions
     for package_variable in \
         CLAUDE_CODE_VERSION CODEX_VERSION NODE_VERSION PI_VERSION BREV_VERSION \
-        LIFEBOAT_REF GH_VERSION UV_VERSION RUFF_VERSION \
-        PRE_COMMIT_VERSION AUTOCUDA_REF GITLEAKS_VERSION; do
+        LIFEBOAT_REF GH_VERSION UV_VERSION AUTOCUDA_REF GITLEAKS_VERSION; do
         [ -n "${!package_variable}" ]
         definitions=$(grep -R "^${package_variable}=" "$REPO_ROOT/src/bootstrap" --include='*.bash')
         [[ "$definitions" == "$REPO_ROOT/src/bootstrap/00_versions.bash:"* ]]
@@ -648,8 +647,7 @@ SH
 @test "install_uv prepends ~/.local/bin to the live PATH so uv tool binaries resolve in-process" {
     setup_fake_uv
     # A PATH without ~/.local/bin: install_uv must prepend it so executables that
-    # `uv tool install` symlinks there (ruff, pre-commit, autocuda) resolve
-    # later in the same run.
+    # `uv tool install` symlinks there resolve later in the same run.
     PATH="$FAKE_UV_BIN:/usr/bin:/bin" install_uv
     case ":${PATH}:" in
         *":${HOME}/.local/bin:"*) ;;
@@ -661,7 +659,7 @@ SH
 
 @test "install_uv_tools runs uv tool install for each tool listed in the file" {
     setup_fake_uv
-    printf '%s\n' '# The linter, pinned.' "ruff==${RUFF_VERSION}" '' '# The hook runner.' 'pre-commit' \
+    printf '%s\n' '# First tool.' 'alpha==1.2.3' '' '# Second tool.' 'beta==4.5.6' \
         > "$TEST_HOME/uv-tools.txt"
     export AAB_UV_TOOLS_FILE="$TEST_HOME/uv-tools.txt"
 
@@ -669,8 +667,8 @@ SH
     [ "$status" -eq 0 ]
     # Each non-comment, non-blank line becomes its own `uv tool install`; the
     # comment and blank lines are stripped, not installed.
-    grep -Fxq "tool install ruff==${RUFF_VERSION}" "$TEST_HOME/uv-invocations"
-    grep -Fxq "tool install pre-commit==${PRE_COMMIT_VERSION}" "$TEST_HOME/uv-invocations"
+    grep -Fxq 'tool install alpha==1.2.3' "$TEST_HOME/uv-invocations"
+    grep -Fxq 'tool install beta==4.5.6' "$TEST_HOME/uv-invocations"
     [ "$(grep -c 'tool install' "$TEST_HOME/uv-invocations")" -eq 2 ]
 }
 
@@ -681,27 +679,27 @@ SH
     UV_TOOLS_DEFAULT_FILE="$REPO_ROOT/uv_tools.txt" run install_uv_tools
     [ "$status" -eq 0 ]
     [[ "$output" == *"Reading uv tool list from $REPO_ROOT/uv_tools.txt."* ]]
-    grep -Fxq "tool install ruff==${RUFF_VERSION}" "$TEST_HOME/uv-invocations"
-    grep -Fxq "tool install pre-commit==${PRE_COMMIT_VERSION}" "$TEST_HOME/uv-invocations"
+    while IFS= read -r tool; do
+        grep -Fxq "tool install ${tool}" "$TEST_HOME/uv-invocations"
+    done < <(sed -E 's/#.*//' "$REPO_ROOT/uv_tools.txt" | awk 'NF')
 }
 
 @test "install_uv_tools warns and continues when a tool install fails" {
     setup_fake_uv
-    printf '%s\n' "ruff==${RUFF_VERSION}" > "$TEST_HOME/uv-tools.txt"
+    printf '%s\n' 'alpha==1.2.3' > "$TEST_HOME/uv-tools.txt"
     export AAB_UV_TOOLS_FILE="$TEST_HOME/uv-tools.txt"
     export UV_FAIL_TOOL_INSTALL=1
 
     run install_uv_tools
     # Best effort: a failed tool install warns but does not abort the bootstrap.
     [ "$status" -eq 0 ]
-    [[ "$output" == *"WARN:"*"ruff==${RUFF_VERSION}"* ]]
+    [[ "$output" == *"WARN:"*"alpha==1.2.3"* ]]
 }
 
-@test "uv_tools.txt delegates built-in versions to the central version file" {
-    grep -Fxq 'ruff' "$REPO_ROOT/uv_tools.txt"
-    grep -Fxq 'pre-commit' "$REPO_ROOT/uv_tools.txt"
-    [ -n "$RUFF_VERSION" ]
-    [ -n "$PRE_COMMIT_VERSION" ]
+@test "uv_tools.txt pins every listed tool" {
+    run bash -c "sed -E 's/#.*//' '$REPO_ROOT/uv_tools.txt' | awk 'NF && \$0 !~ /^[^=]+==[^=]+\$/ { exit 1 }'"
+    [ "$status" -eq 0 ]
+    grep -Eq '^modal==[0-9]' "$REPO_ROOT/uv_tools.txt"
     # autocuda is private, so it must not be an installable tool line here (it
     # may be named in a comment explaining its absence). Strip comments and
     # blanks, then assert no remaining line names it.

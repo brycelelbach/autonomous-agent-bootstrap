@@ -1,8 +1,6 @@
 # ---------------------------------------------------------------------------
-# Versions for every non-apt package AAB installs. Keep release versions,
-# immutable git refs, and release-asset checksums together here so package
-# upgrades are reviewable in one place. Ubuntu packages remain in
-# apt_packages.txt; agent plugins remain in agent_plugins.txt.
+# Versions, immutable git refs, and release-asset checksums used directly by
+# bootstrap modules. Package-list pins remain in their sidecar files.
 # ---------------------------------------------------------------------------
 CLAUDE_CODE_VERSION="2.1.212"
 CODEX_VERSION="0.144.5"
@@ -26,8 +24,6 @@ GH_SHA256_LINUX_AMD64="83d5c2ccad5498f58bf6368acb1ab32588cf43ab3a4b1c301bf36328b
 GH_SHA256_LINUX_ARM64="06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e67140bf909"
 
 UV_VERSION="0.11.29"
-RUFF_VERSION="0.15.12"
-PRE_COMMIT_VERSION="4.6.0"
 
 AUTOCUDA_PRIVATE_REPO="robobryce/autocuda"
 AUTOCUDA_REF="5f26f2c5d73a0349e505548e1837832a4cb4fcb8"

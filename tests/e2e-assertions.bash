@@ -651,23 +651,87 @@ fi
 UV_TOOLS_DIR="${HOME}/.local/share/uv/tools"
 LOCAL_BIN="${HOME}/.local/bin"
 
-for tool in ruff pre-commit; do
-    [ -x "$LOCAL_BIN/$tool" ] || fail "$tool not on ~/.local/bin after bootstrap ($LOCAL_BIN/$tool missing)."
-    command -v "$tool" >/dev/null 2>&1 || fail "$tool not on PATH after bootstrap."
-    # The ~/.local/bin entry is a uv tool symlink into the tool's own env.
-    tool_real="$(readlink -f "$LOCAL_BIN/$tool")"
-    case "$tool_real" in
-        "$UV_TOOLS_DIR"/*) ;;
-        *) fail "$tool at $LOCAL_BIN/$tool resolves to $tool_real, not a uv tool env under $UV_TOOLS_DIR." ;;
-    esac
-done
+first_uv_tool_executable=$(python3 - "$REPO_ROOT/uv_tools.txt" "$UV_TOOLS_DIR" "$LOCAL_BIN" <<'PY'
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+specs_path, tools_dir, local_bin = map(Path, sys.argv[1:])
+specs = []
+for raw_line in specs_path.read_text(encoding="utf-8").splitlines():
+    line = raw_line.split("#", 1)[0].strip()
+    if not line:
+        continue
+    package, separator, version = line.partition("==")
+    if not separator or not package or not version:
+        raise SystemExit(f"Unpinned uv tool entry: {line}")
+    specs.append((package, version))
+
+listing = subprocess.run(
+    [str(local_bin / "uv"), "tool", "list", "--show-paths"],
+    check=True,
+    capture_output=True,
+    text=True,
+).stdout
+installed = {}
+current = None
+for line in listing.splitlines():
+    heading = re.match(r"^(\S+) v(\S+).* \(([^)]+)\)$", line)
+    if heading:
+        current = heading.group(1)
+        installed[current] = {
+            "version": heading.group(2),
+            "environment": Path(heading.group(3)),
+            "executables": [],
+        }
+        continue
+    executable = re.match(r"^- (\S+) \(([^)]+)\)$", line)
+    if executable and current:
+        installed[current]["executables"].append(
+            (executable.group(1), Path(executable.group(2)))
+        )
+
+first_executable = ""
+for package, expected_version in specs:
+    environment_name = re.sub(r"[-_.]+", "-", package).lower()
+    tool = installed.get(environment_name)
+    if tool is None:
+        raise SystemExit(f"Missing uv tool environment for {package}")
+    environment = tool["environment"]
+    expected_environment = tools_dir / environment_name
+    if environment.resolve() != expected_environment.resolve():
+        raise SystemExit(
+            f"{package} uses {environment}, expected {expected_environment}"
+        )
+    if tool["version"] != expected_version:
+        raise SystemExit(
+            f"{package} is version {tool['version']}, expected {expected_version}"
+        )
+    if not tool["executables"]:
+        raise SystemExit(f"{package} exposes no console executables")
+    for executable, command in tool["executables"]:
+        if command != local_bin / executable:
+            raise SystemExit(f"Unexpected executable path for {package}: {command}")
+        if not command.is_file() or not os.access(command, os.X_OK):
+            raise SystemExit(f"Missing executable for {package}: {command}")
+        resolved = Path(os.path.realpath(command))
+        if not resolved.is_relative_to(environment.resolve()):
+            raise SystemExit(
+                f"{command} resolves to {resolved}, not the {package} uv tool environment"
+            )
+        if not first_executable:
+            first_executable = executable
+
+if not first_executable:
+    raise SystemExit("uv_tools.txt contains no installable tools")
+print(first_executable)
+PY
+) || fail "The uv tools listed in uv_tools.txt are not installed at their pinned versions."
 uv --version 2>&1 | grep -Fq "uv ${UV_VERSION} " \
     || fail "uv is not the pinned version $UV_VERSION."
-ruff --version 2>&1 | grep -Fq "$RUFF_VERSION" \
-    || fail "ruff is not the pinned version $RUFF_VERSION."
-pre-commit --version 2>&1 | grep -Fq "$PRE_COMMIT_VERSION" \
-    || fail "pre-commit is not the pinned version $PRE_COMMIT_VERSION."
-pass "uv, ruff, and pre-commit installed at their pinned versions."
+pass "uv and every sidecar-listed tool are installed at their pinned versions."
 
 # The managed ~/.bashrc block puts ~/.local/bin (with the uv tool symlinks)
 # ahead of the system dirs. The block sits after ~/.bashrc's interactive-only
@@ -675,10 +739,11 @@ pass "uv, ruff, and pre-commit installed at their pinned versions."
 # commands — is what picks it up; assert with `bash -lic`.
 grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC" \
     || fail "$BASHRC managed block does not put ~/.local/bin on PATH."
-resolved_ruff="$(bash -lic 'command -v ruff' 2>/dev/null || true)"
-[ "$resolved_ruff" = "$LOCAL_BIN/ruff" ] \
-    || fail "an interactive login shell resolves ruff to '${resolved_ruff:-nothing}', not $LOCAL_BIN/ruff."
-pass "managed PATH resolves a bare ruff to the uv tool in ~/.local/bin."
+resolved_uv_tool=$(AAB_UV_TEST_EXECUTABLE="$first_uv_tool_executable" \
+    bash -lic 'command -v "$AAB_UV_TEST_EXECUTABLE"' 2>/dev/null || true)
+[ "$resolved_uv_tool" = "$LOCAL_BIN/$first_uv_tool_executable" ] \
+    || fail "An interactive login shell resolves $first_uv_tool_executable to '${resolved_uv_tool:-nothing}', not $LOCAL_BIN/$first_uv_tool_executable."
+pass "Managed PATH resolves sidecar-listed uv tools from ~/.local/bin."
 
 # 16. The private autocuda package is installed as its own uv tool: the apt
 # package list provides the Graphviz headers and compiler its pygraphviz
