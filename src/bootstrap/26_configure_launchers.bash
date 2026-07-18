@@ -200,7 +200,8 @@ configure_claude_launchers() {
 }
 
 _write_codex_gateway_model_catalog() {
-    local profiles line records tmp
+    local codex_bin="$1"
+    local profiles line records bundled_catalog tmp_home tmp alias_count
     local -A profile=()
     profiles=$(_profile_list_for codex third-party)
     if [ -z "$(_model_profile_lines "$profiles")" ]; then
@@ -210,93 +211,74 @@ _write_codex_gateway_model_catalog() {
 
     mkdir -p "$AAB_DIR"
     records=$(mktemp)
+    bundled_catalog=$(mktemp)
+    tmp_home=$(mktemp -d)
     tmp=$(mktemp "${CODEX_GATEWAY_MODEL_CATALOG}.tmp.XXXXXX")
     while IFS= read -r line; do
         _parse_model_profile_line codex third-party "$line" profile
-        printf '%s\t%s\t%s\n' \
-            "${profile[name]}" \
-            "${profile[model]}" \
-            "$(_codex_profile_service_tier "${profile[fast]}")" >> "$records"
+        printf '%s\n' "${profile[model]}" >> "$records"
     done < <(_model_profile_lines "$profiles")
 
-    python3 - "$records" "$tmp" <<'PY'
-import csv
+    mkdir -p "${tmp_home}/.codex"
+    if ! HOME="$tmp_home" CODEX_HOME="${tmp_home}/.codex" \
+        "$codex_bin" debug models --bundled > "$bundled_catalog" 2>/dev/null; then
+        rm -f "$records" "$bundled_catalog" "$tmp"
+        rm -r "$tmp_home"
+        warn "Could not read Codex's bundled model catalog; gateway model metadata was not refreshed."
+        return
+    fi
+
+    if ! alias_count=$(python3 - "$records" "$bundled_catalog" "$tmp" <<'PY'
+import copy
 import json
 import sys
 
-records_path, output_path = sys.argv[1:]
-models = {}
-with open(records_path, encoding="utf-8", newline="") as handle:
-    for name, model_id, service_tier in csv.reader(handle, delimiter="\t"):
-        model = models.setdefault(
-            model_id,
-            {
-                "name": name,
-                "service_tiers": [],
-            },
-        )
-        if service_tier != "default" and service_tier not in model["service_tiers"]:
-            model["service_tiers"].append(service_tier)
+records_path, source_path, output_path = sys.argv[1:]
+with open(source_path, encoding="utf-8") as source:
+    catalog = json.load(source)
 
-tier_details = {
-    "priority": {
-        "id": "priority",
-        "name": "Fast",
-        "description": "Priority processing",
-    },
-    "flex": {
-        "id": "flex",
-        "name": "Flex",
-        "description": "Flexible processing",
-    },
+models = catalog.get("models")
+if not isinstance(models, list):
+    raise ValueError("Codex model catalog does not contain a models list")
+
+by_slug = {
+    model["slug"]: model
+    for model in models
+    if isinstance(model, dict) and isinstance(model.get("slug"), str)
 }
-payload = {"models": []}
-for model_id, model in models.items():
-    service_tiers = [tier_details[tier] for tier in model["service_tiers"]]
-    payload["models"].append(
-        {
-            "slug": model_id,
-            "display_name": model["name"],
-            "description": None,
-            "default_reasoning_level": None,
-            "supported_reasoning_levels": [],
-            "shell_type": "default",
-            "visibility": "none",
-            "supported_in_api": True,
-            "priority": 99,
-            "additional_speed_tiers": ["fast"] if "priority" in model["service_tiers"] else [],
-            "service_tiers": service_tiers,
-            "default_service_tier": None,
-            "availability_nux": None,
-            "upgrade": None,
-            "base_instructions": "",
-            "model_messages": None,
-            "include_skills_usage_instructions": False,
-            "supports_reasoning_summaries": False,
-            "default_reasoning_summary": "auto",
-            "support_verbosity": False,
-            "default_verbosity": None,
-            "apply_patch_tool_type": None,
-            "web_search_tool_type": "text",
-            "truncation_policy": {"mode": "bytes", "limit": 10000},
-            "supports_parallel_tool_calls": False,
-            "supports_image_detail_original": False,
-            "context_window": 272000,
-            "max_context_window": 272000,
-            "experimental_supported_tools": [],
-            "input_modalities": ["text", "image"],
-            "supports_search_tool": False,
-            "use_responses_lite": False,
-        }
-    )
+alias_count = 0
+with open(records_path, encoding="utf-8") as records:
+    for configured_model in dict.fromkeys(records.read().splitlines()):
+        if configured_model in by_slug:
+            continue
+        bundled_slug = configured_model.rsplit("/", 1)[-1]
+        template = by_slug.get(bundled_slug)
+        if template is None:
+            continue
+        alias = copy.deepcopy(template)
+        alias["slug"] = configured_model
+        models.append(alias)
+        by_slug[configured_model] = alias
+        alias_count += 1
 
 with open(output_path, "w", encoding="utf-8") as handle:
-    json.dump(payload, handle, indent=2)
+    json.dump(catalog, handle, indent=2)
     handle.write("\n")
+
+print(alias_count)
 PY
+    ); then
+        rm -f "$records" "$bundled_catalog" "$tmp"
+        rm -r "$tmp_home"
+        warn "Could not generate Codex gateway model metadata."
+        return
+    fi
     rm -f "$records"
+    rm -f "$bundled_catalog"
+    rm -r "$tmp_home"
     chmod 600 "$tmp"
     mv -f "$tmp" "$CODEX_GATEWAY_MODEL_CATALOG"
+    log "Wrote ${CODEX_GATEWAY_MODEL_CATALOG} with ${alias_count} gateway model alias(es)."
 }
 
 _write_codex_launcher() {
@@ -435,7 +417,7 @@ configure_codex_launchers() {
         'Autonomous-agent-bootstrap Codex launcher' \
         "${HOME}/.local/bin/codex-first-party*" \
         "${HOME}/.local/bin/codex-third-party-*"
-    _write_codex_gateway_model_catalog
+    _write_codex_gateway_model_catalog "$real_bin"
 
     for source in first-party third-party; do
         profiles=$(_profile_list_for codex "$source")
@@ -448,7 +430,7 @@ configure_codex_launchers() {
             fast_mode=false
             [ "$service_tier" != priority ] || fast_mode=true
             model_catalog=""
-            if [ "$source" = "third-party" ] && [ "$service_tier" != default ]; then
+            if [ "$source" = "third-party" ]; then
                 model_catalog="$CODEX_GATEWAY_MODEL_CATALOG"
             fi
             launcher="${HOME}/.local/bin/codex-${source}-${profile[name]}"

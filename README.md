@@ -180,6 +180,7 @@ All variables are optional unless a configured third-party profile needs the inf
 | `~/.claude.json` | Merged with onboarding and optional API-key approval state; existing file is backed up. |
 | `~/.codex/config.toml` | Rewritten with unattended Codex defaults, the absolute global `model_instructions_file` path, and selected profile config while preserving Codex plugin tables; existing file is backed up. |
 | `~/.codex/codex-instructions.md` | Complete AAB-managed Codex model-instructions prompt; existing file is backed up. |
+| `~/.aab/codex-gateway-model-catalog.json` | Codex's bundled model metadata plus gateway-qualified aliases for configured third-party models with matching bundled slugs. |
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when first-party Codex API-key auth is configured. |
 | `~/.bashrc` | Managed block for PATH and AAB shell-fragment loading. Credential values remain in mode-`0600` files rather than appearing in the block. |
 | `~/.profile` | Managed block that keeps `~/.local/aab-bin` ahead of `~/.local/bin` for login shells. |

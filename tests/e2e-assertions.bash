@@ -136,23 +136,23 @@ if [ "$expected_codex_source" = "third-party" ]; then
         || fail "Codex inference-gateway env key is not AAB_INFERENCE_GATEWAY_API_KEY."
     grep -q '^requires_openai_auth = false$' "$CODEX_CONFIG" \
         || fail "Codex inference-gateway provider unexpectedly requires OpenAI login."
-    if [ "$expected_codex_service_tier" != default ]; then
-        [ -f "$CODEX_GATEWAY_MODEL_CATALOG" ] \
-            || fail "Codex gateway model catalog not written."
-        python3 - "$CODEX_GATEWAY_MODEL_CATALOG" "$expected_codex_model" \
-            "$expected_codex_service_tier" <<'PY'
+    [ -f "$CODEX_GATEWAY_MODEL_CATALOG" ] \
+        || fail "Codex gateway model catalog not written."
+    python3 - "$CODEX_GATEWAY_MODEL_CATALOG" "$expected_codex_model" <<'PY'
 import json
 import sys
 
-catalog_path, expected_model, expected_tier = sys.argv[1:]
+catalog_path, expected_model = sys.argv[1:]
 with open(catalog_path, encoding="utf-8") as handle:
     models = json.load(handle)["models"]
-model = next(candidate for candidate in models if candidate["slug"] == expected_model)
-assert expected_tier in [tier["id"] for tier in model["service_tiers"]], model
-if expected_tier == "priority":
-    assert model["additional_speed_tiers"] == ["fast"], model
+by_slug = {model["slug"]: model for model in models}
+bundled_slug = expected_model.rsplit("/", 1)[-1]
+template = dict(by_slug[bundled_slug])
+alias = dict(by_slug[expected_model])
+template.pop("slug")
+alias.pop("slug")
+assert alias == template, (alias, template)
 PY
-    fi
 fi
 case "$expected_codex_agent_max_threads" in
     [1-9]*)
