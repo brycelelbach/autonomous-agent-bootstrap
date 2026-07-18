@@ -2068,6 +2068,9 @@ configure_codex_config() {
         warn "AAB_CODEX_AGENT_MAX_THREADS='${agent_max_threads}' is not a valid positive integer; defaulting to ${DEFAULT_CODEX_AGENT_MAX_THREADS}."
         agent_max_threads="$DEFAULT_CODEX_AGENT_MAX_THREADS"
     fi
+    # Multi-agent V2 counts the root thread; keep the configured child capacity consistent across runtimes.
+    local multi_agent_v2_max_concurrent_threads_per_session
+    multi_agent_v2_max_concurrent_threads_per_session=$((agent_max_threads + 1))
 
     local model_escaped effort_escaped model_instructions_file_escaped
     local home_escaped cwd cwd_escaped gateway_url_escaped
@@ -2135,6 +2138,9 @@ TOML
     fi
 
     cat >> "${CODEX_CONFIG}" <<TOML
+
+[features.multi_agent_v2]
+max_concurrent_threads_per_session = ${multi_agent_v2_max_concurrent_threads_per_session}
 
 [agents]
 max_threads = ${agent_max_threads}
