@@ -93,7 +93,7 @@ payload = {
         "aab-gateway": {
             "name": "AAB Inference Gateway",
             "baseUrl": base_url,
-            "api": "openai-responses",
+            "api": "openai-completions",
             "apiKey": "$AAB_INFERENCE_GATEWAY_API_KEY",
             "models": list(models.values()),
         }
