@@ -409,6 +409,8 @@ grep -Fq 'export OTEL_LOGS_EXPORTER="${OTEL_LOGS_EXPORTER:-console}"' "$PI_OBSER
     || fail "Pi log exporter does not default to console."
 grep -Fq 'export PI_TIMING="${PI_TIMING:-0}"' "$PI_OBSERVABILITY_ENV_FILE" \
     || fail "Pi startup timing diagnostics are not disabled by default."
+grep -Fq 'export PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi Patty Ctrl+B shortcut override is not disabled by default."
 grep -Fq 'PI_DEBUG_LOG_FILE' "$PI_OBSERVABILITY_PRELOAD" \
     || fail "Pi JSONL debug preload is incomplete."
 grep -Fq 'pi.registerFlag("list-tools"' "$PI_LIST_TOOLS_EXTENSION" \
