@@ -190,7 +190,7 @@ All variables are optional unless a configured third-party profile needs the inf
 | `~/.gitconfig` | git identity, GitHub credential helper, `core.hooksPath` for identity enforcement and the pre-commit secret scan, and optional SSH signing config. |
 | `~/.local/bin/gitleaks` | The pinned gitleaks binary the pre-commit secret scan runs. Installed on linux x86_64 / arm64; skipped elsewhere (the hook falls back to a built-in shell scan). See [Secret Scanning](#secret-scanning). |
 | `~/.ssh/id_aab_auth`, `~/.ssh/config` | Written only when `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` is set. |
-| `~/.ssh/id_aab_signing` | Written only when `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` is set. |
+| `~/.ssh/id_aab_signing`, `~/.aab/git-allowed-signers` | Signing key and local SSH signature trust file written only when `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` is set. |
 | `~/.aab/git-hooks/` | Global git hook dispatcher and per-hook-name symlinks that enforce the configured commit identity and scan staged commits for secrets. `core.hooksPath` points here. See [Git Identity Enforcement](#git-identity-enforcement) and [Secret Scanning](#secret-scanning). |
 | `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` | Clean global agent rules (operating principles + git-identity rule) without AAB management comments; other content is preserved. |
 | `~/.aab/agent-rules.snapshot` | Exact generated rule text used to replace AAB's prior rules on subsequent runs without visible markers. |
@@ -212,6 +212,8 @@ base64 -w0 < ~/.ssh/new_key
 ```
 
 Set the encoded private key on the relevant AAB variable, and upload the public key to GitHub as either an authentication key, a signing key, or both.
+
+When a signing key is configured, AAB also trusts that public key for the configured Git email through `gpg.ssh.allowedSignersFile`. Signed commits and tags can therefore be checked locally with `git verify-commit` and `git verify-tag`.
 
 ## Git Identity Enforcement
 

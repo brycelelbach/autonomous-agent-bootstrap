@@ -2124,6 +2124,8 @@ gen_test_ssh_key_b64() {
     [ ! -e "$SSH_CONFIG" ]
     # And git signing config must not be set.
     [ -z "$(git config --global --get user.signingkey 2>/dev/null || true)" ]
+    [ -z "$(git config --global --get gpg.ssh.allowedSignersFile 2>/dev/null || true)" ]
+    [ ! -e "$GIT_ALLOWED_SIGNERS_FILE" ]
 }
 
 @test "configure_auth_ssh_key writes id_aab_auth (0600) and id_aab_auth.pub (0644)" {
@@ -2186,8 +2188,9 @@ gen_test_ssh_key_b64() {
     [ ! -e "$SSH_CONFIG" ]
 }
 
-@test "configure_signing_ssh_key configures git SSH signing (gpg.format, signingkey, commit/tag.gpgsign)" {
+@test "configure_signing_ssh_key configures git SSH signing and local verification" {
     command -v git >/dev/null || skip "precondition: git must exist"
+    git config --global user.email "signer@example.com"
     AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
     export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
     configure_signing_ssh_key
@@ -2196,6 +2199,56 @@ gen_test_ssh_key_b64() {
     [ "$(git config --global --get user.signingkey)" = "$SIGNING_KEY_PUB" ]
     [ "$(git config --global --get commit.gpgsign)" = "true" ]
     [ "$(git config --global --get tag.gpgsign)" = "true" ]
+    [ "$(git config --global --get gpg.ssh.allowedSignersFile)" = "$GIT_ALLOWED_SIGNERS_FILE" ]
+    [ "$(stat -c '%a' "$AAB_DIR")" = "700" ]
+    [ "$(stat -c '%a' "$GIT_ALLOWED_SIGNERS_FILE")" = "644" ]
+    read -r principal key_type key_data < "$GIT_ALLOWED_SIGNERS_FILE"
+    read -r expected_key_type expected_key_data _ < "$SIGNING_KEY_PUB"
+    [ "$principal" = "signer@example.com" ]
+    [ "$key_type" = "$expected_key_type" ]
+    [ "$key_data" = "$expected_key_data" ]
+}
+
+@test "configure_signing_ssh_key creates commits and tags that verify locally" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    git config --global user.name "AAB Signer"
+    git config --global user.email "signer@example.com"
+    AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64)
+    export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
+    configure_signing_ssh_key
+
+    local repo="$TEST_HOME/signed-repo"
+    git init -q "$repo"
+    echo signed > "$repo/file.txt"
+    git -C "$repo" add file.txt
+    git -C "$repo" commit -q -m "signed commit"
+    git -C "$repo" tag -m "signed tag" v1
+
+    git -C "$repo" cat-file commit HEAD | grep -q '^gpgsig -----BEGIN SSH SIGNATURE-----$'
+    git -C "$repo" cat-file tag v1 | grep -q '^-----BEGIN SSH SIGNATURE-----$'
+    git -C "$repo" verify-commit HEAD
+    git -C "$repo" verify-tag v1
+}
+
+@test "configure_signing_ssh_key updates the allowed signer identity and key idempotently" {
+    command -v git >/dev/null || skip "precondition: git must exist"
+    git config --global user.email "first@example.com"
+    AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/first-key")
+    export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
+    configure_signing_ssh_key
+
+    git config --global user.email "second@example.com"
+    AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64=$(gen_test_ssh_key_b64 "$TEST_HOME/second-key")
+    export AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64
+    configure_signing_ssh_key
+    configure_signing_ssh_key
+
+    [ "$(wc -l < "$GIT_ALLOWED_SIGNERS_FILE")" -eq 1 ]
+    read -r principal key_type key_data < "$GIT_ALLOWED_SIGNERS_FILE"
+    read -r expected_key_type expected_key_data _ < "$SIGNING_KEY_PUB"
+    [ "$principal" = "second@example.com" ]
+    [ "$key_type" = "$expected_key_type" ]
+    [ "$key_data" = "$expected_key_data" ]
 }
 
 @test "configure_auth_ssh_key is idempotent (second run: single managed block, file size stable)" {
