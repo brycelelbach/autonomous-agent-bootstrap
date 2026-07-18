@@ -47,10 +47,9 @@
 # line strings, comments. Values containing shell metacharacters (`&`,
 # `|`, `;`, `$`, …) need to be quoted; plain `KEY=value` lines do not.
 #
-# Caller-supplied env vars beat file values: `FOO=override bash
-# bootstrap.bash aab.conf` is a one-line debug override without touching
-# the file. An explicitly-empty `FOO= bash …` counts as set and still
-# wins.
+# Config-file and stdin assignments are authoritative over inherited shell
+# values. To make an individual setting environment-overridable, express that
+# in the config itself with `FOO="${FOO:-default}"`.
 
 set -euo pipefail
 
@@ -1444,14 +1443,21 @@ _validate_model_profile_list() {
 
 validate_model_profiles() {
     local harness source profiles
+    local -A selected=()
     for harness in claude codex; do
         for source in first-party third-party; do
             profiles=$(_profile_list_for "$harness" "$source")
-            _validate_model_profile_list "$harness" "$source" "$profiles"
+            _validate_model_profile_list "$harness" "$source" "$profiles" || return 1
         done
     done
     profiles=$(_profile_list_for pi third-party)
-    _validate_model_profile_list pi third-party "$profiles"
+    _validate_model_profile_list pi third-party "$profiles" || return 1
+
+    resolve_model_profile claude selected || return 1
+    resolve_model_profile codex selected || return 1
+    if [ "${AAB_PI_DEFAULT_PROFILE+x}" = x ] || [ -n "$(_model_profile_lines "$profiles")" ]; then
+        resolve_model_profile pi selected || return 1
+    fi
 }
 
 _find_model_profile() {
@@ -2092,6 +2098,7 @@ TOML
 name = "AAB Inference Gateway"
 base_url = "${gateway_url_escaped}"
 env_key = "AAB_INFERENCE_GATEWAY_API_KEY"
+requires_openai_auth = false
 wire_api = "responses"
 request_max_retries = 4
 stream_max_retries = 5
@@ -3713,7 +3720,7 @@ case "$profile_source" in
             exit 1
         fi
         base_url_escaped=$(toml_escape "$AAB_INFERENCE_GATEWAY_URL")
-        provider_override="model_providers={\"aab-gateway\"={name=\"AAB Inference Gateway\",base_url=\"${base_url_escaped}\",env_key=\"AAB_INFERENCE_GATEWAY_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
+        provider_override="model_providers={\"aab-gateway\"={name=\"AAB Inference Gateway\",base_url=\"${base_url_escaped}\",env_key=\"AAB_INFERENCE_GATEWAY_API_KEY\",requires_openai_auth=false,wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
         config_args+=(-c 'model_provider="aab-gateway"' -c "$provider_override")
         ;;
 esac
@@ -4059,12 +4066,9 @@ configure_user_linger() {
 # metacharacters (`&`, `|`, `;`, `$`, etc.) need to be quoted; bare quoted
 # `KEY=value` lines need no escaping.
 #
-# Caller-supplied env vars beat file values: load_config_{file,stdin}
-# snapshot the exported environment before sourcing and replay it after, so
-# a one-off `FOO=override bash bootstrap.bash /path/to/conf` debug invocation
-# wins over whatever the file said. An explicitly-empty `FOO= bash …`
-# counts as set and also wins (file cannot force-unset what the shell
-# explicitly set).
+# Config input is sourced after the inherited environment, so assignments in
+# the file or stdin are authoritative. A config can opt into environment
+# precedence for an individual value with `FOO="${FOO:-default}"`.
 # ---------------------------------------------------------------------------
 load_config_file() {
     local f="$1"
@@ -4072,7 +4076,7 @@ load_config_file() {
         warn "Config file '$f' not found or not readable."
         exit 1
     fi
-    log "Loading config from $f (env vars already set in the shell take precedence)."
+    log "Loading config from $f."
     _source_config "$f"
 }
 
@@ -4084,24 +4088,20 @@ load_config_stdin() {
         rm -f "$tmp"
         return 0
     fi
-    log "Loading config from stdin (env vars already set in the shell take precedence)."
+    log "Loading config from stdin."
     _source_config "$tmp"
     rm -f "$tmp"
 }
 
-# Source the config at <path> with auto-export, preserving caller-supplied env
-# vars. `declare -px` snapshots every exported variable; we strip the
-# readonly entries (re-eval'ing those would error) and rewrite `declare -x`
-# as `export` so the snapshot restores at the calling shell's scope rather
-# than going out of scope when the function returns.
+# Source the config at <path> with auto-export. Existing environment values
+# remain available to shell expansions in the config, while direct assignments
+# replace them.
 _source_config() {
-    local src="$1" snapshot
-    snapshot=$(declare -px | grep -v '^declare -[a-z]*r' | sed 's/^declare -x /export /')
+    local src="$1"
     set -a
     # shellcheck source=/dev/null
     . "$src"
     set +a
-    eval "$snapshot"
 }
 
 main() {
