@@ -14,6 +14,10 @@ PI_LIST_TOOLS_EXTENSION_CONTENT=$(cat <<'AAB_PI_LIST_TOOLS_EXTENSION_EOF'
 __AAB_PI_LIST_TOOLS_EXTENSION__
 AAB_PI_LIST_TOOLS_EXTENSION_EOF
 )
+PI_FAST_MODE_EXTENSION_CONTENT=$(cat <<'AAB_PI_FAST_MODE_EXTENSION_EOF'
+__AAB_PI_FAST_MODE_EXTENSION__
+AAB_PI_FAST_MODE_EXTENSION_EOF
+)
 
 configure_pi_models() {
     local profiles line
@@ -40,24 +44,51 @@ configure_pi_models() {
     local -A profile=()
     while IFS= read -r line; do
         _parse_model_profile_line pi third-party "$line" profile
-        printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "${profile[name]}" \
             "${profile[model]}" \
             "${profile[effort]}" \
             "${profile[thinking]}" \
             "${profile[context]}" \
-            "${profile["max_tokens"]}" >> "$records"
+            "${profile["max_tokens"]}" \
+            "${profile[fast]:-false}" >> "$records"
     done < <(_model_profile_lines "$profiles")
 
     python3 - "$records" "$AAB_INFERENCE_GATEWAY_URL" "$tmp" <<'PY'
 import csv
+from copy import deepcopy
 import json
 import sys
 
 records_path, base_url, output_path = sys.argv[1:]
 models = {}
+fast_models = {}
+
+
+def merge_model(catalog, candidate):
+    model_id = candidate["id"]
+    existing = catalog.get(model_id)
+    if existing is None:
+        catalog[model_id] = candidate
+        return
+    existing_map = existing.setdefault("thinkingLevelMap", {})
+    for level, provider_effort in candidate.get("thinkingLevelMap", {}).items():
+        previous = existing_map.get(level)
+        if previous is not None and previous != provider_effort:
+            raise SystemExit(
+                f"Conflicting Pi effort mappings for model {model_id!r}: "
+                f"{level} maps to both {previous!r} and {provider_effort!r}"
+            )
+        existing_map[level] = provider_effort
+    if not existing_map:
+        existing.pop("thinkingLevelMap", None)
+    existing["reasoning"] = existing["reasoning"] or candidate["reasoning"]
+    existing["contextWindow"] = max(existing["contextWindow"], candidate["contextWindow"])
+    existing["maxTokens"] = max(existing["maxTokens"], candidate["maxTokens"])
+
+
 with open(records_path, encoding="utf-8", newline="") as handle:
-    for name, model_id, effort, thinking, context, max_tokens in csv.reader(handle, delimiter="\t"):
+    for name, model_id, effort, thinking, context, max_tokens, fast in csv.reader(handle, delimiter="\t"):
         candidate = {
             "id": model_id,
             "name": name,
@@ -69,24 +100,9 @@ with open(records_path, encoding="utf-8", newline="") as handle:
         }
         if effort != thinking:
             candidate["thinkingLevelMap"] = {thinking: effort}
-        existing = models.get(model_id)
-        if existing is None:
-            models[model_id] = candidate
-            continue
-        existing_map = existing.setdefault("thinkingLevelMap", {})
-        for level, provider_effort in candidate.get("thinkingLevelMap", {}).items():
-            previous = existing_map.get(level)
-            if previous is not None and previous != provider_effort:
-                raise SystemExit(
-                    f"Conflicting Pi effort mappings for model {model_id!r}: "
-                    f"{level} maps to both {previous!r} and {provider_effort!r}"
-                )
-            existing_map[level] = provider_effort
-        if not existing_map:
-            existing.pop("thinkingLevelMap", None)
-        existing["reasoning"] = existing["reasoning"] or candidate["reasoning"]
-        existing["contextWindow"] = max(existing["contextWindow"], candidate["contextWindow"])
-        existing["maxTokens"] = max(existing["maxTokens"], candidate["maxTokens"])
+        merge_model(models, deepcopy(candidate))
+        if fast == "true":
+            merge_model(fast_models, deepcopy(candidate))
 
 payload = {
     "providers": {
@@ -99,6 +115,14 @@ payload = {
         }
     }
 }
+if fast_models:
+    payload["providers"]["aab-gateway-fast"] = {
+        "name": "AAB Inference Gateway Fast",
+        "baseUrl": base_url,
+        "api": "aab-openai-responses-fast",
+        "apiKey": "$AAB_INFERENCE_GATEWAY_API_KEY",
+        "models": list(fast_models.values()),
+    }
 with open(output_path, "w", encoding="utf-8") as handle:
     json.dump(payload, handle, indent=2)
     handle.write("\n")
@@ -119,12 +143,16 @@ configure_pi_settings() {
     records=$(mktemp)
     while IFS= read -r line; do
         _parse_model_profile_line pi third-party "$line" profile
-        printf '%s\n' "${profile[model]}" >> "$records"
+        printf '%s\t%s\n' "${profile[model]}" "${profile[fast]:-false}" >> "$records"
     done < <(_model_profile_lines "$profiles")
 
     if [ -s "$records" ]; then
         resolve_model_profile pi selected
-        selected_provider="aab-gateway"
+        if [ "${selected[fast]}" = true ]; then
+            selected_provider="aab-gateway-fast"
+        else
+            selected_provider="aab-gateway"
+        fi
         selected_model="${selected[model]}"
     fi
 
@@ -139,12 +167,12 @@ configure_pi_settings() {
     local tmp
     tmp=$(mktemp "${PI_SETTINGS_FILE}.tmp.XXXXXX")
     python3 - "$PI_SETTINGS_FILE" "$records" "$PI_LIST_TOOLS_EXTENSION" \
-        "$selected_provider" "$selected_model" "$tmp" <<'PY'
+        "$PI_FAST_MODE_EXTENSION" "$selected_provider" "$selected_model" "$tmp" <<'PY'
 import json
 from pathlib import Path
 import sys
 
-settings_path, models_path, extension_path, provider, model, output_path = sys.argv[1:]
+settings_path, models_path, list_tools_extension, fast_mode_extension, provider, model, output_path = sys.argv[1:]
 data = {}
 try:
     with open(settings_path, encoding="utf-8") as handle:
@@ -167,13 +195,18 @@ data.update(
             "maxRetries": 15,
             "provider": {"timeoutMs": 240000, "maxRetries": 0},
         },
-        "extensions": [extension_path],
+        "extensions": [list_tools_extension, fast_mode_extension],
         "packages": [],
     }
 )
 
 if provider:
-    models = list(dict.fromkeys(Path(models_path).read_text().splitlines()))
+    models = list(
+        dict.fromkeys(
+            line.split("\t", 1)[0]
+            for line in Path(models_path).read_text().splitlines()
+        )
+    )
     data["defaultProvider"] = provider
     data["defaultModel"] = model
     data["enabledModels"] = models
@@ -204,6 +237,7 @@ configure_pi_observability() {
     _write_pi_embedded_asset "$PI_OBSERVABILITY_ENV_FILE" "$PI_OBSERVABILITY_ENV_CONTENT" 600
     _write_pi_embedded_asset "$PI_OBSERVABILITY_PRELOAD" "$PI_OBSERVABILITY_PRELOAD_CONTENT" 600
     _write_pi_embedded_asset "$PI_LIST_TOOLS_EXTENSION" "$PI_LIST_TOOLS_EXTENSION_CONTENT" 600
+    _write_pi_embedded_asset "$PI_FAST_MODE_EXTENSION" "$PI_FAST_MODE_EXTENSION_CONTENT" 600
 
     if ! command -v npm >/dev/null 2>&1; then
         warn "npm is unavailable; Pi OpenTelemetry dependencies were not installed."

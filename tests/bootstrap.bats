@@ -79,6 +79,7 @@ teardown() {
     [ "$PI_OBSERVABILITY_ENV_CONTENT" = "$(cat "$REPO_ROOT/src/pi/observability.env")" ]
     [ "$PI_OBSERVABILITY_PRELOAD_CONTENT" = "$(cat "$REPO_ROOT/src/pi/observability-preload.cjs")" ]
     [ "$PI_LIST_TOOLS_EXTENSION_CONTENT" = "$(cat "$REPO_ROOT/src/pi/list-tools.ts")" ]
+    [ "$PI_FAST_MODE_EXTENSION_CONTENT" = "$(cat "$REPO_ROOT/src/pi/fast-mode.ts")" ]
     [[ "$PI_PLUGINS_DEFAULT_CONTENT" != *"__AAB_PI_PLUGINS__"* ]]
     grep -Fq 'git:github.com/nicobailon/pi-subagents@' "$REPO_ROOT/pi_plugins.txt"
     ! grep -Fq 'robobryce/pi-subagents' "$REPO_ROOT/pi_plugins.txt"
@@ -151,6 +152,23 @@ teardown() {
 
     [ "${profile[effort]}" = "max" ]
     [ "${profile[thinking]}" = "xhigh" ]
+}
+
+@test "Codex and Pi profiles accept explicit fast mode" {
+    local -A profile=()
+
+    _parse_model_profile_line codex third-party \
+        "gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra fast=true" profile
+    [ "${profile[fast]}" = true ]
+
+    _parse_model_profile_line pi third-party \
+        "gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra fast=false" profile
+    [ "${profile[fast]}" = false ]
+
+    AAB_PI_PROFILES="gpt-5.6 model=openai/openai/gpt-5.6-sol fast=maybe" \
+        run validate_model_profiles
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"fast='maybe'"* ]]
 }
 
 @test "configure_git uses AAB-prefixed git identity vars" {
@@ -361,6 +379,7 @@ PY
     grep -q '^hide_agent_reasoning = false$' "$CODEX_CONFIG"
     grep -q '^show_raw_agent_reasoning = true$' "$CODEX_CONFIG"
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
+    grep -q '^fast_mode = true$' "$CODEX_CONFIG"
     grep -q '^approval_policy = "never"$' "$CODEX_CONFIG"
     grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG"
     grep -q '^web_search = "live"$' "$CODEX_CONFIG"
@@ -388,6 +407,7 @@ PY
     grep -q '^model = "gpt-5.4"$' "$CODEX_CONFIG"
     grep -q '^model_reasoning_effort = "high"$' "$CODEX_CONFIG"
     grep -q '^service_tier = "flex"$' "$CODEX_CONFIG"
+    grep -q '^fast_mode = false$' "$CODEX_CONFIG"
     grep -q '^max_threads = 24$' "$CODEX_CONFIG"
 }
 
@@ -415,6 +435,21 @@ PY
 @test "configure_codex_config normalizes fast service tier to priority" {
     AAB_CODEX_SERVICE_TIER="fast" configure_codex_config
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
+    grep -q '^fast_mode = true$' "$CODEX_CONFIG"
+}
+
+@test "configure_codex_config lets a profile override the global service tier" {
+    AAB_CODEX_FIRST_PARTY_PROFILES="gpt-5.6 model=gpt-5.6-sol effort=ultra fast=false" \
+        AAB_CODEX_SERVICE_TIER="priority" \
+        configure_codex_config
+    grep -q '^service_tier = "default"$' "$CODEX_CONFIG"
+    grep -q '^fast_mode = false$' "$CODEX_CONFIG"
+
+    AAB_CODEX_FIRST_PARTY_PROFILES="gpt-5.6 model=gpt-5.6-sol effort=ultra fast=true" \
+        AAB_CODEX_SERVICE_TIER="flex" \
+        configure_codex_config
+    grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
+    grep -q '^fast_mode = true$' "$CODEX_CONFIG"
 }
 
 @test "configure_codex_config defaults invalid service tier back to priority" {
@@ -853,26 +888,29 @@ SH
     chmod +x "$TEST_HOME/real-codex"
     ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
 
-    AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.5 model=vendor/model effort=ultra" \
-        AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
+    AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra fast=true" \
+        AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
         AAB_OPENAI_API_KEY="first-party-key" \
         configure_aab_env_file
-    AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.5 model=vendor/model effort=ultra" \
-        AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
+    AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra fast=true" \
+        AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_codex_launchers
 
     [ -L "$HOME/.local/bin/codex" ]
     [ -x "$HOME/.local/bin/codex-first-party-gpt-5.5" ]
-    [ -x "$HOME/.local/bin/codex-third-party-gpt-5.5" ]
-    [ "$(readlink "$HOME/.local/bin/codex")" = "$HOME/.local/bin/codex-third-party-gpt-5.5" ]
+    [ -x "$HOME/.local/bin/codex-third-party-gpt-5.6" ]
+    [ "$(readlink "$HOME/.local/bin/codex")" = "$HOME/.local/bin/codex-third-party-gpt-5.6" ]
     "$HOME/.local/bin/codex" exec hello
 
-    [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.5" ]
-    grep -Fxq 'model="vendor/model"' "$TEST_HOME/codex-launcher-args"
+    [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.6" ]
+    grep -Fxq 'model="openai/openai/gpt-5.6-sol"' "$TEST_HOME/codex-launcher-args"
     grep -Fxq 'model_reasoning_effort="ultra"' "$TEST_HOME/codex-launcher-args"
+    grep -Fxq 'service_tier="priority"' "$TEST_HOME/codex-launcher-args"
+    grep -Fxq 'features.fast_mode=true' "$TEST_HOME/codex-launcher-args"
+    grep -Fxq "model_catalog_json=\"$CODEX_GATEWAY_MODEL_CATALOG\"" "$TEST_HOME/codex-launcher-args"
     grep -Fxq 'model_provider="aab-gateway"' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'env_key="AAB_INFERENCE_GATEWAY_API_KEY"' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'requires_openai_auth=false' "$TEST_HOME/codex-launcher-args"
@@ -880,8 +918,20 @@ SH
     [ "$(cat "$TEST_HOME/codex-launcher-api-key")" = "" ]
 
     "$HOME/.local/bin/codex-first-party-gpt-5.5" exec hello
-    [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.5" ]
+    [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.6" ]
     [ "$(cat "$TEST_HOME/codex-launcher-api-key")" = "first-party-key" ]
+
+    python3 - "$CODEX_GATEWAY_MODEL_CATALOG" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    model = json.load(handle)["models"][0]
+assert model["slug"] == "openai/openai/gpt-5.6-sol", model
+assert model["supported_reasoning_levels"] == [], model
+assert model["additional_speed_tiers"] == ["fast"], model
+assert "priority" in [tier["id"] for tier in model["service_tiers"]], model
+PY
 }
 
 @test "configure_claude_launchers expands a gateway profile into every Claude model slot" {
@@ -1035,16 +1085,16 @@ SH
         'export PI_PATTY_BG_TASKS_DISABLE_CTRL_B=1' \
         > "$PI_OBSERVABILITY_ENV_FILE"
 
-    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000' \
+    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000 fast=true' \
         AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
         configure_aab_env_file
-    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000' \
+    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000 fast=true' \
         AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_pi_models
-    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000' \
+    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000 fast=true' \
         AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_pi_launchers
@@ -1055,7 +1105,7 @@ SH
     "$HOME/.local/bin/pi-gpt-5.6" -p hello
     [ "$(cat "$TEST_HOME/pi-launcher-default-profile")" = "gpt-5.6" ]
     grep -Fxq -- '--provider' "$TEST_HOME/pi-launcher-args"
-    grep -Fxq 'aab-gateway' "$TEST_HOME/pi-launcher-args"
+    grep -Fxq 'aab-gateway-fast' "$TEST_HOME/pi-launcher-args"
     grep -Fxq -- '--model' "$TEST_HOME/pi-launcher-args"
     grep -Fxq 'openai/openai/gpt-5.6-sol' "$TEST_HOME/pi-launcher-args"
     grep -Fxq -- '--thinking' "$TEST_HOME/pi-launcher-args"
@@ -1072,6 +1122,7 @@ SH
 import json
 d = json.load(open("$PI_MODELS_FILE"))
 p = d["providers"]["aab-gateway"]
+fast = d["providers"]["aab-gateway-fast"]
 assert p["baseUrl"] == "https://gateway.example.com/v1", p
 assert p["api"] == "openai-completions", p
 assert p["apiKey"] == "\$AAB_INFERENCE_GATEWAY_API_KEY", p
@@ -1097,9 +1148,13 @@ assert p["models"] == [
         "thinkingLevelMap": {"xhigh": "ultra"},
     },
 ], p
+assert fast["api"] == "aab-openai-responses-fast", fast
+assert fast["apiKey"] == "\$AAB_INFERENCE_GATEWAY_API_KEY", fast
+assert [model["id"] for model in fast["models"]] == ["openai/openai/gpt-5.6-sol"], fast
+assert fast["models"][0]["thinkingLevelMap"] == {"xhigh": "ultra"}, fast
 PY
 
-    _write_pi_launcher "deepseek-v4" "deepseek-v4-pro" "high" "$HOME/.local/bin/pi-deepseek-v4"
+    _write_pi_launcher "deepseek-v4" "aab-gateway" "deepseek-v4-pro" "high" "$HOME/.local/bin/pi-deepseek-v4"
     "$HOME/.local/bin/pi-deepseek-v4" -p hello
     [ "$(cat "$TEST_HOME/pi-launcher-default-profile")" = "gpt-5.6" ]
 }
@@ -1128,19 +1183,19 @@ SH
 }
 
 @test "configure_pi_settings writes machine-independent unattended defaults" {
-    AAB_PI_PROFILES=$'opus-4.8 model=anthropic/claude-opus-4-8 effort=high\ndeepseek-v4 model=deepseek-v4-pro effort=high' \
+    AAB_PI_PROFILES=$'opus-4.8 model=anthropic/claude-opus-4-8 effort=high\ndeepseek-v4 model=deepseek-v4-pro effort=high fast=true' \
         AAB_PI_DEFAULT_PROFILE="deepseek-v4" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_pi_settings
 
-    python3 - "$PI_SETTINGS_FILE" "$PI_LIST_TOOLS_EXTENSION" <<'PY'
+    python3 - "$PI_SETTINGS_FILE" "$PI_LIST_TOOLS_EXTENSION" "$PI_FAST_MODE_EXTENSION" <<'PY'
 import json
 import sys
 
-settings_path, extension_path = sys.argv[1:]
+settings_path, list_tools_extension, fast_mode_extension = sys.argv[1:]
 with open(settings_path, encoding="utf-8") as handle:
     data = json.load(handle)
-assert data["defaultProvider"] == "aab-gateway", data
+assert data["defaultProvider"] == "aab-gateway-fast", data
 assert data["defaultModel"] == "deepseek-v4-pro", data
 assert data["defaultThinkingLevel"] == "high", data
 assert data["defaultProjectTrust"] == "always", data
@@ -1154,7 +1209,7 @@ assert data["retry"] == {
     "provider": {"timeoutMs": 240000, "maxRetries": 0},
 }, data
 assert data["enabledModels"] == ["anthropic/claude-opus-4-8", "deepseek-v4-pro"], data
-assert data["extensions"] == [extension_path], data
+assert data["extensions"] == [list_tools_extension, fast_mode_extension], data
 assert data["packages"] == [], data
 assert "trackingId" not in data and "lastChangelogVersion" not in data, data
 PY
@@ -1174,12 +1229,14 @@ SH
     [ -f "$PI_OBSERVABILITY_ENV_FILE" ]
     [ -f "$PI_OBSERVABILITY_PRELOAD" ]
     [ -f "$PI_LIST_TOOLS_EXTENSION" ]
+    [ -f "$PI_FAST_MODE_EXTENSION" ]
     grep -Fq 'PI_TIMING="${PI_TIMING:-0}"' "$PI_OBSERVABILITY_ENV_FILE"
     grep -Fq 'PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"' "$PI_OBSERVABILITY_ENV_FILE"
     grep -Fq 'OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE"
     grep -Fq 'pi-observability-preload.cjs' "$PI_OBSERVABILITY_ENV_FILE"
     grep -Fq 'PI_DEBUG_LOG_FILE' "$PI_OBSERVABILITY_PRELOAD"
     grep -Fq 'pi.registerFlag("list-tools"' "$PI_LIST_TOOLS_EXTENSION"
+    grep -Fq 'serviceTier: "priority"' "$PI_FAST_MODE_EXTENSION"
     grep -Fq '@opentelemetry/auto-instrumentations-node@0.78.0' "$TEST_HOME/npm-invocations"
     grep -Fq '@opentelemetry/sdk-node@0.220.0' "$TEST_HOME/npm-invocations"
 }
