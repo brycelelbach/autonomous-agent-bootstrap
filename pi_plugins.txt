@@ -9,7 +9,7 @@
 npm:pi-codex-goal@0.1.37
 git:github.com/robobryce/pi-schedule-prompt@636ce73ece6ab77db023bf3613180290eb36db8f
 git:github.com/nicobailon/pi-subagents@ea9b72f2e5bc0e0cbaacdab589576e858b12c03f
-git:github.com/robobryce/pi-patty-bg-tasks@4598fe85060f81d646eb7e947d9684f4f1783a1e
+git:github.com/robobryce/pi-patty-bg-tasks@f48c6a124daa6283c7252e737d206157b1019868
 git:github.com/robobryce/pi-web-access@35f229561375d9223e0bc26fa6fa9c0df924d9c0
 git:github.com/robobryce/pi-retry-empty@c46c664bc46f86a8c8736fbbd6801daf25ebae86
 npm:pi-print-stream@0.1.0

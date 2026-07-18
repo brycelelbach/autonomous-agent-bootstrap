@@ -1024,10 +1024,14 @@ SH
 printf '%s\n' "\$@" > "$TEST_HOME/pi-launcher-args"
 printf '%s\n' "\${AAB_PI_DEFAULT_PROFILE:-}" > "$TEST_HOME/pi-launcher-default-profile"
 printf '%s\n' "\${OTEL_SERVICE_NAME:-}" > "$TEST_HOME/pi-launcher-otel-service"
+printf '%s\n' "\${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-}" > "$TEST_HOME/pi-launcher-patty-disable-ctrl-b"
 SH
     chmod +x "$HOME/.local/bin/pi-aab-real"
     mkdir -p "$(dirname "$PI_OBSERVABILITY_ENV_FILE")"
-    printf '%s\n' 'export OTEL_SERVICE_NAME=pi-test-service' > "$PI_OBSERVABILITY_ENV_FILE"
+    printf '%s\n' \
+        'export OTEL_SERVICE_NAME=pi-test-service' \
+        'export PI_PATTY_BG_TASKS_DISABLE_CTRL_B=1' \
+        > "$PI_OBSERVABILITY_ENV_FILE"
 
     AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000' \
         AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
@@ -1056,6 +1060,7 @@ SH
     grep -Fxq 'xhigh' "$TEST_HOME/pi-launcher-args"
     ! grep -Fxq 'ultra' "$TEST_HOME/pi-launcher-args"
     [ "$(cat "$TEST_HOME/pi-launcher-otel-service")" = "pi-test-service" ]
+    [ "$(cat "$TEST_HOME/pi-launcher-patty-disable-ctrl-b")" = "1" ]
 
     "$HOME/.local/bin/pi-gpt-5.6" install npm:example@1.0.0
     [ "$(sed -n '1p' "$TEST_HOME/pi-launcher-args")" = "install" ]
@@ -1168,6 +1173,7 @@ SH
     [ -f "$PI_OBSERVABILITY_PRELOAD" ]
     [ -f "$PI_LIST_TOOLS_EXTENSION" ]
     grep -Fq 'PI_TIMING="${PI_TIMING:-0}"' "$PI_OBSERVABILITY_ENV_FILE"
+    grep -Fq 'PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"' "$PI_OBSERVABILITY_ENV_FILE"
     grep -Fq 'OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE"
     grep -Fq 'pi-observability-preload.cjs' "$PI_OBSERVABILITY_ENV_FILE"
     grep -Fq 'PI_DEBUG_LOG_FILE' "$PI_OBSERVABILITY_PRELOAD"
