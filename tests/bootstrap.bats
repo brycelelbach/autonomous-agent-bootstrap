@@ -60,7 +60,7 @@ teardown() {
     local package_variable definitions
     for package_variable in \
         CLAUDE_CODE_VERSION CODEX_VERSION NODE_VERSION PI_VERSION BREV_VERSION \
-        LIFEBOAT_REF GH_VERSION UV_VERSION AUTOCUDA_REF GITLEAKS_VERSION; do
+        LIFEBOAT_REF GH_VERSION UV_VERSION GITLEAKS_VERSION; do
         [ -n "${!package_variable}" ]
         definitions=$(grep -R "^${package_variable}=" "$REPO_ROOT/src/bootstrap" --include='*.bash')
         [[ "$definitions" == "$REPO_ROOT/src/bootstrap/00_versions.bash:"* ]]
@@ -74,12 +74,20 @@ teardown() {
 }
 
 @test "Pi package defaults and inline fast-mode extension are compiled into bootstrap.bash" {
+    local owned_repo
+
     [ "$PI_PLUGINS_DEFAULT_CONTENT" = "$(cat "$REPO_ROOT/pi_plugins.txt")" ]
     [[ "$PI_PLUGINS_DEFAULT_CONTENT" != *"__AAB_PI_PLUGINS__"* ]]
     [[ "$PI_FAST_MODE_EXTENSION_CONTENT" == *'serviceTier: "priority"'* ]]
-    [ "$(grep -Fxc 'npm:pi-list-tools@0.1.0' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ]
+    for owned_repo in \
+        pi-list-tools pi-schedule-prompt pi-patty-bg-tasks \
+        pi-web-access pi-retry-empty pi-print-stream; do
+        [ "$(grep -Fxc "git:github.com/robobryce/${owned_repo}" "$REPO_ROOT/pi_plugins.txt")" -eq 1 ]
+    done
     [ "$(grep -Fxc 'npm:pi-otel@0.1.0' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ]
     [ ! -d "$REPO_ROOT/src/pi" ]
+    ! grep -Eq '^git:github\.com/robobryce/pi-[^@[:space:]]+@' "$REPO_ROOT/pi_plugins.txt"
+    ! grep -Eq '^npm:(pi-list-tools|pi-print-stream)(@|$)' "$REPO_ROOT/pi_plugins.txt"
     grep -Fq 'git:github.com/nicobailon/pi-subagents@' "$REPO_ROOT/pi_plugins.txt"
     ! grep -Fq 'robobryce/pi-subagents' "$REPO_ROOT/pi_plugins.txt"
 }
@@ -791,13 +799,21 @@ SH
     [[ "$output" == *"is not version-pinned"* ]]
 }
 
-@test "install_autocuda installs its package from a pinned git ref" {
+@test "install_autocuda refreshes its package from the default branch" {
     setup_fake_uv
 
     run install_autocuda
     [ "$status" -eq 0 ]
     # Installed as its own isolated uv tool, not into a shared interpreter.
-    grep -Fq "tool install git+https://github.com/${AUTOCUDA_PRIVATE_REPO}@${AUTOCUDA_REF}" "$TEST_HOME/uv-invocations"
+    grep -Fxq "tool install --refresh git+https://github.com/${AUTOCUDA_PRIVATE_REPO}" "$TEST_HOME/uv-invocations"
+}
+
+@test "install_autocuda uses the canonical plugin repository" {
+    local autocuda_plugin_repositories
+    autocuda_plugin_repositories=$(sed -E 's/#.*//' "$REPO_ROOT/agent_plugins.txt" \
+        | awk 'NF && /\/autocuda$/ { print }')
+
+    [ "$autocuda_plugin_repositories" = "$AUTOCUDA_PRIVATE_REPO" ]
 }
 
 @test "install_autocuda package failure warns and continues" {
@@ -1268,6 +1284,16 @@ SH
 }
 
 @test "configure_pi_settings writes machine-independent unattended defaults" {
+    mkdir -p "$(dirname "$PI_SETTINGS_FILE")"
+    cat > "$PI_SETTINGS_FILE" <<'JSON'
+{
+  "packages": [
+    "npm:pi-list-tools@0.1.0",
+    "npm:pi-print-stream@0.1.0"
+  ]
+}
+JSON
+
     AAB_PI_PROFILES=$'opus-4.8 model=anthropic/claude-opus-4-8 effort=high\ndeepseek-v4 model=deepseek-v4-pro effort=high fast=true' \
         AAB_PI_DEFAULT_PROFILE="deepseek-v4" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
@@ -1329,7 +1355,7 @@ EOF
     [ "$(wc -l < "$TEST_HOME/pi-package-invocations")" -eq 2 ]
 }
 
-@test "install_pi_plugins installs the pinned list-tools and OTEL packages from defaults" {
+@test "install_pi_plugins installs rolling owned repositories and pinned third-party packages from defaults" {
     mkdir -p "$HOME/.local/bin"
     cat > "$HOME/.local/bin/pi-aab-real" <<SH
 #!/usr/bin/env bash
@@ -1339,8 +1365,40 @@ SH
 
     install_pi_plugins
 
-    grep -Fxq 'install npm:pi-list-tools@0.1.0 --no-approve' "$TEST_HOME/pi-package-invocations"
+    local source
+    while IFS= read -r source; do
+        grep -Fxq "install ${source} --no-approve" "$TEST_HOME/pi-package-invocations"
+    done < <(sed -E 's/#.*//' "$REPO_ROOT/pi_plugins.txt" \
+        | awk 'NF && /^git:github\.com\/robobryce\/pi-/ { print }')
     grep -Fxq 'install npm:pi-otel@0.1.0 --no-approve' "$TEST_HOME/pi-package-invocations"
+}
+
+@test "install_pi_plugins removes obsolete pinned npm copies of owned packages" {
+    local fake_bin="$TEST_HOME/fake-pi-npm-bin"
+    local npm_root="$PI_DIR/npm"
+    mkdir -p "$HOME/.local/bin" "$fake_bin" \
+        "$npm_root/node_modules/pi-list-tools" "$npm_root/node_modules/pi-print-stream"
+    cat > "$HOME/.local/bin/pi-aab-real" <<SH
+#!/usr/bin/env bash
+printf 'pi %s\n' "\$*" >> "$TEST_HOME/pi-package-migration-invocations"
+SH
+    cat > "$fake_bin/npm" <<SH
+#!/usr/bin/env bash
+printf 'npm %s\n' "\$*" >> "$TEST_HOME/pi-package-migration-invocations"
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real" "$fake_bin/npm"
+    cat > "$npm_root/package.json" <<'JSON'
+{"dependencies":{"pi-list-tools":"0.1.0","pi-print-stream":"0.1.0"}}
+JSON
+
+    PATH="$fake_bin:$PATH" install_pi_plugins
+
+    [ "$(sed -n '1p' "$TEST_HOME/pi-package-migration-invocations")" = \
+        "npm uninstall --prefix ${npm_root} --ignore-scripts --no-audit --no-fund pi-list-tools pi-print-stream" ]
+    grep -Fxq 'pi install git:github.com/robobryce/pi-list-tools --no-approve' \
+        "$TEST_HOME/pi-package-migration-invocations"
+    grep -Fxq 'pi install git:github.com/robobryce/pi-print-stream --no-approve' \
+        "$TEST_HOME/pi-package-migration-invocations"
 }
 
 setup_fake_codex() {

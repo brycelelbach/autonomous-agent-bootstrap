@@ -176,8 +176,7 @@ GH_SHA256_LINUX_ARM64="06f86ec7103d41993b76cd78072f43595c34aaa56506d971d9860e671
 
 UV_VERSION="0.11.29"
 
-AUTOCUDA_PRIVATE_REPO="robobryce/autocuda"
-AUTOCUDA_REF="5f26f2c5d73a0349e505548e1837832a4cb4fcb8"
+AUTOCUDA_PRIVATE_REPO="brycelelbach-private/autocuda"
 
 GITLEAKS_VERSION="8.18.4"
 GITLEAKS_SHA256_LINUX_X64="ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d"
@@ -1089,8 +1088,8 @@ install_autocuda() {
     mapfile -d '' git_env < <(_github_git_env)
 
     log "Installing the private autocuda package as a uv tool (best effort)."
-    "${git_env[@]}" "$UV_BIN" tool install \
-        "git+https://github.com/${AUTOCUDA_PRIVATE_REPO}@${AUTOCUDA_REF}" 2>&1 | sed 's/^/  /' \
+    "${git_env[@]}" "$UV_BIN" tool install --refresh \
+        "git+https://github.com/${AUTOCUDA_PRIVATE_REPO}" 2>&1 | sed 's/^/  /' \
         || warn "Could not install autocuda (private repo without access, or its build toolchain is absent); continuing without it."
 
     if ! command -v autocuda >/dev/null 2>&1; then
@@ -1131,7 +1130,7 @@ PY
 
 # >>> src/bootstrap/11_install_pi_plugins.bash >>>
 # ---------------------------------------------------------------------------
-# Install the pinned Pi packages listed in pi_plugins.txt.
+# Install the Pi packages listed in pi_plugins.txt.
 #
 # The compiler embeds pi_plugins.txt below. AAB_PI_PLUGINS_FILE can replace
 # the compiled list for a one-off local build.
@@ -1140,22 +1139,47 @@ PI_PLUGINS_DEFAULT_CONTENT=$(cat <<'AAB_PI_PLUGINS_EOF'
 # Pi packages installed by bootstrap.bash.
 #
 # One Pi package source per line, using the same syntax accepted by
-# `pi install`. npm packages use exact versions and git packages use immutable
-# commits so every bootstrap installs the audited package revision.
+# `pi install`. AAB-owned Git repositories follow their default branches;
+# third-party npm and Git packages use exact versions and immutable commits.
 #
 # Lines beginning with '#' and blank lines are ignored.
 
 npm:pi-codex-goal@0.1.37
-npm:pi-list-tools@0.1.0
+git:github.com/robobryce/pi-list-tools
 npm:pi-otel@0.1.0
-git:github.com/robobryce/pi-schedule-prompt@636ce73ece6ab77db023bf3613180290eb36db8f
+git:github.com/robobryce/pi-schedule-prompt
 git:github.com/nicobailon/pi-subagents@ea9b72f2e5bc0e0cbaacdab589576e858b12c03f
-git:github.com/robobryce/pi-patty-bg-tasks@f48c6a124daa6283c7252e737d206157b1019868
-git:github.com/robobryce/pi-web-access@35f229561375d9223e0bc26fa6fa9c0df924d9c0
-git:github.com/robobryce/pi-retry-empty@c46c664bc46f86a8c8736fbbd6801daf25ebae86
-npm:pi-print-stream@0.1.0
+git:github.com/robobryce/pi-patty-bg-tasks
+git:github.com/robobryce/pi-web-access
+git:github.com/robobryce/pi-retry-empty
+git:github.com/robobryce/pi-print-stream
 AAB_PI_PLUGINS_EOF
 )
+
+_remove_legacy_owned_pi_npm_packages() {
+    local npm_root="${PI_DIR}/npm"
+    local package_json="${npm_root}/package.json"
+    if [ ! -d "${npm_root}/node_modules/pi-list-tools" ] \
+        && [ ! -d "${npm_root}/node_modules/pi-print-stream" ] \
+        && { [ ! -f "$package_json" ] \
+            || ! grep -Eq '"(pi-list-tools|pi-print-stream)"' "$package_json"; }; then
+        return
+    fi
+
+    local npm_bin="${HOME}/.local/bin/npm"
+    if [ ! -x "$npm_bin" ]; then
+        npm_bin=$(command -v npm || true)
+    fi
+    if [ -z "$npm_bin" ]; then
+        warn "npm unavailable; obsolete pinned copies of AAB-owned Pi packages were not removed."
+        return
+    fi
+
+    log "Removing obsolete pinned npm copies of AAB-owned Pi packages."
+    "$npm_bin" uninstall --prefix "$npm_root" --ignore-scripts --no-audit --no-fund \
+        pi-list-tools pi-print-stream 2>&1 | sed 's/^/  /' \
+        || warn "Could not remove obsolete pinned copies of AAB-owned Pi packages."
+}
 
 install_pi_plugins() {
     local pi_bin="${HOME}/.local/bin/pi-aab-real"
@@ -1163,6 +1187,8 @@ install_pi_plugins() {
         warn "Pi real binary not executable at ${pi_bin}; skipping Pi package installation."
         return
     fi
+
+    _remove_legacy_owned_pi_npm_packages
 
     local plugins_file="${AAB_PI_PLUGINS_FILE:-}"
     local content="$PI_PLUGINS_DEFAULT_CONTENT"

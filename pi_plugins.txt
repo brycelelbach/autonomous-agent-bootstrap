@@ -1,17 +1,17 @@
 # Pi packages installed by bootstrap.bash.
 #
 # One Pi package source per line, using the same syntax accepted by
-# `pi install`. npm packages use exact versions and git packages use immutable
-# commits so every bootstrap installs the audited package revision.
+# `pi install`. AAB-owned Git repositories follow their default branches;
+# third-party npm and Git packages use exact versions and immutable commits.
 #
 # Lines beginning with '#' and blank lines are ignored.
 
 npm:pi-codex-goal@0.1.37
-npm:pi-list-tools@0.1.0
+git:github.com/robobryce/pi-list-tools
 npm:pi-otel@0.1.0
-git:github.com/robobryce/pi-schedule-prompt@636ce73ece6ab77db023bf3613180290eb36db8f
+git:github.com/robobryce/pi-schedule-prompt
 git:github.com/nicobailon/pi-subagents@ea9b72f2e5bc0e0cbaacdab589576e858b12c03f
-git:github.com/robobryce/pi-patty-bg-tasks@f48c6a124daa6283c7252e737d206157b1019868
-git:github.com/robobryce/pi-web-access@35f229561375d9223e0bc26fa6fa9c0df924d9c0
-git:github.com/robobryce/pi-retry-empty@c46c664bc46f86a8c8736fbbd6801daf25ebae86
-npm:pi-print-stream@0.1.0
+git:github.com/robobryce/pi-patty-bg-tasks
+git:github.com/robobryce/pi-web-access
+git:github.com/robobryce/pi-retry-empty
+git:github.com/robobryce/pi-print-stream

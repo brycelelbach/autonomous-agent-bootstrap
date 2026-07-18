@@ -24,7 +24,7 @@ CLAUDE_SHELL_CONFIG_FILE="${HOME}/.aab/shell/claude.env"
 GITHUB_SHELL_CONFIG_FILE="${HOME}/.aab/shell/github.env"
 PI_MODELS_FILE="${HOME}/.pi/agent/models.json"
 PI_SETTINGS_FILE="${HOME}/.pi/agent/settings.json"
-PI_LIST_TOOLS_PACKAGE="${HOME}/.pi/agent/npm/node_modules/pi-list-tools"
+PI_LIST_TOOLS_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-list-tools"
 PI_OTEL_PACKAGE="${HOME}/.pi/agent/npm/node_modules/pi-otel"
 PI_FAST_MODE_EXTENSION="${HOME}/.pi/agent/extensions/fast-mode.ts"
 
@@ -463,6 +463,13 @@ with open(plugins_path, encoding="utf-8") as handle:
             expected_packages.append(line)
 missing = [source for source in expected_packages if source not in data["packages"]]
 assert not missing, (missing, data["packages"])
+obsolete = {
+    "npm:pi-list-tools",
+    "npm:pi-list-tools@0.1.0",
+    "npm:pi-print-stream",
+    "npm:pi-print-stream@0.1.0",
+}
+assert obsolete.isdisjoint(data["packages"]), data["packages"]
 PY
 grep -Fq 'serviceTier: "priority"' "$PI_FAST_MODE_EXTENSION" \
     || fail "Pi fast-mode extension is incomplete."
@@ -487,7 +494,25 @@ case "$pi_models_output" in
     *) fail "Pi selected model is missing from the model listing." ;;
 esac
 pi list >/dev/null 2>&1 || fail "Pi package list failed through the profile launcher."
-pass "Pi profile, fast mode, list-tools, and structured OpenTelemetry package are configured."
+mapfile -t owned_pi_sources < <(sed -E 's/#.*//' "$REPO_ROOT/pi_plugins.txt" \
+    | awk 'NF && /^git:github\.com\/robobryce\/pi-/ { print }')
+[ "${#owned_pi_sources[@]}" -gt 0 ] || fail "No AAB-owned Pi repositories are configured."
+for source in "${owned_pi_sources[@]}"; do
+    case "$source" in
+        *@*) fail "AAB-owned Pi repository is version-pinned: ${source}." ;;
+    esac
+    repo="${source#git:github.com/}"
+    checkout="${HOME}/.pi/agent/git/github.com/${repo}"
+    [ -d "$checkout/.git" ] || fail "AAB-owned Pi repository is not installed: ${repo}."
+    local_head=$(git -C "$checkout" rev-parse HEAD) \
+        || fail "Could not resolve the installed commit for ${repo}."
+    remote_head=$(git -C "$checkout" ls-remote --exit-code origin HEAD \
+        | awk 'NR == 1 { print $1 }') \
+        || fail "Could not resolve the remote default-branch HEAD for ${repo}."
+    [ "$local_head" = "$remote_head" ] \
+        || fail "AAB-owned Pi repository is not at default-branch HEAD: ${repo}."
+done
+pass "Pi profile, fast mode, rolling AAB-owned packages, and structured OpenTelemetry package are configured."
 if [ "$expected_codex_source" = "first-party" ] && [ -n "${AAB_OPENAI_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
     AAB_EXPECTED_CODEX_API_KEY="$AAB_OPENAI_API_KEY" \
@@ -767,8 +792,13 @@ pass "Managed PATH resolves sidecar-listed uv tools from ~/.local/bin."
 # package list provides the Graphviz headers and compiler its pygraphviz
 # dependency builds against, so the install succeeds and `autocuda install`
 # runs after the harnesses are in place. The token-bearing fetch needs repo
-# access, so a host without it degrades to a warning instead — guard the
-# assertion on the binary being present rather than forcing a failure offline.
+# access, so a host without it degrades to a warning instead. When git can
+# reach the package repository, require the default-branch build so a failed
+# refresh cannot pass as a graceful private-repository skip.
+mapfile -d '' autocuda_git_env < <(_github_git_env)
+autocuda_remote_head=$("${autocuda_git_env[@]}" GIT_TERMINAL_PROMPT=0 \
+    git ls-remote --exit-code "https://github.com/${AUTOCUDA_PRIVATE_REPO}" HEAD 2>/dev/null \
+    | awk 'NR == 1 { print $1 }') || true
 if [ -x "$LOCAL_BIN/autocuda" ]; then
     autocuda_real="$(readlink -f "$LOCAL_BIN/autocuda")"
     case "$autocuda_real" in
@@ -784,9 +814,32 @@ if [ -x "$LOCAL_BIN/autocuda" ]; then
         *autocuda/pi-package*) ;;
         *) fail "autocuda Pi package is not registered." ;;
     esac
+    if [ -n "$autocuda_remote_head" ]; then
+        autocuda_env=$(dirname "$(dirname "$autocuda_real")")
+        autocuda_direct_url=$(find "$autocuda_env/lib" -type f \
+            -path '*/autocuda-*.dist-info/direct_url.json' -print -quit)
+        [ -n "$autocuda_direct_url" ] \
+            || fail "autocuda Git installation metadata is missing."
+        autocuda_installed_head=$(python3 - "$autocuda_direct_url" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    direct_url = json.load(handle)
+vcs_info = direct_url.get("vcs_info", {})
+assert vcs_info.get("vcs") == "git", direct_url
+print(vcs_info["commit_id"])
+PY
+)
+        [ "$autocuda_installed_head" = "$autocuda_remote_head" ] \
+            || fail "autocuda is not installed from the remote default-branch HEAD."
+    fi
     pass "autocuda installed as a uv tool and registered with Pi."
 else
-    pass "autocuda not installed (private repo without access); best-effort install correctly degraded."
+    if [ -n "$autocuda_remote_head" ]; then
+        fail "autocuda is not installed despite git access to ${AUTOCUDA_PRIVATE_REPO}."
+    fi
+    pass "autocuda not installed because its private repository is unavailable; best-effort install correctly degraded."
 fi
 
 # 17. lifeboat (the home-directory backup tool) is fetched straight to
