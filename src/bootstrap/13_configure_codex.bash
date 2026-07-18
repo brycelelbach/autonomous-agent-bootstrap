@@ -328,7 +328,7 @@ TOML
 # auth path.
 # ---------------------------------------------------------------------------
 configure_codex_auth() {
-    local api_key="${OPENAI_API_KEY:-}"
+    local api_key="${AAB_OPENAI_API_KEY:-}"
     [ -z "$api_key" ] && return
 
     local codex_bin=""
@@ -339,7 +339,7 @@ configure_codex_auth() {
     elif [ -x "${HOME}/.local/bin/codex" ]; then
         codex_bin="${HOME}/.local/bin/codex"
     else
-        warn "codex binary not on PATH; cannot configure OPENAI_API_KEY auth."
+        warn "codex binary not on PATH; cannot configure AAB_OPENAI_API_KEY auth."
         exit 1
     fi
 
@@ -348,7 +348,7 @@ configure_codex_auth() {
         exit 1
     fi
 
-    log "Configured Codex API-key auth from OPENAI_API_KEY."
+    log "Configured Codex API-key auth from AAB_OPENAI_API_KEY."
 }
 
 configure_codex() {

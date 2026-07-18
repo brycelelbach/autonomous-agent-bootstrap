@@ -20,6 +20,7 @@ BASHRC="${HOME}/.bashrc"
 PROFILE="${HOME}/.profile"
 AAB_ENV_FILE="${HOME}/.aab/.env"
 CLAUDE_SHELL_CONFIG_FILE="${HOME}/.aab/shell/claude.env"
+GITHUB_SHELL_CONFIG_FILE="${HOME}/.aab/shell/github.env"
 PI_MODELS_FILE="${HOME}/.pi/agent/models.json"
 PI_SETTINGS_FILE="${HOME}/.pi/agent/settings.json"
 PI_OBSERVABILITY_ENV_FILE="${HOME}/.aab/shell/pi-observability.env"
@@ -209,13 +210,27 @@ grep -Fq "export AAB_CODEX_DEFAULT_PROFILE=${expected_codex_selector}" "$AAB_ENV
     || fail "Codex default profile selector not written to $AAB_ENV_FILE."
 grep -Fq "export AAB_PI_DEFAULT_PROFILE=${expected_pi_profile[name]}" "$AAB_ENV_FILE" \
     || fail "Pi default profile selector not written to $AAB_ENV_FILE."
-if [ -n "${OPENAI_API_KEY:-}" ]; then
-    grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE" \
-        || fail "OPENAI_API_KEY not written to $AAB_ENV_FILE."
-fi
+grep -q '^export AAB_ANTHROPIC_API_KEY=' "$AAB_ENV_FILE" \
+    || fail "AAB_ANTHROPIC_API_KEY not written to $AAB_ENV_FILE."
+grep -q '^export AAB_OPENAI_API_KEY=' "$AAB_ENV_FILE" \
+    || fail "AAB_OPENAI_API_KEY not written to $AAB_ENV_FILE."
+! grep -q '^export ANTHROPIC_API_KEY=' "$AAB_ENV_FILE" \
+    || fail "Native ANTHROPIC_API_KEY should not be persisted in $AAB_ENV_FILE."
+! grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE" \
+    || fail "Native OPENAI_API_KEY should not be persisted in $AAB_ENV_FILE."
 pass "AAB env file written with private profile config."
 
-# 7. bashrc exposes only PATH and non-secret unattended-mode defaults.
+[ -f "$GITHUB_SHELL_CONFIG_FILE" ] || fail "GitHub shell config not written."
+[ "$(stat -c '%a' "$GITHUB_SHELL_CONFIG_FILE")" = "600" ] \
+    || fail "$GITHUB_SHELL_CONFIG_FILE mode is not 600."
+if [ -n "${AAB_GH_TOKEN:-}" ]; then
+    shell_gh_token=$(env HOME="$HOME" GH_TOKEN= bash --noprofile -ic 'printf %s "$GH_TOKEN"' 2>/dev/null)
+    [ "$shell_gh_token" = "$AAB_GH_TOKEN" ] \
+        || fail "GH_TOKEN does not match AAB_GH_TOKEN after sourcing ~/.bashrc."
+fi
+pass "Private GitHub shell config maps AAB_GH_TOKEN to GH_TOKEN."
+
+# 7. bashrc contains no credential literals.
 grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$BASHRC" \
     || fail "PATH export missing from bashrc managed block."
 grep -q 'export PATH="$HOME/.local/aab-bin:$PATH"' "$BASHRC" \
@@ -236,14 +251,14 @@ aab_line=$(grep -n 'export PATH="$HOME/.local/aab-bin:$PATH"' "$BASHRC" | head -
 pass "bashrc managed block keeps credentials out."
 
 # 8. Claude owns its shell defaults; the generic bashrc block only sources
-# per-harness files.
+# AAB-managed shell fragments.
 [ -f "$CLAUDE_SHELL_CONFIG_FILE" ] || fail "Claude shell config not written."
 grep -q '^export DEBUG_SDK=1$' "$CLAUDE_SHELL_CONFIG_FILE" \
     || fail "DEBUG_SDK=1 missing from Claude shell config."
 ! grep -q '^export CLAUDE_CODE_EFFORT_LEVEL=' "$CLAUDE_SHELL_CONFIG_FILE" \
     || fail "Claude effort should remain profile-specific."
 grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC" \
-    || fail "bashrc does not source per-harness shell configuration."
+    || fail "bashrc does not source AAB shell configuration."
 pass "Claude shell defaults are encapsulated and sourced generically."
 
 # 9. The bashrc block sources cleanly.
@@ -403,9 +418,9 @@ debug_logs_after=$(find "$HOME/.pi/agent/debug" -maxdepth 1 -type f -name 'pi-*.
 [ "$debug_logs_after" -gt "$debug_logs_before" ] \
     || fail "Pi launcher did not create a JSONL debug log."
 pass "Pi profile, packages, audit extension, JSONL logging, and OpenTelemetry are configured."
-if [ "$expected_codex_source" = "first-party" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
+if [ "$expected_codex_source" = "first-party" ] && [ -n "${AAB_OPENAI_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
-    AAB_EXPECTED_CODEX_API_KEY="$OPENAI_API_KEY" \
+    AAB_EXPECTED_CODEX_API_KEY="$AAB_OPENAI_API_KEY" \
         python3 - "$CODEX_AUTH" <<'PY'
 import json
 import os
@@ -415,7 +430,7 @@ with open(sys.argv[1]) as f:
 if data.get("auth_mode") != "apikey":
     raise AssertionError("Codex auth_mode is not apikey.")
 if data.get("OPENAI_API_KEY") != os.environ["AAB_EXPECTED_CODEX_API_KEY"]:
-    raise AssertionError("Codex auth API key does not match OPENAI_API_KEY.")
+    raise AssertionError("Codex auth API key does not match AAB_OPENAI_API_KEY.")
 PY
     codex_login_status=$(codex login status 2>&1)
     case "$codex_login_status" in

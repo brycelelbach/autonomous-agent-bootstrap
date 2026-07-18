@@ -80,6 +80,7 @@ main() {
     install_gh
     install_gitleaks
     configure_aab_env_file
+    configure_github_shell
     configure_brev
     configure_claude
     configure_codex

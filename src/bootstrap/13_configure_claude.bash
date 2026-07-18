@@ -132,7 +132,7 @@ JSON
 # ~/.claude.json, so preserve unrelated authentication and user fields.
 skip_claude_onboarding() {
     command -v python3 >/dev/null 2>&1 || { log "ERROR: python3 required to edit ~/.claude.json."; exit 1; }
-    python3 - "${CLAUDE_JSON}" "${ANTHROPIC_API_KEY:-}" <<'PY'
+    python3 - "${CLAUDE_JSON}" "${AAB_ANTHROPIC_API_KEY:-}" <<'PY'
 import json, os, shutil, sys, time
 path = sys.argv[1]
 api_key = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -154,7 +154,7 @@ if api_key:
     if fp not in approved:
         approved.append(fp)
     resp.setdefault("rejected", [])
-    print(f"[bootstrap] Pre-approved ANTHROPIC_API_KEY fingerprint ...{fp}.")
+    print(f"[bootstrap] Pre-approved first-party Anthropic API-key fingerprint ...{fp}.")
 fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)

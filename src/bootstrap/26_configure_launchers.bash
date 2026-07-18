@@ -112,12 +112,13 @@ unset ANTHROPIC_DEFAULT_SONNET_MODEL
 unset ANTHROPIC_DEFAULT_OPUS_MODEL
 unset CLAUDE_CODE_AUTO_COMPACT_WINDOW
 unset CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+unset ANTHROPIC_API_KEY
 
 case "$profile_source" in
     first-party)
+        [ -n "${AAB_ANTHROPIC_API_KEY:-}" ] && export ANTHROPIC_API_KEY="$AAB_ANTHROPIC_API_KEY"
         ;;
     third-party)
-        unset ANTHROPIC_API_KEY
         if [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
             printf '[bootstrap] WARN: Claude profile %s requires AAB_INFERENCE_GATEWAY_URL.\n' "$profile_name" >&2
             exit 1
@@ -250,12 +251,13 @@ canonical_dir() {
 model_escaped=$(toml_escape "$profile_model")
 effort_escaped=$(toml_escape "$profile_effort")
 config_args=(-c "model=\"${model_escaped}\"" -c "model_reasoning_effort=\"${effort_escaped}\"")
+unset OPENAI_API_KEY
 case "$profile_source" in
     first-party)
+        [ -n "${AAB_OPENAI_API_KEY:-}" ] && export OPENAI_API_KEY="$AAB_OPENAI_API_KEY"
         config_args+=(-c 'model_provider="openai"')
         ;;
     third-party)
-        unset OPENAI_API_KEY
         if [ -z "${AAB_INFERENCE_GATEWAY_URL:-}" ]; then
             printf '[bootstrap] WARN: Codex profile %s requires AAB_INFERENCE_GATEWAY_URL.\n' "$profile_name" >&2
             exit 1

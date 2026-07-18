@@ -37,8 +37,8 @@ export AAB_CODEX_FIRST_PARTY_PROFILES='gpt-5.5 effort=xhigh'
 export AAB_CODEX_DEFAULT_PROFILE=first-party/gpt-5.5
 
 # Optional. If omitted, first-party launchers use existing interactive login.
-export ANTHROPIC_API_KEY=...
-export OPENAI_API_KEY=...
+export AAB_ANTHROPIC_API_KEY=...
+export AAB_OPENAI_API_KEY=...
 
 export AAB_GIT_AUTHOR_NAME='Your Name'
 export AAB_GIT_AUTHOR_EMAIL=you@example.com
@@ -116,7 +116,7 @@ export AAB_INFERENCE_GATEWAY_URL=https://gateway.example.com/v1
 export AAB_INFERENCE_GATEWAY_API_KEY=...
 ```
 
-First-party profiles use `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` when present. If a key is absent, the launcher leaves the harness's interactive device/login state untouched.
+First-party profiles map `AAB_ANTHROPIC_API_KEY` and `AAB_OPENAI_API_KEY` to the harness-native variables when present. If a key is absent, the launcher leaves the harness's interactive device/login state untouched.
 
 ## Environment Variables
 
@@ -134,13 +134,13 @@ All variables are optional unless a configured third-party profile needs the inf
 | `AAB_PI_DEFAULT_PROFILE` | Default profile used by the unqualified `pi` command. Defaults to the first configured Pi profile. |
 | `AAB_INFERENCE_GATEWAY_URL` | Shared base URL used by every third-party Claude/Codex profile and every Pi profile. |
 | `AAB_INFERENCE_GATEWAY_API_KEY` | Shared inference-gateway key. It is mapped to each harness without placing the key on a command line. |
-| `ANTHROPIC_API_KEY` | Optional first-party Anthropic key. If absent, Claude's existing interactive login is used. |
-| `OPENAI_API_KEY` | Optional first-party OpenAI key. If absent, Codex's existing interactive login is used. |
+| `AAB_ANTHROPIC_API_KEY` | Optional first-party Anthropic key. Mapped to `ANTHROPIC_API_KEY` only for first-party Claude launchers. If absent, Claude's existing interactive login is used. |
+| `AAB_OPENAI_API_KEY` | Optional first-party OpenAI key. Used to configure Codex API-key auth and mapped to `OPENAI_API_KEY` only for first-party Codex launchers. If absent, Codex's existing interactive login is used. |
 | `AAB_CODEX_SERVICE_TIER` | Codex service tier: `priority`, `flex`, `default`, or `fast` as an alias for `priority`. Defaults to `priority`. |
 | `AAB_CODEX_AGENT_MAX_THREADS` | Maximum number of concurrently open Codex subagent threads. Defaults to `64`. |
 | `AAB_BREV_API_KEY` | Brev organization-scoped API key. Used with `AAB_BREV_ORG_ID`. |
 | `AAB_BREV_ORG_ID` | Brev organization ID paired with `AAB_BREV_API_KEY`. |
-| `AAB_GH_TOKEN` | GitHub token. Stored in `~/.aab/.env`; wrappers map it to `GH_TOKEN` for agent subprocesses. |
+| `AAB_GH_TOKEN` | GitHub token. Stored in `~/.aab/.env` and exported as `GH_TOKEN` from the private `~/.aab/shell/github.env` shell fragment. |
 | `AAB_GIT_AUTHOR_NAME` | `git config --global user.name`. |
 | `AAB_GIT_AUTHOR_EMAIL` | `git config --global user.email`. |
 | `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key for GitHub SSH auth. |
@@ -174,13 +174,14 @@ All variables are optional unless a configured third-party profile needs the inf
 | `~/.pi/agent/models.json` | Generated AAB inference-gateway provider and model catalog when Pi profiles are configured. |
 | `~/.pi/agent/extensions/list-tools.ts` | Pi extension that prints the exact configured tool registry in table, verbose, or JSON form. |
 | `~/.pi/agent/npm/pi-observability-preload.cjs`, `~/.pi/agent/debug/` | Launcher-only console capture that writes one structured JSONL debug file per Pi process. |
+| `~/.aab/shell/github.env` | Private `GH_TOKEN` export generated from `AAB_GH_TOKEN`. Mode `0600`; sourced by the managed shell block. |
 | `~/.aab/shell/pi-observability.env` | Pi-only telemetry defaults and `NODE_OPTIONS` preloads. Standard `OTEL_*` variables can override the console exporters. |
 | `~/.claude/settings.json` | Rewritten with unattended Claude defaults and plugin entries; existing file is backed up. |
 | `~/.claude.json` | Merged with onboarding and optional API-key approval state; existing file is backed up. |
 | `~/.codex/config.toml` | Rewritten with unattended Codex defaults, the absolute global `model_instructions_file` path, and selected profile config while preserving Codex plugin tables; existing file is backed up. |
 | `~/.codex/codex-instructions.md` | Complete AAB-managed Codex model-instructions prompt; existing file is backed up. |
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when first-party Codex API-key auth is configured. |
-| `~/.bashrc` | Managed block for PATH and non-secret unattended-mode exports only. |
+| `~/.bashrc` | Managed block for PATH and AAB shell-fragment loading. Credential values remain in mode-`0600` files rather than appearing in the block. |
 | `~/.profile` | Managed block that keeps `~/.local/aab-bin` ahead of `~/.local/bin` for login shells. |
 | `/etc/environment` | Existing AAB managed blocks are removed so credentials do not remain there. |
 | `/var/lib/systemd/linger/<user>` | Created by `loginctl enable-linger <user>` so the per-user systemd bus stays up across sessions. Skipped on hosts without a systemd user manager. |
