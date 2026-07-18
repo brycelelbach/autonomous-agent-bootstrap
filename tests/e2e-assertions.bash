@@ -24,9 +24,8 @@ CLAUDE_SHELL_CONFIG_FILE="${HOME}/.aab/shell/claude.env"
 GITHUB_SHELL_CONFIG_FILE="${HOME}/.aab/shell/github.env"
 PI_MODELS_FILE="${HOME}/.pi/agent/models.json"
 PI_SETTINGS_FILE="${HOME}/.pi/agent/settings.json"
-PI_OBSERVABILITY_ENV_FILE="${HOME}/.aab/shell/pi-observability.env"
-PI_OBSERVABILITY_PRELOAD="${HOME}/.pi/agent/npm/pi-observability-preload.cjs"
-PI_LIST_TOOLS_EXTENSION="${HOME}/.pi/agent/extensions/list-tools.ts"
+PI_LIST_TOOLS_PACKAGE="${HOME}/.pi/agent/npm/node_modules/pi-list-tools"
+PI_OTEL_PACKAGE="${HOME}/.pi/agent/npm/node_modules/pi-otel"
 PI_FAST_MODE_EXTENSION="${HOME}/.pi/agent/extensions/fast-mode.ts"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -419,18 +418,15 @@ PY
 "$HOME/.local/bin/pi-aab-real" --version 2>&1 | grep -Fq "$PI_VERSION" \
     || fail "Pi is not the pinned version $PI_VERSION."
 [ -f "$PI_SETTINGS_FILE" ] || fail "Pi settings.json not written."
-[ -f "$PI_OBSERVABILITY_ENV_FILE" ] || fail "Pi observability environment file not written."
-[ -f "$PI_OBSERVABILITY_PRELOAD" ] || fail "Pi observability preload not written."
-[ -f "$PI_LIST_TOOLS_EXTENSION" ] || fail "Pi list-tools extension not written."
+[ -f "$PI_LIST_TOOLS_PACKAGE/list-tools.ts" ] || fail "Pi list-tools package not installed."
+[ -f "$PI_OTEL_PACKAGE/dist/index.js" ] || fail "Pi OpenTelemetry package not installed."
 [ -f "$PI_FAST_MODE_EXTENSION" ] || fail "Pi fast-mode extension not written."
-[ -f "$HOME/.pi/agent/npm/node_modules/@opentelemetry/auto-instrumentations-node/build/src/register.js" ] \
-    || fail "Pi OpenTelemetry auto-instrumentation is not installed."
-python3 - "$PI_SETTINGS_FILE" "$PI_LIST_TOOLS_EXTENSION" "$PI_FAST_MODE_EXTENSION" \
+python3 - "$PI_SETTINGS_FILE" "$PI_FAST_MODE_EXTENSION" \
     "$REPO_ROOT/pi_plugins.txt" "${expected_pi_profile[model]}" "${expected_pi_profile[fast]}" <<'PY'
 import json
 import sys
 
-settings_path, list_tools_extension, fast_mode_extension, plugins_path, expected_model, fast = sys.argv[1:]
+settings_path, fast_mode_extension, plugins_path, expected_model, fast = sys.argv[1:]
 with open(settings_path, encoding="utf-8") as handle:
     data = json.load(handle)
 expected_provider = "aab-gateway-fast" if fast == "true" else "aab-gateway"
@@ -447,7 +443,7 @@ assert data["retry"] == {
     "maxRetries": 15,
     "provider": {"timeoutMs": 240000, "maxRetries": 0},
 }, data
-assert data["extensions"] == [list_tools_extension, fast_mode_extension], data
+assert data["extensions"] == [fast_mode_extension], data
 assert "trackingId" not in data and "lastChangelogVersion" not in data, data
 expected_packages = []
 with open(plugins_path, encoding="utf-8") as handle:
@@ -458,35 +454,30 @@ with open(plugins_path, encoding="utf-8") as handle:
 missing = [source for source in expected_packages if source not in data["packages"]]
 assert not missing, (missing, data["packages"])
 PY
-grep -Fq 'export OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi trace exporter does not default to console."
-grep -Fq 'export OTEL_METRICS_EXPORTER="${OTEL_METRICS_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi metrics exporter does not default to console."
-grep -Fq 'export OTEL_LOGS_EXPORTER="${OTEL_LOGS_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi log exporter does not default to console."
-grep -Fq 'export PI_TIMING="${PI_TIMING:-0}"' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi startup timing diagnostics are not disabled by default."
-grep -Fq 'export PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi Patty Ctrl+B shortcut override is not disabled by default."
-grep -Fq 'PI_DEBUG_LOG_FILE' "$PI_OBSERVABILITY_PRELOAD" \
-    || fail "Pi JSONL debug preload is incomplete."
-grep -Fq 'pi.registerFlag("list-tools"' "$PI_LIST_TOOLS_EXTENSION" \
-    || fail "Pi list-tools extension is incomplete."
 grep -Fq 'serviceTier: "priority"' "$PI_FAST_MODE_EXTENSION" \
     || fail "Pi fast-mode extension is incomplete."
+list_tools_json=$(mktemp)
+pi --list-tools json > "$list_tools_json" 2>/dev/null \
+    || fail "Pi list-tools package command failed."
+python3 - "$list_tools_json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    tools = json.load(handle)
+assert isinstance(tools, list) and tools, tools
+names = {tool["name"] for tool in tools}
+assert {"bash", "read"}.issubset(names), names
+PY
+rm -f "$list_tools_json"
 pi_models_output=$(pi --list-models "${expected_pi_profile[model]}" 2>&1) \
     || fail "Pi model listing failed with the configured extensions."
 case "$pi_models_output" in
     *"${expected_pi_profile[model]}"*) ;;
     *) fail "Pi selected model is missing from the model listing." ;;
 esac
-mkdir -p "$HOME/.pi/agent/debug"
-debug_logs_before=$(find "$HOME/.pi/agent/debug" -maxdepth 1 -type f -name 'pi-*.jsonl' 2>/dev/null | wc -l)
 pi list >/dev/null 2>&1 || fail "Pi package list failed through the profile launcher."
-debug_logs_after=$(find "$HOME/.pi/agent/debug" -maxdepth 1 -type f -name 'pi-*.jsonl' 2>/dev/null | wc -l)
-[ "$debug_logs_after" -gt "$debug_logs_before" ] \
-    || fail "Pi launcher did not create a JSONL debug log."
-pass "Pi profile, fast mode, packages, audit extension, JSONL logging, and OpenTelemetry are configured."
+pass "Pi profile, fast mode, list-tools, and structured OpenTelemetry package are configured."
 if [ "$expected_codex_source" = "first-party" ] && [ -n "${AAB_OPENAI_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
     AAB_EXPECTED_CODEX_API_KEY="$AAB_OPENAI_API_KEY" \

@@ -467,14 +467,15 @@ set -euo pipefail
 
 real_bin="${AAB_PI_REAL_BIN:-$HOME/.local/bin/pi-aab-real}"
 env_file="${AAB_ENV_FILE:-$HOME/.aab/.env}"
-observability_env_file="${AAB_PI_OBSERVABILITY_ENV_FILE:-$HOME/.aab/shell/pi-observability.env}"
 if [ -f "$env_file" ]; then
     set -a
     . "$env_file"
     set +a
 fi
-# shellcheck source=/dev/null
-[ ! -f "$observability_env_file" ] || . "$observability_env_file"
+
+# Keep Pi's built-in Ctrl+B binding. The packaged pi-otel extension defaults
+# to metadata-only capture and reads standard OTEL configuration directly.
+export PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"
 
 if [ ! -x "$real_bin" ]; then
     printf '[bootstrap] WARN: Pi real binary not executable: %s\n' "$real_bin" >&2
@@ -538,7 +539,7 @@ configure_pi_launchers() {
 
     if [ -z "$(_model_profile_lines "$profiles")" ]; then
         _write_pi_launcher "" "" "" "" "$pi_bin"
-        log "Wrote unconfigured Pi launcher with observability at ${pi_bin}."
+        log "Wrote unconfigured Pi launcher at ${pi_bin}."
         return
     fi
 

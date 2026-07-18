@@ -18,7 +18,7 @@ High-traffic audit targets:
 - `12_model_profiles.bash` parses and resolves environment-defined model profiles.
 - `13_configure_claude.bash` owns Claude settings, onboarding, and shell defaults.
 - `13_configure_codex.bash` owns Codex instructions, config, and authentication.
-- `13_configure_pi.bash` owns Pi models, unattended settings, audit extension, JSONL logging, and OpenTelemetry assets.
+- `13_configure_pi.bash` owns Pi models, unattended settings, and the inline fast-mode extension.
 - `23_configure_git_hooks.bash` owns global git-hook configuration and rendering.
 - `26_configure_launchers.bash` owns launcher generation.
 - `27_configure_shell_startup.bash` sources per-harness shell defaults and owns PATH integration.
