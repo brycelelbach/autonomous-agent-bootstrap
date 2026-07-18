@@ -143,7 +143,7 @@ _parse_model_profile_line() {
         result[subagent]="${result[subagent]:-${result[model]}}"
     elif [ "$harness" = "pi" ]; then
         case "${result[effort]}" in
-            off|minimal|low|medium|high|xhigh)
+            off|minimal|low|medium|high|xhigh|max)
                 result[thinking]="${result[effort]}"
                 ;;
             *)

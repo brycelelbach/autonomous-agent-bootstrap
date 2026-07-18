@@ -137,20 +137,20 @@ teardown() {
     [[ "$output" == *"AAB_CODEX_DEFAULT_PROFILE='third-party/missing' does not name a configured codex profile."* ]]
 }
 
-@test "Pi maps provider-specific effort values through xhigh" {
+@test "Pi accepts native xhigh and max effort levels" {
     local -A profile=()
 
     _parse_model_profile_line pi third-party \
-        "gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra" profile
+        "gpt-5.6 model=openai/openai/gpt-5.6-sol effort=xhigh" profile
 
-    [ "${profile[effort]}" = "ultra" ]
+    [ "${profile[effort]}" = "xhigh" ]
     [ "${profile[thinking]}" = "xhigh" ]
 
     _parse_model_profile_line pi third-party \
         "opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max" profile
 
     [ "${profile[effort]}" = "max" ]
-    [ "${profile[thinking]}" = "xhigh" ]
+    [ "${profile[thinking]}" = "max" ]
 }
 
 @test "Codex and Pi profiles accept explicit fast mode" {
@@ -161,7 +161,7 @@ teardown() {
     [ "${profile[fast]}" = true ]
 
     _parse_model_profile_line pi third-party \
-        "gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra fast=false" profile
+        "gpt-5.6 model=openai/openai/gpt-5.6-sol effort=max fast=false" profile
     [ "${profile[fast]}" = false ]
 
     AAB_PI_PROFILES="gpt-5.6 model=openai/openai/gpt-5.6-sol fast=maybe" \
@@ -1150,16 +1150,16 @@ printf '%s\n' "\${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-}" > "$TEST_HOME/pi-launcher
 SH
     chmod +x "$HOME/.local/bin/pi-aab-real"
 
-    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000 fast=true' \
+    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=max context=1050000 max_tokens=128000 fast=true' \
         AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
         configure_aab_env_file
-    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000 fast=true' \
+    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=max context=1050000 max_tokens=128000 fast=true' \
         AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_pi_models
-    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000 fast=true' \
+    AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=max context=1050000 max_tokens=128000 fast=true' \
         AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_pi_launchers
@@ -1174,7 +1174,7 @@ SH
     grep -Fxq -- '--model' "$TEST_HOME/pi-launcher-args"
     grep -Fxq 'openai/openai/gpt-5.6-sol' "$TEST_HOME/pi-launcher-args"
     grep -Fxq -- '--thinking' "$TEST_HOME/pi-launcher-args"
-    grep -Fxq 'xhigh' "$TEST_HOME/pi-launcher-args"
+    grep -Fxq 'max' "$TEST_HOME/pi-launcher-args"
     ! grep -Fxq 'ultra' "$TEST_HOME/pi-launcher-args"
     [ "$(cat "$TEST_HOME/pi-launcher-patty-disable-ctrl-b")" = "1" ]
 
@@ -1199,7 +1199,7 @@ assert p["models"] == [
         "contextWindow": 1000000,
         "maxTokens": 128000,
         "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "thinkingLevelMap": {"xhigh": "max"},
+        "thinkingLevelMap": {"max": "max"},
     },
     {
         "id": "openai/openai/gpt-5.6-sol",
@@ -1209,13 +1209,13 @@ assert p["models"] == [
         "contextWindow": 1050000,
         "maxTokens": 128000,
         "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "thinkingLevelMap": {"xhigh": "ultra"},
+        "thinkingLevelMap": {"max": "max"},
     },
 ], p
 assert fast["api"] == "aab-openai-responses-fast", fast
 assert fast["apiKey"] == "\$AAB_INFERENCE_GATEWAY_API_KEY", fast
 assert [model["id"] for model in fast["models"]] == ["openai/openai/gpt-5.6-sol"], fast
-assert fast["models"][0]["thinkingLevelMap"] == {"xhigh": "ultra"}, fast
+assert fast["models"][0]["thinkingLevelMap"] == {"max": "max"}, fast
 PY
 
     _write_pi_launcher "deepseek-v4" "aab-gateway" "deepseek-v4-pro" "high" "$HOME/.local/bin/pi-deepseek-v4"

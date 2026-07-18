@@ -85,11 +85,11 @@ gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra fast=true
 
 export AAB_PI_PROFILES='
 opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000
-gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000 fast=true
+gpt-5.6 model=openai/openai/gpt-5.6-sol effort=max context=1050000 max_tokens=128000 fast=true
 '
 ```
 
-`model` defaults to the profile name. `effort` is passed through to the harness. Set `fast=true` on a Codex or Pi profile to request priority processing for that model; `fast=false` explicitly selects Codex's default tier. Pi accepts its native `off`, `minimal`, `low`, `medium`, `high`, and `xhigh` levels directly; other values such as `ultra` are automatically mapped from Pi's `xhigh` level to the provider's value. Claude's `haiku`, `sonnet`, and `opus` slots each inherit `model`, so the DeepSeek profile above expands to `deepseek-v4-flash`, `deepseek-v4-pro`, and `deepseek-v4-pro` without repeating the Pro model. Optional Claude fields are `subagent` and `context`; optional Pi metadata fields are `context` and `max_tokens`.
+`model` defaults to the profile name. `effort` is passed through to the harness. Set `fast=true` on a Codex or Pi profile to request priority processing for that model; `fast=false` explicitly selects Codex's default tier. Pi accepts its native `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max` levels. Claude's `haiku`, `sonnet`, and `opus` slots each inherit `model`, so the DeepSeek profile above expands to `deepseek-v4-flash`, `deepseek-v4-pro`, and `deepseek-v4-pro` without repeating the Pro model. Optional Claude fields are `subagent` and `context`; optional Pi metadata fields are `context` and `max_tokens`.
 
 First-party and third-party profiles coexist for Claude and Codex. The `*_DEFAULT_PROFILE` selectors only control the unqualified commands:
 
