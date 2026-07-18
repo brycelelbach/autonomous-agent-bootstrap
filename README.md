@@ -23,7 +23,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 - Ubuntu 22.04 or later with `bash` and `apt-get`
 - Passwordless `sudo`, or run as root
-- Bare `ubuntu:22.04` and current `ubuntu:latest` images are valid. The bootstrap prefers the [`apt_packages.txt`](./apt_packages.txt) Ubuntu 22.04 versions and falls back to the current distribution's versions when those pins are unavailable, then installs pinned Node.js and checksum-verified standalone `gh` releases.
+- Bare `ubuntu:24.04` and current `ubuntu:latest` images are valid. The bootstrap prefers the [`apt_packages.txt`](./apt_packages.txt) Ubuntu 22.04 versions and falls back to the current distribution's versions when those pins are unavailable, then installs pinned Node.js and checksum-verified standalone `gh` releases.
 
 ## Quick Start
 
@@ -251,7 +251,7 @@ All tests are driven by [`./test.bash`](./test.bash).
 ./test.bash --lint       # bash -n + shellcheck
 ./test.bash --unit       # bats suite
 ./test.bash --e2e        # destructive host e2e
-./test.bash --docker     # e2e in fresh ubuntu:22.04 and ubuntu:latest containers
+./test.bash --docker     # e2e in fresh ubuntu:24.04 and ubuntu:latest containers
 ./test.bash --smoke      # live Claude + Codex inference smoke
 ./test.bash --secrets    # gitleaks scan
 ./test.bash --all        # lint + unit + e2e + secrets
