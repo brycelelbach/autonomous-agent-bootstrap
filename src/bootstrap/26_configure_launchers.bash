@@ -194,11 +194,8 @@ configure_claude_launchers() {
     done
 
     resolve_model_profile claude selected
-    _write_claude_launcher \
-        "${selected[source]}" "${selected[name]}" "${selected[model]}" \
-        "${selected[haiku]}" "${selected[sonnet]}" "${selected[opus]}" \
-        "${selected[effort]}" "${selected[context]}" "${selected[subagent]}" \
-        "${launcher_dir}/claude"
+    launcher="${HOME}/.local/bin/claude-${selected[source]}-${selected[name]}"
+    ln -sfn "$launcher" "${launcher_dir}/claude"
     log "Wrote Claude profile launchers (selected=${selected[source]}/${selected[name]})."
 }
 
@@ -338,7 +335,8 @@ configure_codex_launchers() {
     done
 
     resolve_model_profile codex selected
-    _write_codex_launcher "${selected[source]}" "${selected[name]}" "${selected[model]}" "${selected[effort]}" "$codex_bin"
+    launcher="${HOME}/.local/bin/codex-${selected[source]}-${selected[name]}"
+    ln -sfn "$launcher" "$codex_bin"
     log "Wrote Codex profile launchers (selected=${selected[source]}/${selected[name]})."
 }
 
