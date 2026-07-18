@@ -107,13 +107,35 @@ configure_auth_ssh_key() {
     log "Wrote GitHub auth SSH key at $AUTH_KEY (pub $AUTH_KEY_PUB); wired github.com identity in $SSH_CONFIG."
 }
 
+_write_git_allowed_signers() {
+    local principal="$1" key_type key_data tmp
+    if [[ "$principal" == *[[:space:]]* ]]; then
+        warn "git user.email contains whitespace; cannot write the SSH allowed signers file."
+        return 1
+    fi
+    read -r key_type key_data _ < "$SIGNING_KEY_PUB"
+    if [ -z "$key_type" ] || [ -z "$key_data" ]; then
+        warn "Signing public key at ${SIGNING_KEY_PUB} is malformed; cannot write the SSH allowed signers file."
+        return 1
+    fi
+
+    mkdir -p "$AAB_DIR"
+    chmod 0700 "$AAB_DIR"
+    tmp=$(mktemp "${GIT_ALLOWED_SIGNERS_FILE}.tmp.XXXXXX")
+    printf '%s %s %s\n' "$principal" "$key_type" "$key_data" > "$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$GIT_ALLOWED_SIGNERS_FILE"
+}
+
 # configure_signing_ssh_key: Decode $AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 to
-# ~/.ssh/id_aab_signing and configure git to sign commits/tags with it.
+# ~/.ssh/id_aab_signing and configure git to sign and locally verify commits
+# and tags with it.
 # Does NOT touch ~/.ssh/config — this key is for signing only. Silent
 # no-op when the env var is unset.
 configure_signing_ssh_key() {
     local encoded="${AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64:-}"
     local label="AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64"
+    local signing_principal
     [ -z "$encoded" ] && return
 
     if ! command -v base64 >/dev/null 2>&1; then
@@ -128,6 +150,13 @@ configure_signing_ssh_key() {
         git config --global user.signingkey "$SIGNING_KEY_PUB"
         git config --global commit.gpgsign true
         git config --global tag.gpgsign true
+        signing_principal=$(git config --global --get user.email 2>/dev/null || true)
+        if [ -z "$signing_principal" ]; then
+            warn "git user.email is unset; cannot configure local SSH signature verification."
+        elif _write_git_allowed_signers "$signing_principal"; then
+            git config --global gpg.ssh.allowedSignersFile "$GIT_ALLOWED_SIGNERS_FILE"
+            log "Configured local SSH signature verification with $GIT_ALLOWED_SIGNERS_FILE."
+        fi
         log "Configured git to sign commits and tags with $SIGNING_KEY_PUB."
     else
         warn "git not installed; skipping SSH signing config."
