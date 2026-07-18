@@ -161,6 +161,18 @@ _validate_model_profile_list() {
 validate_model_profiles() {
     local harness source profiles
     local -A selected=()
+    if [ "${AAB_CLAUDE_PROFILE+x}" = x ]; then
+        warn "AAB_CLAUDE_PROFILE was renamed to AAB_CLAUDE_DEFAULT_PROFILE."
+        return 1
+    fi
+    if [ "${AAB_CODEX_PROFILE+x}" = x ]; then
+        warn "AAB_CODEX_PROFILE was renamed to AAB_CODEX_DEFAULT_PROFILE."
+        return 1
+    fi
+    if [ "${AAB_PI_PROFILE+x}" = x ]; then
+        warn "AAB_PI_PROFILE was renamed to AAB_PI_DEFAULT_PROFILE."
+        return 1
+    fi
     for harness in claude codex; do
         for source in first-party third-party; do
             profiles=$(_profile_list_for "$harness" "$source")

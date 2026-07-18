@@ -10,11 +10,11 @@ setup() {
     export REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
     # Unset env vars the script looks at so each test controls its own.
     unset AAB_CLAUDE_FIRST_PARTY_PROFILES AAB_CLAUDE_THIRD_PARTY_PROFILES \
-          AAB_CLAUDE_DEFAULT_PROFILE \
+          AAB_CLAUDE_DEFAULT_PROFILE AAB_CLAUDE_PROFILE \
           AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_THIRD_PARTY_PROFILES \
-          AAB_CODEX_DEFAULT_PROFILE AAB_CODEX_SERVICE_TIER \
+          AAB_CODEX_DEFAULT_PROFILE AAB_CODEX_PROFILE AAB_CODEX_SERVICE_TIER \
           AAB_CODEX_AGENT_MAX_THREADS \
-          AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
+          AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE AAB_PI_PROFILE \
           AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
           AAB_ANTHROPIC_API_KEY AAB_OPENAI_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
@@ -135,6 +135,20 @@ teardown() {
         run validate_model_profiles
     [ "$status" -ne 0 ]
     [[ "$output" == *"AAB_CODEX_DEFAULT_PROFILE='third-party/missing' does not name a configured codex profile."* ]]
+}
+
+@test "validate_model_profiles rejects renamed default profile selectors" {
+    AAB_CLAUDE_PROFILE="third-party/opus-4.8" run validate_model_profiles
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"AAB_CLAUDE_PROFILE was renamed to AAB_CLAUDE_DEFAULT_PROFILE."* ]]
+
+    AAB_CODEX_PROFILE="third-party/gpt-5.6" run validate_model_profiles
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"AAB_CODEX_PROFILE was renamed to AAB_CODEX_DEFAULT_PROFILE."* ]]
+
+    AAB_PI_PROFILE="gpt-5.6" run validate_model_profiles
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"AAB_PI_PROFILE was renamed to AAB_PI_DEFAULT_PROFILE."* ]]
 }
 
 @test "Pi maps provider-specific effort values through xhigh" {
