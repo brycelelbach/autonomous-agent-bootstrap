@@ -1578,9 +1578,32 @@ SH
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"Reading apt package list from $TEST_HOME/apt-packages.txt."* ]]
-    [[ "$output" == *"Installing pinned apt packages: curl=7.81.0-* ripgrep=13.0.0-* libgraphviz-dev=2.42.2-*."* ]]
+    [[ "$output" == *"Installing apt packages: curl=7.81.0-* ripgrep=13.0.0-* libgraphviz-dev=2.42.2-*."* ]]
     grep -Fxq 'update -y' "$TEST_HOME/apt-get-invocations"
+    grep -Fxq 'install -y --simulate --allow-downgrades --no-install-recommends curl=7.81.0-* ripgrep=13.0.0-* libgraphviz-dev=2.42.2-*' "$TEST_HOME/apt-get-invocations"
     grep -Fxq 'install -y --allow-downgrades --no-install-recommends curl=7.81.0-* ripgrep=13.0.0-* libgraphviz-dev=2.42.2-*' "$TEST_HOME/apt-get-invocations"
+}
+
+@test "install_base_deps falls back to distro versions when preferred versions are unavailable" {
+    local fake_bin="$TEST_HOME/fake-base-deps-fallback-bin"
+    make_apt_get_fakes "$fake_bin"
+    cat > "$fake_bin/apt-get" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$TEST_HOME/apt-get-invocations"
+case " $* " in
+    *' --simulate '*) exit 100 ;;
+esac
+SH
+    chmod +x "$fake_bin/apt-get"
+    printf '%s\n' 'curl=7.81.0-*' 'git=1:2.34.1-*' 'python3=3.10.6-*' > "$TEST_HOME/apt-packages.txt"
+    export AAB_APT_PACKAGES_FILE="$TEST_HOME/apt-packages.txt"
+
+    SUDO="" PATH="$fake_bin" run install_base_deps
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Preferred apt package versions are unavailable on this distribution"* ]]
+    [[ "$output" == *"Installing apt packages: curl git python3."* ]]
+    grep -Fxq 'install -y --allow-downgrades --no-install-recommends curl git python3' "$TEST_HOME/apt-get-invocations"
 }
 
 @test "install_base_deps reads ./apt_packages.txt by default" {
@@ -1614,7 +1637,7 @@ SH
     [ "$status" -eq 0 ]
     [[ "$output" == *"apt-get is not available"* ]]
     # Should NOT claim to be installing anything.
-    [[ "$output" != *"Installing pinned apt packages:"* ]]
+    [[ "$output" != *"Installing apt packages:"* ]]
 }
 
 @test "install_base_deps warns and skips when passwordless sudo is unavailable" {
@@ -1635,7 +1658,7 @@ SH
     SUDO="sudo" PATH="$fake_bin" run install_base_deps
     [ "$status" -eq 0 ]
     [[ "$output" == *"passwordless sudo is not available"* ]]
-    [[ "$output" != *"Installing pinned apt packages:"* ]]
+    [[ "$output" != *"Installing apt packages:"* ]]
     [ ! -f "$TEST_HOME/apt-get-invocations" ]
 }
 

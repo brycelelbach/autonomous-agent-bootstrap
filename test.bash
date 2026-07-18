@@ -15,10 +15,10 @@
 #                            vars are set, and installs claude / codex / pi /
 #                            brev / gh.
 #                            Only run on a disposable machine.
-#   ./test.bash --docker     same as --e2e, but inside a fresh ubuntu:22.04
-#                            docker container — safe to run anywhere with
-#                            docker available, and the stronger check that
-#                            bootstrap works on a bare image.
+#   ./test.bash --docker     same as --e2e, but inside fresh ubuntu:22.04 and
+#                            ubuntu:latest docker containers — safe to run
+#                            anywhere with docker available, and the stronger
+#                            check that bootstrap works on bare images.
 #   ./test.bash --smoke      live Claude + Codex inference smoke test using
 #                            real credentials from the current environment.
 #   ./test.bash --secrets    gitleaks scan of full history + working tree
@@ -96,23 +96,30 @@ run_e2e() {
 }
 
 run_docker_e2e() {
-    echo "=== docker e2e (bootstrap in fresh ubuntu:22.04 container) ==="
     need docker
+    local -a docker_images=()
+    read -r -a docker_images <<< "${AAB_TEST_DOCKER_IMAGES:-ubuntu:22.04 ubuntu:latest}"
+    [ ${#docker_images[@]} -gt 0 ] \
+        || { echo "test.bash: AAB_TEST_DOCKER_IMAGES must name at least one image." >&2; return 1; }
     # Mount the repo read-only and copy it inside the container so the
     # bootstrap works against a pristine tree it can write into.
     # Forward GITHUB_TOKEN (if set) so the Brev installer's release-info
     # call to api.github.com isn't rate-limited in CI; -e X without a value
     # is a no-op when the caller doesn't export it.
-    docker run --rm \
-        -e GITHUB_TOKEN \
-        -e AAB_BREV_API_KEY \
-        -e AAB_BREV_ORG_ID \
-        -v "$HERE:/src:ro" \
-        ubuntu:22.04 \
-        bash -c 'set -euo pipefail
-            cp -r /src /work
-            cd /work
-            ./test.bash --e2e'
+    local image
+    for image in "${docker_images[@]}"; do
+        echo "=== docker e2e (bootstrap in fresh ${image} container) ==="
+        docker run --rm \
+            -e GITHUB_TOKEN \
+            -e AAB_BREV_API_KEY \
+            -e AAB_BREV_ORG_ID \
+            -v "$HERE:/src:ro" \
+            "$image" \
+            bash -c 'set -euo pipefail
+                cp -r /src /work
+                cd /work
+                ./test.bash --e2e'
+    done
     echo "=== docker e2e passed ==="
 }
 

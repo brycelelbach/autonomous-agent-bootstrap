@@ -192,10 +192,12 @@ GITLEAKS_SHA256_LINUX_ARM64="bf5f7f466ebfade1296c8bd32cf7d3f592c2aa78836aa9980ff
 
 # >>> src/bootstrap/01_install_base_deps.bash >>>
 # ---------------------------------------------------------------------------
-# 0. Install the pinned Ubuntu base dependencies listed in apt_packages.txt via
-# apt-get. Bare container images (e.g. ubuntu:22.04) ship with apt-get but
-# nothing else, so we can't assume curl or python3 exist. apt no-ops packages
-# that are already installed, so the whole list is installed unconditionally.
+# 0. Install the Ubuntu base dependencies listed in apt_packages.txt via
+# apt-get. Bare container images ship with apt-get but nothing else, so we
+# can't assume curl or python3 exist. The preferred versions are used when the
+# current distribution provides them; otherwise its available versions are
+# installed. apt no-ops packages that are already installed, so the whole list
+# is installed unconditionally.
 #
 # The list is taken from (in order): $AAB_APT_PACKAGES_FILE, then
 # ./apt_packages.txt when present, otherwise $AAB_APT_PACKAGES_URL.
@@ -251,11 +253,23 @@ install_base_deps() {
         return
     fi
 
-    log "Installing pinned apt packages: ${packages[*]}."
+    log "Updating apt package metadata."
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -y
-    # Hosted Ubuntu images can carry newer packages from PPAs. The explicit
-    # pins are authoritative, so permit apt to restore the configured versions.
-    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades --no-install-recommends "${packages[@]}"
+
+    local -a install_packages=("${packages[@]}")
+    if ! $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --simulate --allow-downgrades --no-install-recommends "${install_packages[@]}" >/dev/null 2>&1; then
+        install_packages=()
+        local package
+        for package in "${packages[@]}"; do
+            install_packages+=("${package%%=*}")
+        done
+        warn "Preferred apt package versions are unavailable on this distribution; using its available versions."
+    fi
+
+    log "Installing apt packages: ${install_packages[*]}."
+    # Hosted Ubuntu images can carry newer packages from PPAs. When the
+    # preferred versions are available, permit apt to restore them.
+    $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades --no-install-recommends "${install_packages[@]}"
 }
 # <<< src/bootstrap/01_install_base_deps.bash <<<
 
