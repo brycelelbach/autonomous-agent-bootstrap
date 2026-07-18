@@ -34,7 +34,7 @@ configure_bashrc() {
             'fi' \
             'export PATH="$HOME/.local/bin:$PATH"' \
             'export PATH="$HOME/.local/aab-bin:$PATH"' \
-            '# Source harness-specific, non-secret shell defaults.' \
+            '# Source AAB-managed shell environment fragments.' \
             'for _aab_shell_config in "$HOME"/.aab/shell/*.env; do' \
             '    [ -f "$_aab_shell_config" ] && . "$_aab_shell_config"' \
             'done' \

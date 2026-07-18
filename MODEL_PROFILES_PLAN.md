@@ -56,7 +56,7 @@ export AAB_INFERENCE_GATEWAY_URL=https://gateway.example.com
 export AAB_INFERENCE_GATEWAY_API_KEY=...
 ```
 
-First-party Claude and Codex use `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` when provided. When either is absent, AAB leaves that harness's interactive login state in control.
+First-party Claude and Codex map `AAB_ANTHROPIC_API_KEY` and `AAB_OPENAI_API_KEY` to the harness-native variables when provided. When either is absent, AAB leaves that harness's interactive login state in control.
 
 ## Profile Semantics
 

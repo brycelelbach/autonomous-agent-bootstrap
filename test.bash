@@ -76,13 +76,14 @@ run_e2e() {
     : "${AAB_PI_DEFAULT_PROFILE:=opus-4.8}"
     : "${AAB_INFERENCE_GATEWAY_URL:=https://gateway.example.com/v1}"
     : "${AAB_INFERENCE_GATEWAY_API_KEY:=gateway-e2e-test-key}"
-    : "${OPENAI_API_KEY:=codex-e2e-test-key}"
+    : "${AAB_OPENAI_API_KEY:=codex-e2e-test-key}"
+    : "${AAB_GH_TOKEN:=${GITHUB_TOKEN:-}}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
            AAB_CLAUDE_FIRST_PARTY_PROFILES AAB_CLAUDE_DEFAULT_PROFILE \
            AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_DEFAULT_PROFILE \
            AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
            AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
-           OPENAI_API_KEY
+           AAB_OPENAI_API_KEY AAB_GH_TOKEN
 
     bash bootstrap.bash
     bash tests/e2e-assertions.bash
@@ -144,7 +145,7 @@ run_smoke() {
     fi
     echo "Claude smoke passed."
 
-    if [ "${OPENAI_API_KEY:-}" = "codex-e2e-test-key" ]; then
+    if [ "${AAB_OPENAI_API_KEY:-}" = "codex-e2e-test-key" ]; then
         echo "test.bash: --smoke requires real Codex authentication, not the synthetic e2e key." >&2
         return 1
     fi

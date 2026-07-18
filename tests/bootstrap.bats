@@ -16,6 +16,7 @@ setup() {
           AAB_CODEX_AGENT_MAX_THREADS \
           AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
           AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
+          AAB_ANTHROPIC_API_KEY AAB_OPENAI_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
           AAB_GH_TOKEN AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
@@ -300,13 +301,15 @@ PY
     [ "$AAB_GH_TOKEN" = "ghp_test_token" ]
 }
 
-@test "configure_aab_env_file persists standard first-party API keys" {
-    ANTHROPIC_API_KEY="sk-ant-test-key" \
-        OPENAI_API_KEY="codex-first-party-test-key" \
+@test "configure_aab_env_file persists only AAB-prefixed first-party API keys" {
+    AAB_ANTHROPIC_API_KEY="sk-ant-test-key" \
+        AAB_OPENAI_API_KEY="codex-first-party-test-key" \
         configure_aab_env_file
 
-    grep -q '^export ANTHROPIC_API_KEY=' "$AAB_ENV_FILE"
-    grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE"
+    grep -q '^export AAB_ANTHROPIC_API_KEY=' "$AAB_ENV_FILE"
+    grep -q '^export AAB_OPENAI_API_KEY=' "$AAB_ENV_FILE"
+    ! grep -q '^export ANTHROPIC_API_KEY=' "$AAB_ENV_FILE"
+    ! grep -q '^export OPENAI_API_KEY=' "$AAB_ENV_FILE"
     ! grep -q '^export GH_TOKEN=' "$AAB_ENV_FILE"
 }
 
@@ -828,6 +831,7 @@ SH
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
 printf '%s\n' "\${AAB_CODEX_DEFAULT_PROFILE:-}" > "$TEST_HOME/codex-launcher-default-profile"
+printf '%s\n' "\${OPENAI_API_KEY:-}" > "$TEST_HOME/codex-launcher-api-key"
 SH
     chmod +x "$TEST_HOME/real-codex"
     ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
@@ -836,6 +840,7 @@ SH
         AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
+        AAB_OPENAI_API_KEY="first-party-key" \
         configure_aab_env_file
     AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.5 model=vendor/model effort=ultra" \
         AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
@@ -854,9 +859,11 @@ SH
     grep -Fxq 'model_provider="aab-gateway"' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'env_key="AAB_INFERENCE_GATEWAY_API_KEY"' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'base_url="https://gateway.example.com/v1"' "$TEST_HOME/codex-launcher-args"
+    [ "$(cat "$TEST_HOME/codex-launcher-api-key")" = "" ]
 
     "$HOME/.local/bin/codex-first-party-gpt-5.5" exec hello
     [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.5" ]
+    [ "$(cat "$TEST_HOME/codex-launcher-api-key")" = "first-party-key" ]
 }
 
 @test "configure_claude_launchers expands a gateway profile into every Claude model slot" {
@@ -886,7 +893,7 @@ SH
         AAB_CLAUDE_DEFAULT_PROFILE="third-party/deepseek-v4" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
-        ANTHROPIC_API_KEY="first-party-key" \
+        AAB_ANTHROPIC_API_KEY="first-party-key" \
         configure_aab_env_file
     AAB_CLAUDE_THIRD_PARTY_PROFILES="deepseek-v4 model=deepseek-v4-pro haiku=deepseek-v4-flash effort=high context=1000000" \
         AAB_CLAUDE_DEFAULT_PROFILE="third-party/deepseek-v4" \
@@ -925,6 +932,7 @@ SH
 
     "$HOME/.local/bin/claude-first-party-opus-4.8" -p hello
     grep -Fxq 'default_profile=third-party/deepseek-v4' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'api_key=first-party-key' "$TEST_HOME/claude-launcher-env"
 }
 
 @test "configure_claude_launchers supports mixed gateway models" {
@@ -1196,7 +1204,7 @@ SH
     export PATH="$FAKE_CODEX_BIN:$PATH"
 }
 
-@test "configure_codex_auth is a no-op when OPENAI_API_KEY is unset" {
+@test "configure_codex_auth is a no-op when AAB_OPENAI_API_KEY is unset" {
     setup_fake_codex
     run configure_codex_auth
     [ "$status" -eq 0 ]
@@ -1204,9 +1212,9 @@ SH
     [ ! -f "$HOME/.codex/auth.json" ]
 }
 
-@test "configure_codex_auth logs in with OPENAI_API_KEY via stdin" {
+@test "configure_codex_auth logs in with AAB_OPENAI_API_KEY via stdin" {
     setup_fake_codex
-    OPENAI_API_KEY="codex-first-party-test-key" run configure_codex_auth
+    AAB_OPENAI_API_KEY="codex-first-party-test-key" run configure_codex_auth
     [ "$status" -eq 0 ]
     grep -Fxq 'login --with-api-key' "$TEST_HOME/codex-invocations"
     [ "$(cat "$TEST_HOME/codex-stdin")" = "codex-first-party-test-key" ]
@@ -1222,7 +1230,7 @@ PY
 @test "configure_codex_auth keeps first-party auth available when the selected profile is third-party" {
     setup_fake_codex
     AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
-        OPENAI_API_KEY="codex-first-party-test-key" \
+        AAB_OPENAI_API_KEY="codex-first-party-test-key" \
         run configure_codex_auth
     [ "$status" -eq 0 ]
     grep -Fxq 'login --with-api-key' "$TEST_HOME/codex-invocations"
@@ -1231,7 +1239,7 @@ PY
 @test "configure_codex_auth fails when Codex API-key login fails" {
     setup_fake_codex
     export FAKE_CODEX_FAIL=1
-    OPENAI_API_KEY="codex-first-party-test-key" run configure_codex_auth
+    AAB_OPENAI_API_KEY="codex-first-party-test-key" run configure_codex_auth
     [ "$status" -ne 0 ]
     [[ "$output" == *"codex login --with-api-key failed"* ]]
     [[ "$output" != *"codex-first-party-test-key"* ]]
@@ -1317,8 +1325,8 @@ PY
     python3 -c "import json; d=json.load(open('$CLAUDE_JSON')); assert d['hasCompletedOnboarding'] is True"
 }
 
-@test "skip_claude_onboarding pre-approves ANTHROPIC_API_KEY fingerprint when set" {
-    ANTHROPIC_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_claude_onboarding
+@test "skip_claude_onboarding pre-approves AAB_ANTHROPIC_API_KEY fingerprint when set" {
+    AAB_ANTHROPIC_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_claude_onboarding
     python3 - <<PY
 import json
 d = json.load(open("$CLAUDE_JSON"))
@@ -1343,8 +1351,8 @@ PY
 }
 
 @test "skip_claude_onboarding is idempotent (second call does not duplicate fingerprint)" {
-    ANTHROPIC_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_claude_onboarding
-    ANTHROPIC_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_claude_onboarding
+    AAB_ANTHROPIC_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_claude_onboarding
+    AAB_ANTHROPIC_API_KEY="sk-ant-test-0123456789abcdef0123456789abcdef" skip_claude_onboarding
     python3 - <<PY
 import json
 d = json.load(open("$CLAUDE_JSON"))
@@ -1415,19 +1423,31 @@ SH
     ! grep -q '^export CLAUDE_CODE_EFFORT_LEVEL=' "$CLAUDE_SHELL_CONFIG_FILE"
 }
 
-@test "configure_bashrc sources per-harness shell configuration" {
+@test "configure_bashrc sources AAB shell configuration" {
     configure_claude_shell
+    AAB_GH_TOKEN="github-test-token" configure_github_shell
     configure_bashrc
     grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC"
     ! grep -q '^export DEBUG_SDK=' "$BASHRC"
-    run env HOME="$HOME" bash -c 'unset DEBUG_SDK CLAUDE_CODE_EFFORT_LEVEL; . "$HOME/.bashrc"; printf "%s %s" "$DEBUG_SDK" "${CLAUDE_CODE_EFFORT_LEVEL:-UNSET}"'
+    run env HOME="$HOME" bash -c 'unset DEBUG_SDK CLAUDE_CODE_EFFORT_LEVEL GH_TOKEN; . "$HOME/.bashrc"; printf "%s %s %s" "$DEBUG_SDK" "${CLAUDE_CODE_EFFORT_LEVEL:-UNSET}" "$GH_TOKEN"'
     [ "$status" -eq 0 ]
-    [ "$output" = "1 UNSET" ]
+    [ "$output" = "1 UNSET github-test-token" ]
+}
+
+@test "configure_github_shell writes a private GH_TOKEN mapping and clears stale values" {
+    AAB_GH_TOKEN="github-test-token" configure_github_shell
+
+    [ -f "$GITHUB_SHELL_CONFIG_FILE" ]
+    [ "$(stat -c '%a' "$GITHUB_SHELL_CONFIG_FILE")" = "600" ]
+    grep -Fxq 'export GH_TOKEN=github-test-token' "$GITHUB_SHELL_CONFIG_FILE"
+
+    AAB_GH_TOKEN="" configure_github_shell
+    ! grep -q '^export GH_TOKEN=' "$GITHUB_SHELL_CONFIG_FILE"
 }
 
 @test "configure_bashrc does not write credentials or provider AAB vars" {
-    ANTHROPIC_API_KEY="sk-ant-test-key" \
-        OPENAI_API_KEY="codex-first-party-test-key" \
+    AAB_ANTHROPIC_API_KEY="sk-ant-test-key" \
+        AAB_OPENAI_API_KEY="codex-first-party-test-key" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
         AAB_GH_TOKEN="ghp_test_token" \
         configure_bashrc
@@ -2661,12 +2681,12 @@ EOF
 
 @test "load_config_file: empty-string env var also beats the file (env 'set' wins even if empty)" {
     # Explicitly set to empty — distinct from unset. Must prevent file override.
-    export ANTHROPIC_API_KEY=""
+    export AAB_ANTHROPIC_API_KEY=""
     cat > "$TEST_HOME/aab.conf" <<'EOF'
-ANTHROPIC_API_KEY=sk-ant-from-file
+AAB_ANTHROPIC_API_KEY=sk-ant-from-file
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$ANTHROPIC_API_KEY" = "" ]
+    [ "$AAB_ANTHROPIC_API_KEY" = "" ]
 }
 
 @test "load_config_file handles double- and single-quoted values, and leading 'export '" {
