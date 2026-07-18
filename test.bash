@@ -15,7 +15,7 @@
 #                            vars are set, and installs claude / codex / pi /
 #                            brev / gh.
 #                            Only run on a disposable machine.
-#   ./test.bash --docker     same as --e2e, but inside fresh ubuntu:22.04 and
+#   ./test.bash --docker     same as --e2e, but inside fresh ubuntu:24.04 and
 #                            ubuntu:latest docker containers — safe to run
 #                            anywhere with docker available, and the stronger
 #                            check that bootstrap works on bare images.
@@ -102,7 +102,7 @@ run_e2e() {
 run_docker_e2e() {
     need docker
     local -a docker_images=()
-    read -r -a docker_images <<< "${AAB_TEST_DOCKER_IMAGES:-ubuntu:22.04 ubuntu:latest}"
+    read -r -a docker_images <<< "${AAB_TEST_DOCKER_IMAGES:-ubuntu:24.04 ubuntu:latest}"
     [ ${#docker_images[@]} -gt 0 ] \
         || { echo "test.bash: AAB_TEST_DOCKER_IMAGES must name at least one image." >&2; return 1; }
     # Mount the repo read-only and copy it inside the container so the
