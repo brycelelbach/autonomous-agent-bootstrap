@@ -274,9 +274,11 @@ import json
 d = json.load(open("$SETTINGS_FILE"))
 home = "$HOME"
 allow = d["permissions"]["allow"]
-for op in ("Edit", "Write", "Read"):
+for op in ("Edit", "Read"):
     assert f"{op}({home}/.claude/**)" in allow, (op, allow)
     assert f"{op}({home}/.claude.json)" in allow, (op, allow)
+assert f"Write({home}/.claude/**)" not in allow, allow
+assert f"Write({home}/.claude.json)" not in allow, allow
 PY
 }
 
