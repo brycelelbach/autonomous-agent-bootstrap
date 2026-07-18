@@ -295,15 +295,11 @@ pass "Login profile keeps the launcher dir ahead of ~/.local/bin."
 #     ~/.local/bin/claude stays the native binary for the auto-updater.
 export PATH="$HOME/.local/aab-bin:$HOME/.local/bin:$PATH"
 command -v claude >/dev/null 2>&1 || fail "claude not on PATH after bootstrap."
-# The launcher entrypoint is a regular AAB launcher file, not a symlink to a
-# provider wrapper.
-[ ! -L "$HOME/.local/aab-bin/claude" ] || fail "Launcher entrypoint ~/.local/aab-bin/claude should be an AAB launcher file, not a symlink."
-grep -q '^# Autonomous-agent-bootstrap Claude launcher\.$' "$HOME/.local/aab-bin/claude" \
-    || fail "Launcher entrypoint ~/.local/aab-bin/claude is not an AAB launcher."
-grep -q "^profile_source=${expected_claude_profile[source]}$" "$HOME/.local/aab-bin/claude" \
-    || fail "Claude launcher source is not ${expected_claude_profile[source]}."
-grep -q "^profile_name=${expected_claude_profile[name]}$" "$HOME/.local/aab-bin/claude" \
-    || fail "Claude launcher profile is not ${expected_claude_profile[name]}."
+claude_profile_launcher="$HOME/.local/bin/claude-${expected_claude_profile[source]}-${expected_claude_profile[name]}"
+[ -L "$HOME/.local/aab-bin/claude" ] \
+    || fail "Launcher entrypoint ~/.local/aab-bin/claude is not a symlink."
+[ "$(readlink "$HOME/.local/aab-bin/claude")" = "$claude_profile_launcher" ] \
+    || fail "Claude launcher entrypoint does not select ${expected_claude_profile[source]}/${expected_claude_profile[name]}."
 # ~/.local/bin/claude is the native binary, not one of our wrappers, so the
 # updater can repoint it freely; the wrappers exec it via claude-aab-real.
 [ -x "$HOME/.local/bin/claude" ] || fail "Native claude binary missing from ~/.local/bin."
@@ -314,7 +310,6 @@ esac
 [ "$(readlink "$HOME/.local/bin/claude-aab-real")" = "$HOME/.local/bin/claude" ] \
     || fail "claude-aab-real does not track ~/.local/bin/claude."
 [ -x "$HOME/.local/bin/claude-aab-real" ] || fail "Claude real binary link not installed."
-claude_profile_launcher="$HOME/.local/bin/claude-${expected_claude_profile[source]}-${expected_claude_profile[name]}"
 [ -x "$claude_profile_launcher" ] || fail "Claude selected profile launcher missing at ${claude_profile_launcher}."
 # A login shell (sources ~/.profile, which re-prepends ~/.local/bin after
 # ~/.bashrc) must still resolve `claude` to the launcher-dir wrapper.
@@ -332,14 +327,10 @@ case "$claude_plugins" in
 esac
 pass "Claude Code agent plugins installed."
 command -v codex  >/dev/null 2>&1 || fail "codex not on PATH after bootstrap."
-[ ! -L "$HOME/.local/bin/codex" ] || fail "codex should be an AAB launcher file, not a symlink."
-grep -q '^# Autonomous-agent-bootstrap Codex launcher\.$' "$HOME/.local/bin/codex" \
-    || fail "codex is not an AAB launcher."
-grep -q "^profile_source=${expected_codex_source}$" "$HOME/.local/bin/codex" \
-    || fail "Codex launcher source is not ${expected_codex_source}."
-grep -q "^profile_name=${expected_codex_name}$" "$HOME/.local/bin/codex" \
-    || fail "Codex launcher profile is not ${expected_codex_name}."
 codex_profile_launcher="$HOME/.local/bin/codex-${expected_codex_source}-${expected_codex_name}"
+[ -L "$HOME/.local/bin/codex" ] || fail "codex is not a symlink."
+[ "$(readlink "$HOME/.local/bin/codex")" = "$codex_profile_launcher" ] \
+    || fail "Codex launcher entrypoint does not select ${expected_codex_source}/${expected_codex_name}."
 [ -x "$codex_profile_launcher" ] || fail "Codex selected profile launcher missing at ${codex_profile_launcher}."
 [ -x "$HOME/.local/bin/codex-aab-real" ] \
     || fail "Codex real binary link not installed."

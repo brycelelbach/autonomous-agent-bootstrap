@@ -862,10 +862,10 @@ SH
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_codex_launchers
 
-    [ ! -L "$HOME/.local/bin/codex" ]
+    [ -L "$HOME/.local/bin/codex" ]
     [ -x "$HOME/.local/bin/codex-first-party-gpt-5.5" ]
     [ -x "$HOME/.local/bin/codex-third-party-gpt-5.5" ]
-    grep -q '^profile_source=third-party$' "$HOME/.local/bin/codex"
+    [ "$(readlink "$HOME/.local/bin/codex")" = "$HOME/.local/bin/codex-third-party-gpt-5.5" ]
     "$HOME/.local/bin/codex" exec hello
 
     [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.5" ]
@@ -916,13 +916,12 @@ SH
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_claude_launchers
 
-    # The selected entrypoint lives in ~/.local/aab-bin as a regular launcher
-    # file (not a symlink to a provider wrapper); ~/.local/bin/claude is left as
-    # the native binary for the auto-updater, and the wrappers exec it.
-    [ ! -L "$HOME/.local/aab-bin/claude" ]
+    # The selected entrypoint links to its profile wrapper. ~/.local/bin/claude
+    # remains the native binary for the auto-updater, and the wrappers exec it.
+    [ -L "$HOME/.local/aab-bin/claude" ]
     [ -x "$HOME/.local/bin/claude-first-party-opus-4.8" ]
     [ -x "$HOME/.local/bin/claude-third-party-deepseek-v4" ]
-    grep -q '^profile_source=third-party$' "$HOME/.local/aab-bin/claude"
+    [ "$(readlink "$HOME/.local/aab-bin/claude")" = "$HOME/.local/bin/claude-third-party-deepseek-v4" ]
     [ "$(readlink "$HOME/.local/bin/claude")" = "$TEST_HOME/real-claude" ]
     [ "$(readlink "$HOME/.local/bin/claude-aab-real")" = "$HOME/.local/bin/claude" ]
     "$HOME/.local/aab-bin/claude" -p hello
@@ -975,11 +974,10 @@ SH
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com" \
         configure_claude_launchers
 
-    # The selected entrypoint lives in ~/.local/aab-bin as a regular launcher
-    # file (not a symlink to a provider wrapper); ~/.local/bin/claude is left as
-    # the native binary for the auto-updater, and the wrappers exec it.
-    [ ! -L "$HOME/.local/aab-bin/claude" ]
-    grep -q '^profile_name=opus-4.8$' "$HOME/.local/aab-bin/claude"
+    # The selected entrypoint links to its profile wrapper. ~/.local/bin/claude
+    # remains the native binary for the auto-updater, and the wrappers exec it.
+    [ -L "$HOME/.local/aab-bin/claude" ]
+    [ "$(readlink "$HOME/.local/aab-bin/claude")" = "$HOME/.local/bin/claude-third-party-opus-4.8" ]
     [ "$(readlink "$HOME/.local/bin/claude")" = "$TEST_HOME/real-claude" ]
     [ "$(readlink "$HOME/.local/bin/claude-aab-real")" = "$HOME/.local/bin/claude" ]
     "$HOME/.local/aab-bin/claude" -p hello
