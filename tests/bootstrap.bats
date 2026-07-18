@@ -123,6 +123,20 @@ teardown() {
     [[ "$output" == *"Duplicate pi third-party profile 'opus-4.8'"* ]]
 }
 
+@test "validate_model_profiles rejects unknown Claude and Codex default selectors" {
+    AAB_CLAUDE_THIRD_PARTY_PROFILES="deepseek-v4 model=vendor/deepseek-v4" \
+        AAB_CLAUDE_DEFAULT_PROFILE="third-party/missing" \
+        run validate_model_profiles
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"AAB_CLAUDE_DEFAULT_PROFILE='third-party/missing' does not name a configured claude profile."* ]]
+
+    AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.6 model=vendor/gpt-5.6" \
+        AAB_CODEX_DEFAULT_PROFILE="third-party/missing" \
+        run validate_model_profiles
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"AAB_CODEX_DEFAULT_PROFILE='third-party/missing' does not name a configured codex profile."* ]]
+}
+
 @test "Pi maps provider-specific effort values through xhigh" {
     local -A profile=()
 
@@ -387,6 +401,7 @@ PY
     grep -q '^name = "AAB Inference Gateway"$' "$CODEX_CONFIG"
     grep -q '^base_url = "https://inference-api.nvidia.com/v1"$' "$CODEX_CONFIG"
     grep -q '^env_key = "AAB_INFERENCE_GATEWAY_API_KEY"$' "$CODEX_CONFIG"
+    grep -q '^requires_openai_auth = false$' "$CODEX_CONFIG"
     grep -q '^wire_api = "responses"$' "$CODEX_CONFIG"
 }
 
@@ -858,6 +873,7 @@ SH
     grep -Fxq 'model_reasoning_effort="ultra"' "$TEST_HOME/codex-launcher-args"
     grep -Fxq 'model_provider="aab-gateway"' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'env_key="AAB_INFERENCE_GATEWAY_API_KEY"' "$TEST_HOME/codex-launcher-args"
+    grep -Fq 'requires_openai_auth=false' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'base_url="https://gateway.example.com/v1"' "$TEST_HOME/codex-launcher-args"
     [ "$(cat "$TEST_HOME/codex-launcher-api-key")" = "" ]
 
@@ -2670,7 +2686,7 @@ STUB
 # ---------------------------------------------------------------------------
 # load_config_file / load_config_stdin: covers the bash-source-backed config
 # loader used when main() is given a positional path or non-TTY stdin.
-# Exercises quoting, comments, env-beats-file precedence, the missing-file
+# Exercises quoting, comments, input-beats-env precedence, the missing-file
 # and malformed-input error paths, shell-expansion features, and the
 # stdin variant.
 # ---------------------------------------------------------------------------
@@ -2689,27 +2705,25 @@ EOF
     [ "$AAB_GIT_AUTHOR_EMAIL" = "alice@example.com" ]
 }
 
-@test "load_config_file: env var already set in the shell WINS over the file" {
+@test "load_config_file: direct assignments override inherited env vars" {
     export AAB_CLAUDE_DEFAULT_PROFILE="first-party/opus-4.8"
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 AAB_CLAUDE_DEFAULT_PROFILE=first-party/sonnet-4.8
 AAB_GIT_AUTHOR_NAME="Alice Example"
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    # Env-set value preserved.
-    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "first-party/opus-4.8" ]
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "first-party/sonnet-4.8" ]
     # File-only value still loaded.
     [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
 }
 
-@test "load_config_file: empty-string env var also beats the file (env 'set' wins even if empty)" {
-    # Explicitly set to empty — distinct from unset. Must prevent file override.
+@test "load_config_file: direct assignments replace inherited empty strings" {
     export AAB_ANTHROPIC_API_KEY=""
     cat > "$TEST_HOME/aab.conf" <<'EOF'
 AAB_ANTHROPIC_API_KEY=sk-ant-from-file
 EOF
     load_config_file "$TEST_HOME/aab.conf"
-    [ "$AAB_ANTHROPIC_API_KEY" = "" ]
+    [ "$AAB_ANTHROPIC_API_KEY" = "sk-ant-from-file" ]
 }
 
 @test "load_config_file handles double- and single-quoted values, and leading 'export '" {
@@ -2798,13 +2812,24 @@ EOF
     [ "$AAB_GIT_AUTHOR_NAME" = "Alice Example" ]
 }
 
-@test "load_config_stdin: env beats stdin" {
+@test "load_config_stdin replaces stale Claude and Codex defaults" {
     export AAB_CLAUDE_DEFAULT_PROFILE="first-party/opus-4.8"
+    export AAB_CODEX_DEFAULT_PROFILE="first-party/gpt-5.5"
     load_config_stdin <<'EOF'
-AAB_CLAUDE_DEFAULT_PROFILE=first-party/sonnet-4.8
+AAB_CLAUDE_THIRD_PARTY_PROFILES='deepseek-v4 model=vendor/deepseek-v4'
+AAB_CLAUDE_DEFAULT_PROFILE=third-party/deepseek-v4
+AAB_CODEX_THIRD_PARTY_PROFILES='gpt-5.6 model=vendor/gpt-5.6'
+AAB_CODEX_DEFAULT_PROFILE=third-party/gpt-5.6
 AAB_GIT_AUTHOR_NAME=Alice
 EOF
-    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "first-party/opus-4.8" ]
+    local -A claude_profile=() codex_profile=()
+    validate_model_profiles
+    resolve_model_profile claude claude_profile
+    resolve_model_profile codex codex_profile
+    [ "$AAB_CLAUDE_DEFAULT_PROFILE" = "third-party/deepseek-v4" ]
+    [ "${claude_profile[source]}/${claude_profile[name]}" = "third-party/deepseek-v4" ]
+    [ "$AAB_CODEX_DEFAULT_PROFILE" = "third-party/gpt-5.6" ]
+    [ "${codex_profile[source]}/${codex_profile[name]}" = "third-party/gpt-5.6" ]
     [ "$AAB_GIT_AUTHOR_NAME" = "Alice" ]
 }
 

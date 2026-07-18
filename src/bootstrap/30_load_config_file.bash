@@ -17,12 +17,9 @@
 # metacharacters (`&`, `|`, `;`, `$`, etc.) need to be quoted; bare quoted
 # `KEY=value` lines need no escaping.
 #
-# Caller-supplied env vars beat file values: load_config_{file,stdin}
-# snapshot the exported environment before sourcing and replay it after, so
-# a one-off `FOO=override bash bootstrap.bash /path/to/conf` debug invocation
-# wins over whatever the file said. An explicitly-empty `FOO= bash …`
-# counts as set and also wins (file cannot force-unset what the shell
-# explicitly set).
+# Config input is sourced after the inherited environment, so assignments in
+# the file or stdin are authoritative. A config can opt into environment
+# precedence for an individual value with `FOO="${FOO:-default}"`.
 # ---------------------------------------------------------------------------
 load_config_file() {
     local f="$1"
@@ -30,7 +27,7 @@ load_config_file() {
         warn "Config file '$f' not found or not readable."
         exit 1
     fi
-    log "Loading config from $f (env vars already set in the shell take precedence)."
+    log "Loading config from $f."
     _source_config "$f"
 }
 
@@ -42,24 +39,20 @@ load_config_stdin() {
         rm -f "$tmp"
         return 0
     fi
-    log "Loading config from stdin (env vars already set in the shell take precedence)."
+    log "Loading config from stdin."
     _source_config "$tmp"
     rm -f "$tmp"
 }
 
-# Source the config at <path> with auto-export, preserving caller-supplied env
-# vars. `declare -px` snapshots every exported variable; we strip the
-# readonly entries (re-eval'ing those would error) and rewrite `declare -x`
-# as `export` so the snapshot restores at the calling shell's scope rather
-# than going out of scope when the function returns.
+# Source the config at <path> with auto-export. Existing environment values
+# remain available to shell expansions in the config, while direct assignments
+# replace them.
 _source_config() {
-    local src="$1" snapshot
-    snapshot=$(declare -px | grep -v '^declare -[a-z]*r' | sed 's/^declare -x /export /')
+    local src="$1"
     set -a
     # shellcheck source=/dev/null
     . "$src"
     set +a
-    eval "$snapshot"
 }
 
 main() {

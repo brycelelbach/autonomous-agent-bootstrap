@@ -69,9 +69,11 @@ run_e2e() {
     : "${AAB_GIT_AUTHOR_NAME:=CI Bot}"
     : "${AAB_GIT_AUTHOR_EMAIL:=ci@example.com}"
     : "${AAB_CLAUDE_FIRST_PARTY_PROFILES:=opus-4.8 model=claude-opus-4-8 haiku=claude-haiku-4-5 sonnet=claude-sonnet-4-6 opus=claude-opus-4-8 effort=max}"
-    : "${AAB_CLAUDE_DEFAULT_PROFILE:=first-party/opus-4.8}"
+    : "${AAB_CLAUDE_THIRD_PARTY_PROFILES:=deepseek-v4 model=vendor/deepseek-v4 haiku=vendor/deepseek-v4-flash effort=max}"
+    : "${AAB_CLAUDE_DEFAULT_PROFILE:=third-party/deepseek-v4}"
     : "${AAB_CODEX_FIRST_PARTY_PROFILES:=gpt-5.5 effort=xhigh}"
-    : "${AAB_CODEX_DEFAULT_PROFILE:=first-party/gpt-5.5}"
+    : "${AAB_CODEX_THIRD_PARTY_PROFILES:=gpt-5.6 model=vendor/gpt-5.6 effort=ultra}"
+    : "${AAB_CODEX_DEFAULT_PROFILE:=third-party/gpt-5.6}"
     : "${AAB_PI_PROFILES:=opus-4.8 model=anthropic/claude-opus-4-8 effort=max context=200000 max_tokens=32000}"
     : "${AAB_PI_DEFAULT_PROFILE:=opus-4.8}"
     : "${AAB_INFERENCE_GATEWAY_URL:=https://gateway.example.com/v1}"
@@ -79,8 +81,10 @@ run_e2e() {
     : "${AAB_OPENAI_API_KEY:=codex-e2e-test-key}"
     : "${AAB_GH_TOKEN:=${GITHUB_TOKEN:-}}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
-           AAB_CLAUDE_FIRST_PARTY_PROFILES AAB_CLAUDE_DEFAULT_PROFILE \
-           AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_DEFAULT_PROFILE \
+           AAB_CLAUDE_FIRST_PARTY_PROFILES AAB_CLAUDE_THIRD_PARTY_PROFILES \
+           AAB_CLAUDE_DEFAULT_PROFILE \
+           AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_THIRD_PARTY_PROFILES \
+           AAB_CODEX_DEFAULT_PROFILE \
            AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
            AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
            AAB_OPENAI_API_KEY AAB_GH_TOKEN

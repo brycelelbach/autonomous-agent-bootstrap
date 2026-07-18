@@ -263,7 +263,7 @@ case "$profile_source" in
             exit 1
         fi
         base_url_escaped=$(toml_escape "$AAB_INFERENCE_GATEWAY_URL")
-        provider_override="model_providers={\"aab-gateway\"={name=\"AAB Inference Gateway\",base_url=\"${base_url_escaped}\",env_key=\"AAB_INFERENCE_GATEWAY_API_KEY\",wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
+        provider_override="model_providers={\"aab-gateway\"={name=\"AAB Inference Gateway\",base_url=\"${base_url_escaped}\",env_key=\"AAB_INFERENCE_GATEWAY_API_KEY\",requires_openai_auth=false,wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
         config_args+=(-c 'model_provider="aab-gateway"' -c "$provider_override")
         ;;
 esac

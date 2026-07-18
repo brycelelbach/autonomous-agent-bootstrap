@@ -122,6 +122,8 @@ if [ "$expected_codex_source" = "third-party" ]; then
         || fail "Codex inference-gateway base URL is not ${expected_codex_base_url}."
     grep -q '^env_key = "AAB_INFERENCE_GATEWAY_API_KEY"$' "$CODEX_CONFIG" \
         || fail "Codex inference-gateway env key is not AAB_INFERENCE_GATEWAY_API_KEY."
+    grep -q '^requires_openai_auth = false$' "$CODEX_CONFIG" \
+        || fail "Codex inference-gateway provider unexpectedly requires OpenAI login."
 fi
 case "$expected_codex_agent_max_threads" in
     [1-9]*)
