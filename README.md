@@ -181,7 +181,7 @@ All variables are optional unless a configured third-party profile needs the inf
 | `~/.codex/config.toml` | Rewritten with unattended Codex defaults, the absolute global `model_instructions_file` path, and selected profile config while preserving Codex plugin tables; existing file is backed up. |
 | `~/.codex/codex-instructions.md` | Complete AAB-managed Codex model-instructions prompt; existing file is backed up. |
 | `~/.codex/auth.json` | Written by `codex login --with-api-key` when first-party Codex API-key auth is configured. |
-| `~/.bashrc` | Managed block for PATH and AAB shell-fragment loading. Credential values remain in mode-`0600` files rather than appearing in the block. |
+| `~/.bashrc` | Managed block for PATH and loading the private GitHub credential fragment. Agent-specific runtime fragments remain launcher-scoped. |
 | `~/.profile` | Managed block that keeps `~/.local/aab-bin` ahead of `~/.local/bin` for login shells. |
 | `/etc/environment` | Existing AAB managed blocks are removed so credentials do not remain there. |
 | `/var/lib/systemd/linger/<user>` | Created by `loginctl enable-linger <user>` so the per-user systemd bus stays up across sessions. Skipped on hosts without a systemd user manager. |

@@ -283,16 +283,28 @@ aab_line=$(grep -n 'export PATH="$HOME/.local/aab-bin:$PATH"' "$BASHRC" | head -
 ! grep -q '^export GH_TOKEN=' "$BASHRC" || fail "GitHub token should not be exported from bashrc."
 pass "bashrc managed block keeps credentials out."
 
-# 8. Claude owns its shell defaults; the generic bashrc block only sources
-# AAB-managed shell fragments.
+# 8. Agent-specific runtime settings remain scoped to their launchers.
 [ -f "$CLAUDE_SHELL_CONFIG_FILE" ] || fail "Claude shell config not written."
 grep -q '^export DEBUG_SDK=1$' "$CLAUDE_SHELL_CONFIG_FILE" \
     || fail "DEBUG_SDK=1 missing from Claude shell config."
 ! grep -q '^export CLAUDE_CODE_EFFORT_LEVEL=' "$CLAUDE_SHELL_CONFIG_FILE" \
     || fail "Claude effort should remain profile-specific."
-grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC" \
-    || fail "bashrc does not source AAB shell configuration."
-pass "Claude shell defaults are encapsulated and sourced generically."
+grep -Fq '. "$HOME/.aab/shell/github.env"' "$BASHRC" \
+    || fail "bashrc does not source GitHub shell configuration."
+! grep -Fq '"$HOME"/.aab/shell/*.env' "$BASHRC" \
+    || fail "bashrc sources agent-specific shell configuration."
+shell_runtime=$(env HOME="$HOME" bash -c '
+    unset DEBUG_SDK NODE_OPTIONS OPENAI_LOG ANTHROPIC_LOG OTEL_SERVICE_NAME
+    PS1=x
+    . "$HOME/.bashrc"
+    printf "%s %s %s %s %s" \
+        "${DEBUG_SDK:-UNSET}" "${NODE_OPTIONS:-UNSET}" \
+        "${OPENAI_LOG:-UNSET}" "${ANTHROPIC_LOG:-UNSET}" \
+        "${OTEL_SERVICE_NAME:-UNSET}"
+')
+[ "$shell_runtime" = "UNSET UNSET UNSET UNSET UNSET" ] \
+    || fail "Agent-specific runtime settings leaked into the shell: $shell_runtime."
+pass "Agent-specific runtime settings stay launcher-scoped."
 
 # 9. The bashrc block sources cleanly.
 bash -n "$BASHRC" || fail "bashrc has syntax errors."

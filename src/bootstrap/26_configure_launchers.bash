@@ -42,11 +42,17 @@ _prepare_launcher_real_binary() {
 _remove_aab_profile_launchers() {
     local marker="$1"
     shift
-    local pattern launcher
+    local pattern launcher target
     for pattern in "$@"; do
         for launcher in $pattern; do
+            if [ -L "$launcher" ]; then
+                target=$(readlink "$launcher")
+                if _is_aab_launcher_symlink_target "$target"; then
+                    rm -f "$launcher"
+                fi
+                continue
+            fi
             [ -f "$launcher" ] || continue
-            [ -L "$launcher" ] && continue
             if grep -q "$marker" "$launcher" 2>/dev/null; then
                 rm -f "$launcher"
             fi
