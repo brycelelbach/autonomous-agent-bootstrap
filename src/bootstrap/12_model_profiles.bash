@@ -160,14 +160,21 @@ _validate_model_profile_list() {
 
 validate_model_profiles() {
     local harness source profiles
+    local -A selected=()
     for harness in claude codex; do
         for source in first-party third-party; do
             profiles=$(_profile_list_for "$harness" "$source")
-            _validate_model_profile_list "$harness" "$source" "$profiles"
+            _validate_model_profile_list "$harness" "$source" "$profiles" || return 1
         done
     done
     profiles=$(_profile_list_for pi third-party)
-    _validate_model_profile_list pi third-party "$profiles"
+    _validate_model_profile_list pi third-party "$profiles" || return 1
+
+    resolve_model_profile claude selected || return 1
+    resolve_model_profile codex selected || return 1
+    if [ "${AAB_PI_DEFAULT_PROFILE+x}" = x ] || [ -n "$(_model_profile_lines "$profiles")" ]; then
+        resolve_model_profile pi selected || return 1
+    fi
 }
 
 _find_model_profile() {

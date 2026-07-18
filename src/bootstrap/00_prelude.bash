@@ -40,10 +40,9 @@
 # line strings, comments. Values containing shell metacharacters (`&`,
 # `|`, `;`, `$`, …) need to be quoted; plain `KEY=value` lines do not.
 #
-# Caller-supplied env vars beat file values: `FOO=override bash
-# bootstrap.bash aab.conf` is a one-line debug override without touching
-# the file. An explicitly-empty `FOO= bash …` counts as set and still
-# wins.
+# Config-file and stdin assignments are authoritative over inherited shell
+# values. To make an individual setting environment-overridable, express that
+# in the config itself with `FOO="${FOO:-default}"`.
 
 set -euo pipefail
 

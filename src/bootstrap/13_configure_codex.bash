@@ -284,6 +284,7 @@ TOML
 name = "AAB Inference Gateway"
 base_url = "${gateway_url_escaped}"
 env_key = "AAB_INFERENCE_GATEWAY_API_KEY"
+requires_openai_auth = false
 wire_api = "responses"
 request_max_retries = 4
 stream_max_retries = 5

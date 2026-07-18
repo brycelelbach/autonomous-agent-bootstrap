@@ -49,7 +49,7 @@ claude -p "Say hello from Claude Code"
 codex exec "Say hello from Codex"
 ```
 
-The bootstrap also accepts the same exported variables through its optional sourced config-file or stdin mechanisms.
+The bootstrap also accepts the same variables through its optional sourced config-file or stdin mechanisms. Direct assignments in that input override inherited shell values, which makes a repeated one-shot invocation authoritative; use `${AAB_VAR:-default}` inside the input when an inherited value should win.
 
 ## Generated Bootstrap
 
