@@ -460,9 +460,9 @@ PY
     grep -q '^inherit = "all"$' "$CODEX_CONFIG"
     grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG"
     grep -q '^\[features.multi_agent_v2\]$' "$CODEX_CONFIG"
-    grep -q '^max_concurrent_threads_per_session = 65$' "$CODEX_CONFIG"
+    grep -q '^max_concurrent_threads_per_session = 9$' "$CODEX_CONFIG"
     grep -q '^\[agents\]$' "$CODEX_CONFIG"
-    grep -q '^max_threads = 64$' "$CODEX_CONFIG"
+    grep -q '^max_threads = 8$' "$CODEX_CONFIG"
     grep -qF "[projects.\"$HOME\"]" "$CODEX_CONFIG"
     grep -q '^trust_level = "trusted"$' "$CODEX_CONFIG"
 }
@@ -523,18 +523,20 @@ PY
 }
 
 @test "configure_codex_config defaults invalid service tier back to priority" {
-    AAB_CODEX_SERVICE_TIER="premium" run configure_codex_config
+    AAB_CODEX_FIRST_PARTY_PROFILES="gpt-5.6-sol model=gpt-5.6-sol effort=ultra" \
+        AAB_CODEX_SERVICE_TIER="premium" \
+        run configure_codex_config
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_CODEX_SERVICE_TIER='premium'"* ]]
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
 }
 
-@test "configure_codex_config defaults invalid agent max threads back to 64" {
+@test "configure_codex_config defaults invalid agent max threads back to 8" {
     AAB_CODEX_AGENT_MAX_THREADS="many" run configure_codex_config
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_CODEX_AGENT_MAX_THREADS='many'"* ]]
-    grep -q '^max_concurrent_threads_per_session = 65$' "$CODEX_CONFIG"
-    grep -q '^max_threads = 64$' "$CODEX_CONFIG"
+    grep -q '^max_concurrent_threads_per_session = 9$' "$CODEX_CONFIG"
+    grep -q '^max_threads = 8$' "$CODEX_CONFIG"
 }
 
 @test "configure_codex_config backs up pre-existing config.toml" {
@@ -964,7 +966,7 @@ SH
         configure_codex_launchers
 
     [ -L "$HOME/.local/bin/codex" ]
-    [ -x "$HOME/.local/bin/codex-first-party-gpt-5.5" ]
+    [ -x "$HOME/.local/bin/codex-first-party-gpt-5.6-sol" ]
     [ -x "$HOME/.local/bin/codex-third-party-gpt-5.6" ]
     [ "$(readlink "$HOME/.local/bin/codex")" = "$HOME/.local/bin/codex-third-party-gpt-5.6" ]
     "$HOME/.local/bin/codex" exec hello
@@ -981,7 +983,7 @@ SH
     grep -Fq 'base_url="https://gateway.example.com/v1"' "$TEST_HOME/codex-launcher-args"
     [ "$(cat "$TEST_HOME/codex-launcher-api-key")" = "" ]
 
-    "$HOME/.local/bin/codex-first-party-gpt-5.5" exec hello
+    "$HOME/.local/bin/codex-first-party-gpt-5.6-sol" exec hello
     [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.6" ]
     [ "$(cat "$TEST_HOME/codex-launcher-api-key")" = "first-party-key" ]
 
@@ -1040,7 +1042,7 @@ SH
     # The selected entrypoint links to its profile wrapper. ~/.local/bin/claude
     # remains the native binary for the auto-updater, and the wrappers exec it.
     [ -L "$HOME/.local/aab-bin/claude" ]
-    [ -x "$HOME/.local/bin/claude-first-party-opus-4.8" ]
+    [ -x "$HOME/.local/bin/claude-first-party-claude-opus-4-8" ]
     [ -x "$HOME/.local/bin/claude-third-party-deepseek-v4" ]
     [ "$(readlink "$HOME/.local/aab-bin/claude")" = "$HOME/.local/bin/claude-third-party-deepseek-v4" ]
     [ "$(readlink "$HOME/.local/bin/claude")" = "$TEST_HOME/real-claude" ]
@@ -1066,7 +1068,7 @@ SH
     grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'auto_compact_window=1000000' "$TEST_HOME/claude-launcher-env"
 
-    "$HOME/.local/bin/claude-first-party-opus-4.8" -p hello
+    "$HOME/.local/bin/claude-first-party-claude-opus-4-8" -p hello
     grep -Fxq 'default_profile=third-party/deepseek-v4' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'api_key=first-party-key' "$TEST_HOME/claude-launcher-env"
 }

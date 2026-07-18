@@ -105,7 +105,7 @@ expected_codex_source="${expected_codex_profile[source]}"
 expected_codex_name="${expected_codex_profile[name]}"
 expected_codex_model="${expected_codex_profile[model]}"
 expected_codex_base_url="${AAB_INFERENCE_GATEWAY_URL:-}"
-expected_codex_agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-64}"
+expected_codex_agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-8}"
 expected_codex_agent_max_threads_valid=1
 case "${expected_codex_profile[fast]}" in
     true) expected_codex_service_tier="priority" ;;
@@ -162,7 +162,7 @@ case "$expected_codex_agent_max_threads" in
     *) expected_codex_agent_max_threads_valid=0 ;;
 esac
 if [ "$expected_codex_agent_max_threads_valid" -eq 0 ]; then
-    expected_codex_agent_max_threads="64"
+    expected_codex_agent_max_threads="8"
 fi
 expected_codex_multi_agent_v2_slots=$((expected_codex_agent_max_threads + 1))
 grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
