@@ -1702,6 +1702,7 @@ SH
     grep -Eq 'install -y --allow-downgrades --no-install-recommends .*git=1:2[.]34[.]1-.*git-man=1:2[.]34[.]1-' "$TEST_HOME/apt-get-invocations"
     grep -Eq 'install -y --allow-downgrades --no-install-recommends .*libgraphviz-dev=2[.]42[.]2-.*build-essential=12[.]9ubuntu3' "$TEST_HOME/apt-get-invocations"
     grep -Eq 'install -y --allow-downgrades --no-install-recommends .*ripgrep=13[.]0[.]0-' "$TEST_HOME/apt-get-invocations"
+    grep -Eq 'install -y --allow-downgrades --no-install-recommends .*fd-find=8[.]3[.]1-' "$TEST_HOME/apt-get-invocations"
     grep -Eq 'install -y --allow-downgrades --no-install-recommends .*openssh-client=1:8[.]9p1-' "$TEST_HOME/apt-get-invocations"
 }
 
