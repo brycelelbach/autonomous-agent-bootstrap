@@ -2184,7 +2184,7 @@ PI_OBSERVABILITY_ENV_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_ENV_EOF'
 # should not leak into unrelated tools.
 
 export PI_TELEMETRY="${PI_TELEMETRY:-1}"
-export PI_TIMING="${PI_TIMING:-1}"
+export PI_TIMING="${PI_TIMING:-0}"
 export OPENAI_LOG="${OPENAI_LOG:-debug}"
 export ANTHROPIC_LOG="${ANTHROPIC_LOG:-debug}"
 

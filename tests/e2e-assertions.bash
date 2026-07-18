@@ -416,6 +416,8 @@ grep -Fq 'export OTEL_METRICS_EXPORTER="${OTEL_METRICS_EXPORTER:-console}"' "$PI
     || fail "Pi metrics exporter does not default to console."
 grep -Fq 'export OTEL_LOGS_EXPORTER="${OTEL_LOGS_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE" \
     || fail "Pi log exporter does not default to console."
+grep -Fq 'export PI_TIMING="${PI_TIMING:-0}"' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi startup timing diagnostics are not disabled by default."
 grep -Fq 'PI_DEBUG_LOG_FILE' "$PI_OBSERVABILITY_PRELOAD" \
     || fail "Pi JSONL debug preload is incomplete."
 grep -Fq 'pi.registerFlag("list-tools"' "$PI_LIST_TOOLS_EXTENSION" \
