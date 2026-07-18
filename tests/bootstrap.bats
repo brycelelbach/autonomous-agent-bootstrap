@@ -13,7 +13,7 @@ setup() {
           AAB_CLAUDE_DEFAULT_PROFILE \
           AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_THIRD_PARTY_PROFILES \
           AAB_CODEX_DEFAULT_PROFILE AAB_CODEX_SERVICE_TIER \
-          AAB_CODEX_AGENT_MAX_THREADS \
+          AAB_CODEX_AGENT_MAX_THREADS AAB_CODEX_HOOK_TRUST_HELPER \
           AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
           AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
           AAB_ANTHROPIC_API_KEY AAB_OPENAI_API_KEY \
@@ -83,6 +83,11 @@ teardown() {
     [[ "$PI_PLUGINS_DEFAULT_CONTENT" != *"__AAB_PI_PLUGINS__"* ]]
     grep -Fq 'git:github.com/nicobailon/pi-subagents@' "$REPO_ROOT/pi_plugins.txt"
     ! grep -Fq 'robobryce/pi-subagents' "$REPO_ROOT/pi_plugins.txt"
+}
+
+@test "Codex session hook trust helper is compiled into bootstrap.bash" {
+    [ "$CODEX_SESSION_HOOK_TRUST_CONTENT" = "$(cat "$REPO_ROOT/src/codex/session-hook-trust.py")" ]
+    [[ "$CODEX_SESSION_HOOK_TRUST_CONTENT" != *"__AAB_CODEX_SESSION_HOOK_TRUST__"* ]]
 }
 
 @test "Claude profiles inherit unspecified tier models from the primary model" {
@@ -830,7 +835,59 @@ PY
     [ ! -f "${SETTINGS_FILE}.pre-autocuda-install.bak" ]
 }
 
-@test "configure_codex_launchers wraps codex with dynamic trust and bypass flags" {
+@test "Codex session hook trust helper emits enabled unmanaged hook state" {
+    cat > "$TEST_HOME/fake-codex" <<'PY'
+#!/usr/bin/env python3
+import json
+import sys
+
+for line in sys.stdin:
+    message = json.loads(line)
+    request_id = message.get("id")
+    if message["method"] == "initialize":
+        response = {"id": request_id, "result": {}}
+    elif message["method"] == "hooks/list":
+        response = {
+            "id": request_id,
+            "result": {
+                "data": [{
+                    "hooks": [
+                        {
+                            "key": "user:session_start:0:0",
+                            "enabled": True,
+                            "isManaged": False,
+                            "currentHash": "sha256:enabled",
+                        },
+                        {
+                            "key": "user:session_start:0:1",
+                            "enabled": False,
+                            "isManaged": False,
+                            "currentHash": "sha256:disabled",
+                        },
+                        {
+                            "key": "system:session_start:0:0",
+                            "enabled": True,
+                            "isManaged": True,
+                            "currentHash": "sha256:managed",
+                        },
+                    ]
+                }]
+            },
+        }
+    else:
+        continue
+    print(json.dumps(response), flush=True)
+PY
+    chmod +x "$TEST_HOME/fake-codex"
+    _write_codex_session_hook_trust
+
+    run "$CODEX_SESSION_HOOK_TRUST" "$TEST_HOME/fake-codex" "$TEST_HOME/work"
+
+    [ "$status" -eq 0 ]
+    [ "$output" = '{"user:session_start:0:0"={trusted_hash="sha256:enabled"}}' ]
+}
+
+@test "configure_codex_launchers injects session hook trust without bypass warning" {
     mkdir -p "$HOME/.local/bin" "$TEST_HOME/work/subdir"
     cat > "$TEST_HOME/real-codex" <<SH
 #!/usr/bin/env bash
@@ -838,6 +895,11 @@ printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
 SH
     chmod +x "$TEST_HOME/real-codex"
     ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
+    cat > "$TEST_HOME/hook-trust-helper" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '{"user:session_start:0:0"={trusted_hash="sha256:trusted"}}'
+SH
+    chmod +x "$TEST_HOME/hook-trust-helper"
 
     configure_codex_launchers
 
@@ -845,14 +907,37 @@ SH
     [ -L "$HOME/.local/bin/codex-aab-real" ]
     (
         cd "$TEST_HOME/work/subdir"
-        "$HOME/.local/bin/codex" --version
+        AAB_CODEX_HOOK_TRUST_HELPER="$TEST_HOME/hook-trust-helper" \
+            "$HOME/.local/bin/codex" --version
     )
 
     grep -Fxq -- '--dangerously-bypass-approvals-and-sandbox' "$TEST_HOME/codex-launcher-args"
-    grep -Fxq -- '--dangerously-bypass-hook-trust' "$TEST_HOME/codex-launcher-args"
+    ! grep -Fxq -- '--dangerously-bypass-hook-trust' "$TEST_HOME/codex-launcher-args"
+    grep -Fxq -- 'hooks.state={"user:session_start:0:0"={trusted_hash="sha256:trusted"}}' "$TEST_HOME/codex-launcher-args"
     grep -Fxq -- '-c' "$TEST_HOME/codex-launcher-args"
     grep -Fxq "projects={\"$TEST_HOME/work/subdir\"={trust_level=\"trusted\"}}" "$TEST_HOME/codex-launcher-args"
     grep -Fxq -- '--version' "$TEST_HOME/codex-launcher-args"
+}
+
+@test "configure_codex_launchers preserves hook bypass when session trust fails" {
+    mkdir -p "$HOME/.local/bin" "$TEST_HOME/work"
+    cat > "$TEST_HOME/real-codex" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
+SH
+    chmod +x "$TEST_HOME/real-codex"
+    ln -s "$TEST_HOME/real-codex" "$HOME/.local/bin/codex"
+    cat > "$TEST_HOME/hook-trust-helper" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+    chmod +x "$TEST_HOME/hook-trust-helper"
+
+    configure_codex_launchers
+    AAB_CODEX_HOOK_TRUST_HELPER="$TEST_HOME/hook-trust-helper" \
+        "$HOME/.local/bin/codex" --version
+
+    grep -Fxq -- '--dangerously-bypass-hook-trust' "$TEST_HOME/codex-launcher-args"
 }
 
 @test "configure_codex_launchers adds git root to dynamic trust override" {

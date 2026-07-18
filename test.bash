@@ -161,7 +161,7 @@ run_smoke() {
         return 1
     fi
 
-    if ! codex_output=$(timeout 180s codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$prompt" 2>&1); then
+    if ! codex_output=$(timeout 180s codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$prompt" 2>&1); then
         printf '%s\n' "$codex_output" | redact_secrets >&2
         echo "test.bash: Codex smoke test failed." >&2
         return 1

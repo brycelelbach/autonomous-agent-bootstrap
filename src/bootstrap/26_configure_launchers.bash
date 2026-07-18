@@ -299,6 +299,20 @@ PY
     mv -f "$tmp" "$CODEX_GATEWAY_MODEL_CATALOG"
 }
 
+CODEX_SESSION_HOOK_TRUST_CONTENT=$(cat <<'AAB_CODEX_SESSION_HOOK_TRUST_EOF'
+__AAB_CODEX_SESSION_HOOK_TRUST__
+AAB_CODEX_SESSION_HOOK_TRUST_EOF
+)
+
+_write_codex_session_hook_trust() {
+    local tmp
+    mkdir -p "$(dirname "$CODEX_SESSION_HOOK_TRUST")"
+    tmp=$(mktemp "${CODEX_SESSION_HOOK_TRUST}.tmp.XXXXXX")
+    printf '%s\n' "$CODEX_SESSION_HOOK_TRUST_CONTENT" > "$tmp"
+    chmod 700 "$tmp"
+    mv -f "$tmp" "$CODEX_SESSION_HOOK_TRUST"
+}
+
 _write_codex_launcher() {
     local source="$1" name="$2" model="$3" effort="$4" service_tier="$5"
     local fast_mode="$6" model_catalog="$7" launcher="$8" tmp
@@ -317,6 +331,7 @@ _write_codex_launcher() {
 set -euo pipefail
 
 real_bin="${AAB_CODEX_REAL_BIN:-$HOME/.local/bin/codex-aab-real}"
+hook_trust_helper="${AAB_CODEX_HOOK_TRUST_HELPER:-$HOME/.aab/codex-session-hook-trust.py}"
 env_file="${AAB_ENV_FILE:-$HOME/.aab/.env}"
 if [ -f "$env_file" ]; then
     set -a
@@ -411,7 +426,15 @@ done
 
 extra_args=("${config_args[@]}" -c "$trust_override")
 if [ "$has_hook_bypass" -eq 0 ]; then
-    extra_args=(--dangerously-bypass-hook-trust "${extra_args[@]}")
+    hook_state=""
+    if [ -x "$hook_trust_helper" ]; then
+        hook_state=$("$hook_trust_helper" \
+            "$real_bin" "$cwd" "${config_args[@]}" -c "$trust_override" 2>/dev/null) || hook_state=""
+    fi
+    case "$hook_state" in
+        \{*\}) extra_args=(-c "hooks.state=${hook_state}" "${extra_args[@]}") ;;
+        *) extra_args=(--dangerously-bypass-hook-trust "${extra_args[@]}") ;;
+    esac
 fi
 if [ "$has_yolo" -eq 0 ]; then
     extra_args=(--dangerously-bypass-approvals-and-sandbox "${extra_args[@]}")
@@ -431,6 +454,7 @@ configure_codex_launchers() {
     local -A profile=() selected=()
 
     _prepare_launcher_real_binary "codex" "$codex_bin" "$real_bin" "Autonomous-agent-bootstrap Codex launcher"
+    _write_codex_session_hook_trust
     _remove_aab_profile_launchers \
         'Autonomous-agent-bootstrap Codex launcher' \
         "${HOME}/.local/bin/codex-first-party*" \

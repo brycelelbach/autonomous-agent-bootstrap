@@ -19,6 +19,8 @@ PI_OBSERVABILITY_ENV = PI_ASSET_DIR / "observability.env"
 PI_OBSERVABILITY_PRELOAD = PI_ASSET_DIR / "observability-preload.cjs"
 PI_LIST_TOOLS_EXTENSION = PI_ASSET_DIR / "list-tools.ts"
 PI_FAST_MODE_EXTENSION = PI_ASSET_DIR / "fast-mode.ts"
+CODEX_ASSET_DIR = ROOT / "src" / "codex"
+CODEX_SESSION_HOOK_TRUST = CODEX_ASSET_DIR / "session-hook-trust.py"
 
 GENERATED_HEADER = """# -----------------------------------------------------------------------------
 # GENERATED FILE: do not edit directly.
@@ -53,6 +55,7 @@ def compile_bootstrap(
     pi_observability_preload = PI_OBSERVABILITY_PRELOAD.read_text().rstrip("\n")
     pi_list_tools_extension = PI_LIST_TOOLS_EXTENSION.read_text().rstrip("\n")
     pi_fast_mode_extension = PI_FAST_MODE_EXTENSION.read_text().rstrip("\n")
+    codex_session_hook_trust = CODEX_SESSION_HOOK_TRUST.read_text().rstrip("\n")
     return (
         compiled.replace("__AAB_BOOTSTRAP_REPO__", bootstrap_repo)
         .replace("__AAB_BOOTSTRAP_REF__", bootstrap_ref)
@@ -62,6 +65,7 @@ def compile_bootstrap(
         .replace("__AAB_PI_OBSERVABILITY_PRELOAD__", pi_observability_preload)
         .replace("__AAB_PI_LIST_TOOLS_EXTENSION__", pi_list_tools_extension)
         .replace("__AAB_PI_FAST_MODE_EXTENSION__", pi_fast_mode_extension)
+        .replace("__AAB_CODEX_SESSION_HOOK_TRUST__", codex_session_hook_trust)
     )
 
 

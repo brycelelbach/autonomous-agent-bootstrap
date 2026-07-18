@@ -166,6 +166,7 @@ All variables are optional unless a configured third-party profile needs the inf
 | `~/.local/bin/codex-first-party-*` | One first-party Codex launcher per configured versioned profile. |
 | `~/.local/bin/codex-third-party-*` | One inference-gateway Codex launcher per configured versioned profile. |
 | `~/.local/bin/codex-aab-real` | Link or moved copy of the real Codex binary. |
+| `~/.aab/codex-session-hook-trust.py` | Generates per-session trust for enabled Codex hooks so unattended launchers do not prompt or emit the hook-bypass warning. |
 | `~/.local/bin/pi` | Pi launcher file for the selected profile, or an unconfigured launcher when no profiles are configured. Every launcher scopes Pi logging and OpenTelemetry variables to the Pi process. |
 | `~/.local/bin/pi-*` | One gateway-backed Pi launcher per configured versioned profile; aliases omit `third-party`. |
 | `~/.local/bin/pi-aab-real`, `~/.local/lib/node_modules/@earendil-works/pi-coding-agent/` | Pinned official npm Pi CLI and its runtime assets. |

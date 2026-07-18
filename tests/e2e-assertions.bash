@@ -365,6 +365,8 @@ codex_profile_launcher="$HOME/.local/bin/codex-${expected_codex_source}-${expect
 [ -x "$codex_profile_launcher" ] || fail "Codex selected profile launcher missing at ${codex_profile_launcher}."
 [ -x "$HOME/.local/bin/codex-aab-real" ] \
     || fail "Codex real binary link not installed."
+[ -x "$HOME/.aab/codex-session-hook-trust.py" ] \
+    || fail "Codex session hook trust helper not installed."
 "$HOME/.local/bin/codex-aab-real" --version 2>&1 | grep -Fq "$CODEX_VERSION" \
     || fail "Codex is not the pinned version $CODEX_VERSION."
 pass "codex wrapper family installed and runnable."
