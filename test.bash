@@ -74,7 +74,7 @@ run_e2e() {
     : "${AAB_CODEX_FIRST_PARTY_PROFILES:=gpt-5.5 effort=xhigh}"
     : "${AAB_CODEX_THIRD_PARTY_PROFILES:=gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra fast=true}"
     : "${AAB_CODEX_DEFAULT_PROFILE:=third-party/gpt-5.6}"
-    : "${AAB_PI_PROFILES:=gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra context=1050000 max_tokens=128000 fast=true}"
+    : "${AAB_PI_PROFILES:=gpt-5.6 model=openai/openai/gpt-5.6-sol effort=max context=1050000 max_tokens=128000 fast=true}"
     : "${AAB_PI_DEFAULT_PROFILE:=gpt-5.6}"
     : "${AAB_INFERENCE_GATEWAY_URL:=https://gateway.example.com/v1}"
     : "${AAB_INFERENCE_GATEWAY_API_KEY:=gateway-e2e-test-key}"

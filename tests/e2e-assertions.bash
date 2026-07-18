@@ -401,7 +401,9 @@ node --version 2>&1 | grep -Fxq "v${NODE_VERSION}" \
 [ ! -e "$HOME/.local/bin/pi-third-party-${expected_pi_profile[name]}" ] \
     || fail "Pi aliases must not include third-party."
 [ -f "$PI_MODELS_FILE" ] || fail "Pi models.json not written."
-python3 - "$PI_MODELS_FILE" "${expected_pi_profile[model]}" "${expected_pi_profile[fast]}" <<'PY'
+python3 - "$PI_MODELS_FILE" "${expected_pi_profile[model]}" \
+    "${expected_pi_profile[effort]}" "${expected_pi_profile[thinking]}" \
+    "${expected_pi_profile[fast]}" <<'PY'
 import json
 import sys
 
@@ -409,11 +411,19 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     providers = json.load(handle)["providers"]
 provider = providers["aab-gateway"]
 assert provider["api"] == "openai-completions", provider
-expected_model, fast = sys.argv[2:]
+expected_model, effort, thinking, fast = sys.argv[2:]
+model = next(model for model in provider["models"] if model["id"] == expected_model)
+if effort != thinking or thinking in {"xhigh", "max"}:
+    assert model["thinkingLevelMap"] == {thinking: effort}, model
+else:
+    assert "thinkingLevelMap" not in model, model
 if fast == "true":
     fast_provider = providers["aab-gateway-fast"]
     assert fast_provider["api"] == "aab-openai-responses-fast", fast_provider
     assert expected_model in [model["id"] for model in fast_provider["models"]], fast_provider
+    fast_model = next(model for model in fast_provider["models"] if model["id"] == expected_model)
+    if effort != thinking or thinking in {"xhigh", "max"}:
+        assert fast_model["thinkingLevelMap"] == {thinking: effort}, fast_model
 PY
 "$HOME/.local/bin/pi-aab-real" --version 2>&1 | grep -Fq "$PI_VERSION" \
     || fail "Pi is not the pinned version $PI_VERSION."

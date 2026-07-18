@@ -107,7 +107,7 @@ with open(records_path, encoding="utf-8", newline="") as handle:
             "maxTokens": int(max_tokens or "16384"),
             "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
         }
-        if effort != thinking:
+        if effort != thinking or thinking in {"xhigh", "max"}:
             candidate["thinkingLevelMap"] = {thinking: effort}
         merge_model(models, deepcopy(candidate))
         if fast == "true":
