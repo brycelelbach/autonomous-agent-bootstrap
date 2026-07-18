@@ -1,8 +1,10 @@
-# Ubuntu 22.04 packages bootstrap.bash installs with apt-get.
+# Preferred Ubuntu 22.04 package versions bootstrap.bash installs with apt-get.
 #
 # One pinned package specification per line. The upstream version is fixed;
 # the trailing wildcard admits Ubuntu security/build revisions for that same
-# version. Comments and blank lines are ignored.
+# version. On Ubuntu releases that do not provide these versions, the bootstrap
+# installs the release's available versions instead. Comments and blank lines
+# are ignored.
 
 # Bare container images (e.g. ubuntu:22.04) ship apt-get but not these, and the
 # bootstrap and its installers assume curl / python3 / git / tar are present.
