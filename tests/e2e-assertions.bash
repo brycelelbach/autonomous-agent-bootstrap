@@ -346,6 +346,7 @@ pass "Codex agent plugins installed."
 command -v pi >/dev/null 2>&1 || fail "pi not on PATH after bootstrap."
 command -v node >/dev/null 2>&1 || fail "node not on PATH after bootstrap."
 command -v npm >/dev/null 2>&1 || fail "npm not on PATH after bootstrap."
+command -v fdfind >/dev/null 2>&1 || fail "fdfind not on PATH after bootstrap."
 node --version 2>&1 | grep -Fxq "v${NODE_VERSION}" \
     || fail "Node.js is not the pinned version ${NODE_VERSION}."
 [ -x "$HOME/.local/bin/pi-${expected_pi_profile[name]}" ] \
