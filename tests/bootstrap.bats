@@ -391,6 +391,8 @@ PY
     grep -q '^hide_full_access_warning = true$' "$CODEX_CONFIG"
     grep -q '^inherit = "all"$' "$CODEX_CONFIG"
     grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG"
+    grep -q '^\[features.multi_agent_v2\]$' "$CODEX_CONFIG"
+    grep -q '^max_concurrent_threads_per_session = 65$' "$CODEX_CONFIG"
     grep -q '^\[agents\]$' "$CODEX_CONFIG"
     grep -q '^max_threads = 64$' "$CODEX_CONFIG"
     grep -qF "[projects.\"$HOME\"]" "$CODEX_CONFIG"
@@ -401,13 +403,14 @@ PY
     AAB_CODEX_FIRST_PARTY_PROFILES="gpt-5.4 effort=high" \
         AAB_CODEX_DEFAULT_PROFILE="first-party/gpt-5.4" \
         AAB_CODEX_SERVICE_TIER="flex" \
-        AAB_CODEX_AGENT_MAX_THREADS="24" \
+        AAB_CODEX_AGENT_MAX_THREADS="16" \
         configure_codex_config
     grep -q '^model = "gpt-5.4"$' "$CODEX_CONFIG"
     grep -q '^model_reasoning_effort = "high"$' "$CODEX_CONFIG"
     grep -q '^service_tier = "flex"$' "$CODEX_CONFIG"
     grep -q '^fast_mode = false$' "$CODEX_CONFIG"
-    grep -q '^max_threads = 24$' "$CODEX_CONFIG"
+    grep -q '^max_concurrent_threads_per_session = 17$' "$CODEX_CONFIG"
+    grep -q '^max_threads = 16$' "$CODEX_CONFIG"
 }
 
 @test "configure_codex_config can target a third-party OpenAI-compatible Responses endpoint" {
@@ -462,6 +465,7 @@ PY
     AAB_CODEX_AGENT_MAX_THREADS="many" run configure_codex_config
     [ "$status" -eq 0 ]
     [[ "$output" == *"AAB_CODEX_AGENT_MAX_THREADS='many'"* ]]
+    grep -q '^max_concurrent_threads_per_session = 65$' "$CODEX_CONFIG"
     grep -q '^max_threads = 64$' "$CODEX_CONFIG"
 }
 

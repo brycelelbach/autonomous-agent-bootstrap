@@ -165,6 +165,7 @@ esac
 if [ "$expected_codex_agent_max_threads_valid" -eq 0 ]; then
     expected_codex_agent_max_threads="64"
 fi
+expected_codex_multi_agent_v2_slots=$((expected_codex_agent_max_threads + 1))
 grep -q '^approval_policy = "never"$' "$CODEX_CONFIG" \
     || fail "Codex approval_policy is not never."
 grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG" \
@@ -201,6 +202,10 @@ grep -q '^inherit = "all"$' "$CODEX_CONFIG" \
     || fail "Codex shell env inheritance is not all."
 grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG" \
     || fail "Codex shell env token inheritance is not enabled."
+grep -q '^\[features.multi_agent_v2\]$' "$CODEX_CONFIG" \
+    || fail "Codex multi-agent V2 config section is missing."
+grep -Fxq "max_concurrent_threads_per_session = ${expected_codex_multi_agent_v2_slots}" "$CODEX_CONFIG" \
+    || fail "Codex multi-agent V2 total slots are not ${expected_codex_multi_agent_v2_slots}."
 grep -Fxq "max_threads = ${expected_codex_agent_max_threads}" "$CODEX_CONFIG" \
     || fail "Codex agent max_threads is not ${expected_codex_agent_max_threads}."
 grep -qF "[projects.\"$HOME\"]" "$CODEX_CONFIG" \
