@@ -14,7 +14,7 @@ High-traffic audit targets:
 - `04_install_node.bash` installs the pinned Node.js runtime used by Pi and its packages.
 - `06_install_gitleaks.bash` installs the pinned, checksum-verified gitleaks release binary.
 - `11_install_agent_plugins.bash` installs the plugin list embedded by the compiler from `agent_plugins.txt`.
-- `11_install_pi_plugins.bash` installs the exact Pi package list embedded from `pi_plugins.txt`.
+- `11_install_pi_plugins.bash` installs the Pi package list embedded from `pi_plugins.txt`; AAB-owned repositories follow their default branches, while third-party sources remain pinned.
 - `12_model_profiles.bash` parses and resolves environment-defined model profiles.
 - `13_configure_claude.bash` owns Claude settings, onboarding, and shell defaults.
 - `13_configure_codex.bash` owns Codex instructions, config, and authentication.

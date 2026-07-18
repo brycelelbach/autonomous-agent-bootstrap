@@ -19,8 +19,8 @@ install_autocuda() {
     mapfile -d '' git_env < <(_github_git_env)
 
     log "Installing the private autocuda package as a uv tool (best effort)."
-    "${git_env[@]}" "$UV_BIN" tool install \
-        "git+https://github.com/${AUTOCUDA_PRIVATE_REPO}@${AUTOCUDA_REF}" 2>&1 | sed 's/^/  /' \
+    "${git_env[@]}" "$UV_BIN" tool install --refresh \
+        "git+https://github.com/${AUTOCUDA_PRIVATE_REPO}" 2>&1 | sed 's/^/  /' \
         || warn "Could not install autocuda (private repo without access, or its build toolchain is absent); continuing without it."
 
     if ! command -v autocuda >/dev/null 2>&1; then
