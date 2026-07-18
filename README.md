@@ -11,7 +11,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 5. **Profile launcher families** in `~/.local/bin`, with source-explicit Claude and Codex aliases such as `claude-third-party-deepseek-v4` and `codex-first-party-gpt-5.5`, plus Pi aliases such as `pi-opus-4.8`. Pi omits `third-party` because every Pi profile uses the inference gateway.
 6. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
 7. **gh CLI**, installed as a pinned, checksum-verified standalone release.
-8. **CLI tools as uv tools** — `uv` plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. Built-in tool names resolve to the versions in [`src/bootstrap/00_versions.bash`](./src/bootstrap/00_versions.bash). The private `autocuda` package is installed best-effort from the immutable ref in the same version file (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin and worker with Claude Code, Codex, and Pi. Ubuntu package versions remain in [`apt_packages.txt`](./apt_packages.txt), agent plugins remain in [`agent_plugins.txt`](./agent_plugins.txt), and Pi packages remain in [`pi_plugins.txt`](./pi_plugins.txt).
+8. **CLI tools as uv tools** — `uv` plus the tools listed in [`uv_tools.txt`](./uv_tools.txt), each installed with `uv tool install` into its own isolated environment with its executables symlinked into `~/.local/bin`, which the managed PATH blocks put ahead of the system dirs so a bare `ruff` / `pre-commit` resolves there. Built-in tool names resolve to the versions in [`src/bootstrap/00_versions.bash`](./src/bootstrap/00_versions.bash). The private `autocuda` package is installed best-effort from the immutable ref in the same version file (it is omitted from `uv_tools.txt` because it lives behind a private repo; a host without access — or without the Graphviz headers and compiler its `pygraphviz` dependency builds against — logs a warning and continues), and after the harnesses are in place `autocuda install` registers the autocuda plugin and worker with Claude Code, Codex, and Pi. Preferred Ubuntu 22.04 package versions remain in [`apt_packages.txt`](./apt_packages.txt); other Ubuntu releases use their available versions. Agent plugins remain in [`agent_plugins.txt`](./agent_plugins.txt), and Pi packages remain in [`pi_plugins.txt`](./pi_plugins.txt).
 9. **lifeboat** — a single-script home-directory backup tool fetched to `~/.local/bin/lifeboat`. It tars `$HOME`, keeping git history, source, and docs while dropping regenerable bulk (build artifacts, profiler dumps, caches, virtualenvs), to snapshot an agent's work before an ephemeral box is torn down. Compresses with `pigz` when present, falling back to `gzip`. Source: [`brycelelbach/lifeboat`](https://github.com/brycelelbach/lifeboat).
 10. **git**, with optional author identity, GitHub credential helper, SSH auth key, and SSH signing key.
 11. **Global agent rules** — clean rule text in every harness's global instruction file (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`) carrying the operating principles for an unattended agent in this sandbox (be concise, act autonomously, no harmful credentials) plus the git-identity rule. AAB tracks the generated text in a sidecar instead of adding management comments to agent prompts.
@@ -21,9 +21,9 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 ## Requirements
 
-- Ubuntu 22.04 host with `bash` and `apt-get`
+- Ubuntu 22.04 or later with `bash` and `apt-get`
 - Passwordless `sudo`, or run as root
-- A bare `ubuntu:22.04` image is valid; the bootstrap installs the version-pinned [`apt_packages.txt`](./apt_packages.txt) dependencies in one centralized step, then installs pinned Node.js and checksum-verified standalone `gh` releases.
+- Bare `ubuntu:22.04` and current `ubuntu:latest` images are valid. The bootstrap prefers the [`apt_packages.txt`](./apt_packages.txt) Ubuntu 22.04 versions and falls back to the current distribution's versions when those pins are unavailable, then installs pinned Node.js and checksum-verified standalone `gh` releases.
 
 ## Quick Start
 
@@ -249,7 +249,7 @@ All tests are driven by [`./test.bash`](./test.bash).
 ./test.bash --lint       # bash -n + shellcheck
 ./test.bash --unit       # bats suite
 ./test.bash --e2e        # destructive host e2e
-./test.bash --docker     # e2e in a fresh ubuntu:22.04 container
+./test.bash --docker     # e2e in fresh ubuntu:22.04 and ubuntu:latest containers
 ./test.bash --smoke      # live Claude + Codex inference smoke
 ./test.bash --secrets    # gitleaks scan
 ./test.bash --all        # lint + unit + e2e + secrets
