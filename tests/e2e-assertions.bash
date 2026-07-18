@@ -60,9 +60,11 @@ assert d["model"] == expected_model, d
 assert d["extraKnownMarketplaces"]["robobryce-agitentic"]["source"]["repo"] == "brycelelbach/agitentic", d
 assert d["enabledPlugins"]["agitentic@robobryce-agitentic"] is True, d
 allow = d["permissions"]["allow"]
-for op in ("Edit", "Write", "Read"):
+for op in ("Edit", "Read"):
     assert f"{op}({home}/.claude/**)" in allow, (op, allow)
     assert f"{op}({home}/.claude.json)" in allow, (op, allow)
+assert f"Write({home}/.claude/**)" not in allow, allow
+assert f"Write({home}/.claude.json)" not in allow, allow
 deny = d["permissions"]["deny"]
 assert "AskUserQuestion" in deny, deny
 assert "EnterPlanMode" in deny, deny

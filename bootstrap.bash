@@ -1727,10 +1727,8 @@ configure_claude_settings() {
     "defaultMode": "bypassPermissions",
     "allow": [
       "Edit(${HOME}/.claude/**)",
-      "Write(${HOME}/.claude/**)",
       "Read(${HOME}/.claude/**)",
       "Edit(${HOME}/.claude.json)",
-      "Write(${HOME}/.claude.json)",
       "Read(${HOME}/.claude.json)"
     ],
     "deny": [
