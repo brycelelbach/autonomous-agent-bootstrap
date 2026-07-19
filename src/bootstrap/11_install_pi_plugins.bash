@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# Install the Pi packages listed in pi_plugins.txt.
+# Reinstall the Pi packages listed in pi_plugins.txt.
 #
 # The compiler embeds pi_plugins.txt below. AAB_PI_PLUGINS_FILE can replace
 # the compiled list for a one-off local build.
@@ -73,9 +73,22 @@ install_pi_plugins() {
 
     local -a git_env=()
     mapfile -d '' git_env < <(_github_git_env)
-    local source
+    local source remove_output
     for source in "${sources[@]}"; do
-        log "Installing Pi package ${source}."
+        # Pi has no force-install option. Remove the managed package first so
+        # an existing checkout or npm tree cannot make installation a no-op.
+        # Missing settings entries are expected because configure_pi_settings
+        # clears the package registry before this function runs.
+        log "Reinstalling Pi package ${source}."
+        remove_output=""
+        if ! remove_output=$("${git_env[@]}" "$pi_bin" remove "$source" --no-approve 2>&1); then
+            if [[ "$remove_output" != *"No matching package found"* ]]; then
+                if [ -n "$remove_output" ]; then
+                    printf '%s\n' "$remove_output" | sed 's/^/  /'
+                fi
+                warn "Pi package removal returned non-zero for ${source}; installation will still be attempted."
+            fi
+        fi
         "${git_env[@]}" "$pi_bin" install "$source" --no-approve 2>&1 | sed 's/^/  /' \
             || warn "Pi package install returned non-zero for ${source}."
     done
