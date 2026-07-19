@@ -799,13 +799,21 @@ SH
     [[ "$output" == *"is not version-pinned"* ]]
 }
 
-@test "install_autocuda refreshes its package from the default branch" {
+@test "install_autocuda force-reinstalls its package on every run" {
     setup_fake_uv
+    cat > "$FAKE_UV_BIN/autocuda" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+    chmod +x "$FAKE_UV_BIN/autocuda"
 
-    run install_autocuda
+    PATH="$FAKE_UV_BIN:/usr/bin:/bin" run install_autocuda
     [ "$status" -eq 0 ]
-    # Installed as its own isolated uv tool, not into a shared interpreter.
-    grep -Fxq "tool install --refresh git+https://github.com/${AUTOCUDA_PRIVATE_REPO}" "$TEST_HOME/uv-invocations"
+    PATH="$FAKE_UV_BIN:/usr/bin:/bin" run install_autocuda
+    [ "$status" -eq 0 ]
+    # Force installation from a refreshed default branch on both passes.
+    [ "$(grep -Fxc "tool install --force --refresh git+https://github.com/${AUTOCUDA_PRIVATE_REPO}" \
+        "$TEST_HOME/uv-invocations")" -eq 2 ]
 }
 
 @test "install_autocuda uses the canonical plugin repository" {
@@ -1333,7 +1341,7 @@ PY
     grep -Fq 'serviceTier: "priority"' "$PI_FAST_MODE_EXTENSION"
 }
 
-@test "install_pi_plugins installs every non-comment source without profile flags" {
+@test "install_pi_plugins reinstalls every non-comment source without profile flags" {
     mkdir -p "$HOME/.local/bin"
     cat > "$HOME/.local/bin/pi-aab-real" <<SH
 #!/usr/bin/env bash
@@ -1350,9 +1358,80 @@ EOF
 
     install_pi_plugins
 
+    [ "$(sed -n '1p' "$TEST_HOME/pi-package-invocations")" = \
+        'remove npm:one@1.0.0 --no-approve' ]
+    [ "$(sed -n '2p' "$TEST_HOME/pi-package-invocations")" = \
+        'install npm:one@1.0.0 --no-approve' ]
+    [ "$(sed -n '3p' "$TEST_HOME/pi-package-invocations")" = \
+        'remove git:github.com/example/two@0123456789abcdef --no-approve' ]
+    [ "$(sed -n '4p' "$TEST_HOME/pi-package-invocations")" = \
+        'install git:github.com/example/two@0123456789abcdef --no-approve' ]
     grep -Fxq 'install npm:one@1.0.0 --no-approve' "$TEST_HOME/pi-package-invocations"
     grep -Fxq 'install git:github.com/example/two@0123456789abcdef --no-approve' "$TEST_HOME/pi-package-invocations"
-    [ "$(wc -l < "$TEST_HOME/pi-package-invocations")" -eq 2 ]
+    [ "$(wc -l < "$TEST_HOME/pi-package-invocations")" -eq 4 ]
+}
+
+@test "install_pi_plugins replaces stale package state on repeated runs" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TEST_HOME/pi-package-reinstall-invocations"
+case "$1" in
+    remove)
+        rm -f "$TEST_HOME/pi-installed-version"
+        # Pi reports no matching settings entry after AAB clears the registry.
+        printf '%s\n' 'No matching package found for git:github.com/example/rolling' >&2
+        exit 1
+        ;;
+    install)
+        if [ ! -f "$TEST_HOME/pi-installed-version" ]; then
+            cp "$TEST_HOME/pi-remote-version" "$TEST_HOME/pi-installed-version"
+        fi
+        ;;
+esac
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real"
+    printf '%s\n' 'git:github.com/example/rolling' > "$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PLUGINS_FILE="$TEST_HOME/pi-plugins.txt"
+
+    printf '%s\n' 'first' > "$TEST_HOME/pi-remote-version"
+    install_pi_plugins
+    printf '%s\n' 'second' > "$TEST_HOME/pi-remote-version"
+    install_pi_plugins
+
+    [ "$(cat "$TEST_HOME/pi-installed-version")" = 'second' ]
+    [ "$(sed -n '1p' "$TEST_HOME/pi-package-reinstall-invocations")" = \
+        'remove git:github.com/example/rolling --no-approve' ]
+    [ "$(sed -n '2p' "$TEST_HOME/pi-package-reinstall-invocations")" = \
+        'install git:github.com/example/rolling --no-approve' ]
+    [ "$(sed -n '3p' "$TEST_HOME/pi-package-reinstall-invocations")" = \
+        'remove git:github.com/example/rolling --no-approve' ]
+    [ "$(sed -n '4p' "$TEST_HOME/pi-package-reinstall-invocations")" = \
+        'install git:github.com/example/rolling --no-approve' ]
+    [ "$(wc -l < "$TEST_HOME/pi-package-reinstall-invocations")" -eq 4 ]
+}
+
+@test "install_pi_plugins warns and installs after an unexpected removal failure" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TEST_HOME/pi-package-removal-failure-invocations"
+if [ "$1" = 'remove' ]; then
+    printf '%s\n' 'Package directory is not writable.' >&2
+    exit 42
+fi
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real"
+    printf '%s\n' 'git:github.com/example/rolling' > "$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PLUGINS_FILE="$TEST_HOME/pi-plugins.txt"
+
+    run install_pi_plugins
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'Package directory is not writable.'* ]]
+    [[ "$output" == *'WARN:'*'Pi package removal returned non-zero'* ]]
+    grep -Fxq 'install git:github.com/example/rolling --no-approve' \
+        "$TEST_HOME/pi-package-removal-failure-invocations"
 }
 
 @test "install_pi_plugins installs rolling owned repositories and pinned third-party packages from defaults" {
@@ -1367,6 +1446,7 @@ SH
 
     local source
     while IFS= read -r source; do
+        grep -Fxq "remove ${source} --no-approve" "$TEST_HOME/pi-package-invocations"
         grep -Fxq "install ${source} --no-approve" "$TEST_HOME/pi-package-invocations"
     done < <(sed -E 's/#.*//' "$REPO_ROOT/pi_plugins.txt" \
         | awk 'NF && /^git:github\.com\/robobryce\/pi-/ { print }')
