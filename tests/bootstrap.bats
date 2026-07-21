@@ -89,7 +89,7 @@ teardown() {
     [[ "$PI_OBSERVABILITY_ENV_CONTENT" != *"PI_TELEMETRY"* ]]
     [[ "$PI_FAST_MODE_EXTENSION_CONTENT" == *'serviceTier: "priority"'* ]]
     for owned_repo in \
-        pi-list-tools pi-local-otel pi-schedule-prompt pi-patty-bg-tasks \
+        pi-list-tools pi-local-otel pi-schedule-prompt pi-bash-background \
         pi-web-access pi-retry-empty pi-print-stream; do
         [ "$(grep -Fxc "git:github.com/robobryce/${owned_repo}" "$REPO_ROOT/pi_plugins.txt")" -eq 1 ]
     done
