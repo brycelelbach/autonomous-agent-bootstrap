@@ -6,7 +6,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 1. **Claude Code** via the official native installer, configured for unattended use with `bypassPermissions`, a deny-only managed-settings policy for interactive human-in-the-loop tools, sandbox mode, debug logging, skipped onboarding, pre-approved first-party API-key fingerprints when provided, `CLAUDE_CODE_ATTRIBUTION_HEADER=0` so the per-request attribution block does not invalidate the prompt cache on third-party gateways, and OpenTelemetry usage logging to the console (`CLAUDE_CODE_ENABLE_TELEMETRY=1`, `OTEL_LOGS_EXPORTER=console`) with prompt, tool, and raw-body content logging left disabled.
 2. **Codex CLI** via OpenAI's standalone installer, configured with `approval_policy = "never"`, `sandbox_mode = "danger-full-access"`, trusted project roots, live web search, shell env inheritance, service tier, reasoning effort, detailed and raw reasoning traces, OpenTelemetry event recording with external exporters disabled and prompt logging off, and matching V1/V2 subagent concurrency limits. A complete AAB-managed model-instructions prompt is installed at `~/.codex/codex-instructions.md` and selected globally with the absolute `model_instructions_file` path in `~/.codex/config.toml`.
-3. **Pi** from its pinned official npm package on a pinned Node.js runtime, configured with an AAB-generated OpenAI Responses gateway provider, unattended retry/trust defaults, the packages in [`pi_plugins.txt`](./pi_plugins.txt), Pi's built-in Ctrl+B editor shortcut preserved, native JSONL session persistence, `pi-list-tools` from its current default branch, and structured OpenTelemetry through the version-pinned `pi-otel` package.
+3. **Pi** from its pinned official npm package on a pinned Node.js runtime, configured with an AAB-generated OpenAI Responses gateway provider, unattended retry/trust defaults, the packages in [`pi_plugins.txt`](./pi_plugins.txt), Pi's built-in Ctrl+B editor shortcut preserved, native JSONL session persistence, and `pi-list-tools` and [`pi-local-otel`](https://github.com/robobryce/pi-local-otel) from their current default branches. `pi-local-otel` records metadata-only lifecycle spans in bounded, private per-process JSONL files under `~/.pi/agent/debug/`; it records no prompts, messages, tool payloads, headers, or raw provider data and configures no collector or network exporter. Pi's separate anonymous install/update telemetry remains controlled by its Pi setting or an explicitly inherited `PI_TELEMETRY` override; the local OpenTelemetry configuration does not set it.
 4. **AAB env file** at `~/.aab/.env` for model profiles, selectors, and credentials. The bootstrap keeps these out of `~/.bashrc` and `/etc/environment`.
 5. **Profile launcher families** in `~/.local/bin`, with source-explicit Claude and Codex aliases such as `claude-third-party-deepseek-v4` and `codex-first-party-gpt-5.5`, plus Pi aliases such as `pi-opus-4.8`. Pi omits `third-party` because every Pi profile uses the inference gateway.
 6. **Brev CLI**, with optional `brev login --api-key ... --org-id ...` when `AAB_BREV_API_KEY` and `AAB_BREV_ORG_ID` are set.
@@ -53,7 +53,7 @@ The bootstrap also accepts the same variables through its optional sourced confi
 
 ## Generated Bootstrap
 
-`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/bootstrap/`. All non-apt, non-plugin package versions and immutable refs live in `src/bootstrap/00_versions.bash`; update that file when upgrading an installer. Claude, Codex, and Pi configuration live in `src/bootstrap/13_configure_claude.bash`, `src/bootstrap/13_configure_codex.bash`, and `src/bootstrap/13_configure_pi.bash`; Pi's short fast-mode extension is embedded directly in its configuration module. AAB-owned Pi repositories in `pi_plugins.txt` intentionally follow their default branches. After editing a module, run:
+`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/bootstrap/`. All non-apt, non-plugin package versions and immutable refs live in `src/bootstrap/00_versions.bash`; update that file when upgrading an installer. Claude, Codex, and Pi configuration live in `src/bootstrap/13_configure_claude.bash`, `src/bootstrap/13_configure_codex.bash`, and `src/bootstrap/13_configure_pi.bash`; Pi's short fast-mode extension is embedded directly in its configuration module, while its launcher-scoped observability environment lives in `src/pi/` and is embedded by the compiler. AAB-owned Pi repositories in `pi_plugins.txt`, including the `pi-local-otel` implementation, intentionally follow their default branches. After editing a module or Pi asset, run:
 
 ```bash
 python3 tools/compile_bootstrap.py
@@ -132,6 +132,9 @@ All variables are optional unless a configured third-party profile needs the inf
 | `AAB_CODEX_DEFAULT_PROFILE` | Default `first-party/<name>` or `third-party/<name>` profile used by the unqualified `codex` command. |
 | `AAB_PI_PROFILES` | Newline-delimited gateway-backed Pi profiles. |
 | `AAB_PI_DEFAULT_PROFILE` | Default profile used by the unqualified `pi` command. Defaults to the first configured Pi profile. |
+| `PI_TELEMETRY` | Optional explicit override for Pi's separate anonymous install/update telemetry; independent of `pi-local-otel`. The launcher environment does not set it. |
+| `OTEL_SDK_DISABLED`, `OTEL_TRACES_EXPORTER` | Standard `pi-local-otel` opt-outs. Set the former to `true` or the latter to `none` to disable local lifecycle spans. |
+| `PI_OTEL_MAX_FILE_BYTES`, `PI_OTEL_MAX_FILES` | Optional positive-integer overrides for local span retention. Defaults cap each file at 8 MiB and target 20 current-node managed files. Active, foreign-node, and legacy files are preserved conservatively. |
 | `AAB_INFERENCE_GATEWAY_URL` | Shared base URL used by every third-party Claude/Codex profile and every Pi profile. |
 | `AAB_INFERENCE_GATEWAY_API_KEY` | Shared inference-gateway key. It is mapped to each harness without placing the key on a command line. |
 | `AAB_ANTHROPIC_API_KEY` | Optional first-party Anthropic key. Mapped to `ANTHROPIC_API_KEY` only for first-party Claude launchers. If absent, Claude's existing interactive login is used. |
@@ -170,10 +173,13 @@ All variables are optional unless a configured third-party profile needs the inf
 | `~/.local/bin/pi-*` | One gateway-backed Pi launcher per configured versioned profile; aliases omit `third-party`. |
 | `~/.local/bin/pi-aab-real`, `~/.local/lib/node_modules/@earendil-works/pi-coding-agent/` | Pinned official npm Pi CLI and its runtime assets. |
 | `~/.local/share/aab/node/`, `~/.local/bin/{node,npm,npx,corepack}` | Pinned official Node.js runtime used by Pi and Pi package installation. |
-| `~/.pi/agent/settings.json` | Pi unattended defaults, selected gateway model, local fast-mode extension, and installed package registry. Machine identifiers and changelog state are not copied. |
+| `~/.pi/agent/settings.json` | Pi unattended defaults, selected gateway model, local fast-mode extension, and installed package registry, including `pi-local-otel`. Machine identifiers and changelog state are not copied. |
 | `~/.pi/agent/models.json` | Generated AAB inference-gateway provider and model catalog when Pi profiles are configured. |
 | `~/.pi/agent/git/github.com/robobryce/pi-list-tools/` | Tool-registry inspection package refreshed from its default branch by each bootstrap. |
-| `~/.pi/agent/npm/node_modules/pi-otel/` | Version-pinned structured OpenTelemetry package. |
+| `~/.pi/agent/git/github.com/robobryce/pi-local-otel/` | Metadata-only local telemetry package refreshed from its default branch by each bootstrap. Its exact official OpenTelemetry dependencies and `ConsoleSpanExporter` capture produce private local JSONL output without a collector or network exporter. |
+| `~/.pi/agent/extensions/fast-mode.ts` | AAB-owned Pi extension for priority mode. |
+| `~/.aab/shell/pi-observability.env` | Launcher-scoped Pi OpenTelemetry configuration that disables network exporters and content capture. |
+| `~/.pi/agent/debug/pi-otel-*.jsonl` | Private mode-`0600`, per-process local Pi span logs in a mode-`0700` directory. Under normal startup and shutdown, defaults bound current-node managed history to 20 files of at most 8 MiB each; active, foreign-node, and legacy files are preserved. |
 | `~/.aab/shell/github.env` | Private `GH_TOKEN` export generated from `AAB_GH_TOKEN`. Mode `0600`; sourced by the managed shell block. |
 | `~/.claude/settings.json` | Rewritten with unattended Claude defaults and plugin entries; existing file is backed up. |
 | `~/.claude.json` | Merged with onboarding and optional API-key approval state; existing file is backed up. |

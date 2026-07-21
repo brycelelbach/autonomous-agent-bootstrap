@@ -15,6 +15,7 @@ setup() {
           AAB_CODEX_DEFAULT_PROFILE AAB_CODEX_SERVICE_TIER \
           AAB_CODEX_AGENT_MAX_THREADS \
           AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
+          AAB_PI_OBSERVABILITY_ENV_FILE \
           AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
           AAB_ANTHROPIC_API_KEY AAB_OPENAI_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
@@ -22,6 +23,10 @@ setup() {
           AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64 \
           ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN \
           OPENAI_API_KEY GH_TOKEN GITHUB_TOKEN \
+          PI_TELEMETRY PI_TIMING PI_PATTY_BG_TASKS_DISABLE_CTRL_B \
+          PI_OTEL_LOG_DIR OTEL_SDK_DISABLED OTEL_SERVICE_NAME \
+          OTEL_TRACES_EXPORTER OTEL_METRICS_EXPORTER OTEL_LOGS_EXPORTER \
+          OTEL_RESOURCE_ATTRIBUTES OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT \
           AAB_AGENT_PLUGINS_FILE AAB_PI_PLUGINS_FILE \
           AAB_APT_PACKAGES_FILE AAB_APT_PACKAGES_URL \
           AAB_UV_TOOLS_FILE AAB_UV_TOOLS_URL
@@ -73,19 +78,24 @@ teardown() {
     [[ "$AGENT_PLUGINS_DEFAULT_CONTENT" != *"__AAB_AGENT_PLUGINS__"* ]]
 }
 
-@test "Pi package defaults and inline fast-mode extension are compiled into bootstrap.bash" {
+@test "Pi package defaults and local observability env are compiled into bootstrap.bash" {
     local owned_repo
 
     [ "$PI_PLUGINS_DEFAULT_CONTENT" = "$(cat "$REPO_ROOT/pi_plugins.txt")" ]
     [[ "$PI_PLUGINS_DEFAULT_CONTENT" != *"__AAB_PI_PLUGINS__"* ]]
+    [ "$PI_OBSERVABILITY_ENV_CONTENT" = "$(cat "$REPO_ROOT/src/pi/observability.env")" ]
+    [[ "$PI_OBSERVABILITY_ENV_CONTENT" != *"__AAB_PI_OBSERVABILITY_ENV__"* ]]
+    [[ "$PI_OBSERVABILITY_ENV_CONTENT" == *'OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"'* ]]
+    [[ "$PI_OBSERVABILITY_ENV_CONTENT" != *"PI_TELEMETRY"* ]]
     [[ "$PI_FAST_MODE_EXTENSION_CONTENT" == *'serviceTier: "priority"'* ]]
     for owned_repo in \
-        pi-list-tools pi-schedule-prompt pi-patty-bg-tasks \
+        pi-list-tools pi-local-otel pi-schedule-prompt pi-patty-bg-tasks \
         pi-web-access pi-retry-empty pi-print-stream; do
         [ "$(grep -Fxc "git:github.com/robobryce/${owned_repo}" "$REPO_ROOT/pi_plugins.txt")" -eq 1 ]
     done
-    [ "$(grep -Fxc 'npm:pi-otel@0.1.0' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ]
-    [ ! -d "$REPO_ROOT/src/pi" ]
+    ! grep -Eq '^npm:pi-otel(@|$)' "$REPO_ROOT/pi_plugins.txt"
+    [ ! -e "$REPO_ROOT/src/pi/otel-console.cjs" ]
+    [ ! -e "$REPO_ROOT/src/pi/local-otel.ts" ]
     ! grep -Eq '^git:github\.com/robobryce/pi-[^@[:space:]]+@' "$REPO_ROOT/pi_plugins.txt"
     ! grep -Eq '^npm:(pi-list-tools|pi-print-stream)(@|$)' "$REPO_ROOT/pi_plugins.txt"
     grep -Fq 'git:github.com/nicobailon/pi-subagents@' "$REPO_ROOT/pi_plugins.txt"
@@ -1165,12 +1175,20 @@ SH
 }
 
 @test "configure_pi_models and configure_pi_launchers create pi-model aliases" {
-    mkdir -p "$HOME/.local/bin"
+    mkdir -p "$HOME/.local/bin" "$(dirname "$PI_OBSERVABILITY_ENV_FILE")"
+    cp "$REPO_ROOT/src/pi/observability.env" "$PI_OBSERVABILITY_ENV_FILE"
+    printf '\nexport AAB_TEST_PI_OBSERVABILITY=local-only\n' >> "$PI_OBSERVABILITY_ENV_FILE"
     cat > "$HOME/.local/bin/pi-aab-real" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$TEST_HOME/pi-launcher-args"
 printf '%s\n' "\${AAB_PI_DEFAULT_PROFILE:-}" > "$TEST_HOME/pi-launcher-default-profile"
 printf '%s\n' "\${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-}" > "$TEST_HOME/pi-launcher-patty-disable-ctrl-b"
+printf '%s\n' "\${AAB_TEST_PI_OBSERVABILITY:-}" > "$TEST_HOME/pi-launcher-observability"
+printf '%s\n' "\${PI_TELEMETRY:-}" > "$TEST_HOME/pi-launcher-install-telemetry"
+printf '%s\n' "\${OTEL_SERVICE_NAME:-}" > "$TEST_HOME/pi-launcher-otel-service"
+printf '%s\n' "\${OTEL_TRACES_EXPORTER:-}" > "$TEST_HOME/pi-launcher-otel-traces-exporter"
+printf '%s\n' "\${OTEL_SDK_DISABLED:-}" > "$TEST_HOME/pi-launcher-otel-sdk-disabled"
+printf '%s\n' "\${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT:-}" > "$TEST_HOME/pi-launcher-otel-content-capture"
 SH
     chmod +x "$HOME/.local/bin/pi-aab-real"
 
@@ -1201,6 +1219,18 @@ SH
     grep -Fxq 'max' "$TEST_HOME/pi-launcher-args"
     ! grep -Fxq 'ultra' "$TEST_HOME/pi-launcher-args"
     [ "$(cat "$TEST_HOME/pi-launcher-patty-disable-ctrl-b")" = "1" ]
+    [ "$(cat "$TEST_HOME/pi-launcher-observability")" = "local-only" ]
+    [ -z "$(cat "$TEST_HOME/pi-launcher-install-telemetry")" ]
+    [ "$(cat "$TEST_HOME/pi-launcher-otel-service")" = "pi-coding-agent" ]
+    [ "$(cat "$TEST_HOME/pi-launcher-otel-traces-exporter")" = "console" ]
+    [ "$(cat "$TEST_HOME/pi-launcher-otel-sdk-disabled")" = "false" ]
+    [ "$(cat "$TEST_HOME/pi-launcher-otel-content-capture")" = "false" ]
+
+    PI_TELEMETRY=0 OTEL_SDK_DISABLED=true OTEL_TRACES_EXPORTER=none \
+        "$HOME/.local/bin/pi-gpt-5.6" -p hello
+    [ "$(cat "$TEST_HOME/pi-launcher-install-telemetry")" = "0" ]
+    [ "$(cat "$TEST_HOME/pi-launcher-otel-sdk-disabled")" = "true" ]
+    [ "$(cat "$TEST_HOME/pi-launcher-otel-traces-exporter")" = "none" ]
 
     "$HOME/.local/bin/pi-gpt-5.6" install npm:example@1.0.0
     [ "$(sed -n '1p' "$TEST_HOME/pi-launcher-args")" = "install" ]
@@ -1334,11 +1364,13 @@ assert "trackingId" not in data and "lastChangelogVersion" not in data, data
 PY
 }
 
-@test "configure_pi_extensions writes inline fast mode" {
+@test "configure_pi_extensions writes private fast-mode and observability assets" {
     configure_pi_extensions
 
-    [ -f "$PI_FAST_MODE_EXTENSION" ]
-    grep -Fq 'serviceTier: "priority"' "$PI_FAST_MODE_EXTENSION"
+    [ "$(cat "$PI_OBSERVABILITY_ENV_FILE")" = "$PI_OBSERVABILITY_ENV_CONTENT" ]
+    [ "$(cat "$PI_FAST_MODE_EXTENSION")" = "$PI_FAST_MODE_EXTENSION_CONTENT" ]
+    [ "$(stat -c '%a' "$PI_OBSERVABILITY_ENV_FILE")" = "600" ]
+    [ "$(stat -c '%a' "$PI_FAST_MODE_EXTENSION")" = "600" ]
 }
 
 @test "install_pi_plugins reinstalls every non-comment source without profile flags" {
@@ -1450,14 +1482,17 @@ SH
         grep -Fxq "install ${source} --no-approve" "$TEST_HOME/pi-package-invocations"
     done < <(sed -E 's/#.*//' "$REPO_ROOT/pi_plugins.txt" \
         | awk 'NF && /^git:github\.com\/robobryce\/pi-/ { print }')
-    grep -Fxq 'install npm:pi-otel@0.1.0 --no-approve' "$TEST_HOME/pi-package-invocations"
+    grep -Fxq 'install git:github.com/robobryce/pi-local-otel --no-approve' \
+        "$TEST_HOME/pi-package-invocations"
+    ! grep -Eq '(^| )npm:pi-otel(@| |$)' "$TEST_HOME/pi-package-invocations"
 }
 
-@test "install_pi_plugins removes obsolete pinned npm copies of owned packages" {
+@test "install_pi_plugins removes obsolete Pi npm packages" {
     local fake_bin="$TEST_HOME/fake-pi-npm-bin"
     local npm_root="$PI_DIR/npm"
     mkdir -p "$HOME/.local/bin" "$fake_bin" \
-        "$npm_root/node_modules/pi-list-tools" "$npm_root/node_modules/pi-print-stream"
+        "$npm_root/node_modules/pi-list-tools" "$npm_root/node_modules/pi-print-stream" \
+        "$npm_root/node_modules/pi-otel"
     cat > "$HOME/.local/bin/pi-aab-real" <<SH
 #!/usr/bin/env bash
 printf 'pi %s\n' "\$*" >> "$TEST_HOME/pi-package-migration-invocations"
@@ -1465,16 +1500,26 @@ SH
     cat > "$fake_bin/npm" <<SH
 #!/usr/bin/env bash
 printf 'npm %s\n' "\$*" >> "$TEST_HOME/pi-package-migration-invocations"
+rm -rf "$npm_root/node_modules/pi-list-tools" \
+    "$npm_root/node_modules/pi-print-stream" "$npm_root/node_modules/pi-otel"
+printf '{"dependencies":{}}\n' > "$npm_root/package.json"
+printf '{"packages":{"":{"dependencies":{}}}}\n' > "$npm_root/package-lock.json"
 SH
     chmod +x "$HOME/.local/bin/pi-aab-real" "$fake_bin/npm"
     cat > "$npm_root/package.json" <<'JSON'
-{"dependencies":{"pi-list-tools":"0.1.0","pi-print-stream":"0.1.0"}}
+{"dependencies":{"pi-list-tools":"0.1.0","pi-print-stream":"0.1.0","pi-otel":"0.1.0"}}
+JSON
+    cat > "$npm_root/package-lock.json" <<'JSON'
+{"packages":{"":{"dependencies":{"pi-otel":"0.1.0"}},"node_modules/pi-otel":{"version":"0.1.0"}}}
 JSON
 
     PATH="$fake_bin:$PATH" install_pi_plugins
 
     [ "$(sed -n '1p' "$TEST_HOME/pi-package-migration-invocations")" = \
-        "npm uninstall --prefix ${npm_root} --ignore-scripts --no-audit --no-fund pi-list-tools pi-print-stream" ]
+        "npm uninstall --prefix ${npm_root} --ignore-scripts --no-audit --no-fund pi-list-tools pi-print-stream pi-otel" ]
+    [ ! -d "$npm_root/node_modules/pi-otel" ]
+    ! grep -Fq '"pi-otel"' "$npm_root/package.json"
+    ! grep -Fq 'pi-otel' "$npm_root/package-lock.json"
     grep -Fxq 'pi install git:github.com/robobryce/pi-list-tools --no-approve' \
         "$TEST_HOME/pi-package-migration-invocations"
     grep -Fxq 'pi install git:github.com/robobryce/pi-print-stream --no-approve' \

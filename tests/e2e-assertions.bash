@@ -24,9 +24,13 @@ CLAUDE_SHELL_CONFIG_FILE="${HOME}/.aab/shell/claude.env"
 GITHUB_SHELL_CONFIG_FILE="${HOME}/.aab/shell/github.env"
 PI_MODELS_FILE="${HOME}/.pi/agent/models.json"
 PI_SETTINGS_FILE="${HOME}/.pi/agent/settings.json"
+PI_CODING_AGENT_PACKAGE="${HOME}/.local/lib/node_modules/@earendil-works/pi-coding-agent"
+PI_NPM_DIR="${HOME}/.pi/agent/npm"
 PI_LIST_TOOLS_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-list-tools"
-PI_OTEL_PACKAGE="${HOME}/.pi/agent/npm/node_modules/pi-otel"
+PI_OBSERVABILITY_ENV_FILE="${HOME}/.aab/shell/pi-observability.env"
 PI_FAST_MODE_EXTENSION="${HOME}/.pi/agent/extensions/fast-mode.ts"
+PI_LOCAL_OTEL_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-local-otel"
+PI_UNSUPPORTED_OTEL_PACKAGE="${PI_NPM_DIR}/node_modules/pi-otel"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
@@ -429,8 +433,16 @@ PY
     || fail "Pi is not the pinned version $PI_VERSION."
 [ -f "$PI_SETTINGS_FILE" ] || fail "Pi settings.json not written."
 [ -f "$PI_LIST_TOOLS_PACKAGE/list-tools.ts" ] || fail "Pi list-tools package not installed."
-[ -f "$PI_OTEL_PACKAGE/dist/index.js" ] || fail "Pi OpenTelemetry package not installed."
+[ -f "$PI_OBSERVABILITY_ENV_FILE" ] || fail "Pi observability environment file not written."
 [ -f "$PI_FAST_MODE_EXTENSION" ] || fail "Pi fast-mode extension not written."
+[ -d "$PI_LOCAL_OTEL_PACKAGE/.git" ] || fail "Pi local OpenTelemetry Git package not installed."
+[ ! -e "$PI_UNSUPPORTED_OTEL_PACKAGE" ] || fail "Unsupported Pi package pi-otel is still installed."
+for private_pi_asset in \
+    "$PI_OBSERVABILITY_ENV_FILE" \
+    "$PI_FAST_MODE_EXTENSION"; do
+    [ "$(stat -c '%a' "$private_pi_asset")" = "600" ] \
+        || fail "$private_pi_asset mode is not 600."
+done
 python3 - "$PI_SETTINGS_FILE" "$PI_FAST_MODE_EXTENSION" \
     "$REPO_ROOT/pi_plugins.txt" "${expected_pi_profile[model]}" "${expected_pi_profile[fast]}" <<'PY'
 import json
@@ -468,11 +480,241 @@ obsolete = {
     "npm:pi-list-tools@0.1.0",
     "npm:pi-print-stream",
     "npm:pi-print-stream@0.1.0",
+    "npm:pi-otel",
+    "npm:pi-otel@0.1.0",
 }
 assert obsolete.isdisjoint(data["packages"]), data["packages"]
 PY
 grep -Fq 'serviceTier: "priority"' "$PI_FAST_MODE_EXTENSION" \
     || fail "Pi fast-mode extension is incomplete."
+
+[ "$(grep -Fxc 'git:github.com/robobryce/pi-local-otel' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ] \
+    || fail "pi_plugins.txt must contain one rolling robobryce/pi-local-otel source."
+pi_local_otel_origin=$(git -C "$PI_LOCAL_OTEL_PACKAGE" remote get-url origin)
+case "$pi_local_otel_origin" in
+    https://github.com/robobryce/pi-local-otel|https://github.com/robobryce/pi-local-otel.git|git@github.com:robobryce/pi-local-otel.git) ;;
+    *) fail "Pi local OpenTelemetry checkout has unexpected origin $pi_local_otel_origin." ;;
+esac
+[ -f "$PI_LOCAL_OTEL_PACKAGE/src/index.ts" ] \
+    || fail "Pi local OpenTelemetry package entrypoint is missing."
+
+python3 - "$PI_LOCAL_OTEL_PACKAGE" "$PI_NPM_DIR" <<'PY'
+import json
+from pathlib import Path
+import re
+import sys
+
+package_dir, pi_npm_dir = map(Path, sys.argv[1:])
+required = {
+    "@opentelemetry/api",
+    "@opentelemetry/resources",
+    "@opentelemetry/sdk-trace-base",
+    "@opentelemetry/semantic-conventions",
+}
+with (package_dir / "package.json").open(encoding="utf-8") as handle:
+    manifest = json.load(handle)
+assert manifest["name"] == "pi-local-otel", manifest
+assert manifest["type"] == "module", manifest
+assert manifest["pi"]["extensions"] == ["./src/index.ts"], manifest
+dependencies = manifest.get("dependencies", {})
+assert set(dependencies) == required, (required, dependencies)
+for name, version in dependencies.items():
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version), (name, version)
+    installed_path = package_dir.joinpath("node_modules", *name.split("/"), "package.json")
+    with installed_path.open(encoding="utf-8") as handle:
+        installed = json.load(handle)
+    assert installed["version"] == version, (name, version, installed["version"])
+assert "pi-otel" not in dependencies, dependencies
+assert not any("exporter-otlp" in name.lower() for name in dependencies), dependencies
+
+with (package_dir / "package-lock.json").open(encoding="utf-8") as handle:
+    packages = json.load(handle).get("packages", {})
+unsafe = [path for path in packages if "exporter-otlp" in path.lower() or path.endswith("node_modules/pi-otel")]
+assert not unsafe, unsafe
+
+unsupported_package = pi_npm_dir / "node_modules" / "pi-otel"
+assert not unsupported_package.exists(), unsupported_package
+npm_manifest_path = pi_npm_dir / "package.json"
+if npm_manifest_path.exists():
+    with npm_manifest_path.open(encoding="utf-8") as handle:
+        npm_dependencies = json.load(handle).get("dependencies", {})
+    assert "pi-otel" not in npm_dependencies, npm_dependencies
+npm_lock_path = pi_npm_dir / "package-lock.json"
+if npm_lock_path.exists():
+    with npm_lock_path.open(encoding="utf-8") as handle:
+        npm_packages = json.load(handle).get("packages", {})
+    assert not any(path.endswith("node_modules/pi-otel") for path in npm_packages), npm_packages
+    assert "pi-otel" not in npm_packages.get("", {}).get("dependencies", {}), npm_packages
+PY
+
+grep -Fxq 'export OTEL_SDK_DISABLED="${OTEL_SDK_DISABLED:-false}"' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi OpenTelemetry SDK does not default to enabled with an opt-out."
+grep -Fxq 'export OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi traces do not default to console export with an opt-out."
+grep -Fxq 'export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi GenAI message-content capture is not disabled."
+! grep -Eq '^[[:space:]]*export[[:space:]]+PI_TELEMETRY=' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi local OpenTelemetry config overrides separate install/update telemetry."
+! grep -Eqi 'OTEL_EXPORTER_OTLP|https?://|exporter-otlp' "$PI_OBSERVABILITY_ENV_FILE" \
+    || fail "Pi observability config contains an OTLP endpoint or exporter."
+grep -Fq 'ConsoleSpanExporter' "$PI_LOCAL_OTEL_PACKAGE/src/index.ts" \
+    || fail "Pi local OpenTelemetry extension does not use ConsoleSpanExporter."
+python3 - "$PI_LOCAL_OTEL_PACKAGE/src" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+source = "\n".join(
+    path.read_text(encoding="utf-8")
+    for path in sorted(Path(sys.argv[1]).rglob("*.ts"))
+)
+network_patterns = (
+    r"@opentelemetry/exporter",
+    r"OTEL_EXPORTER_OTLP",
+    r"\bfetch\s*\(",
+    r"node:https?",
+)
+payload_patterns = (
+    r"event\.prompt\b",
+    r"event\.messages\b",
+    r"event\.message\.content\b",
+    r"event\.(?:args|arguments|result|headers|body)\b",
+    r"event\.toolCall\.(?:args|arguments)\b",
+    r"event\.error\.message\b",
+    r"ctx\.cwd\b",
+)
+for pattern in network_patterns + payload_patterns:
+    assert not re.search(pattern, source, re.IGNORECASE), pattern
+for required_retention in (
+    "PI_OTEL_MAX_FILE_BYTES",
+    "PI_OTEL_MAX_FILES",
+    "DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024",
+    "DEFAULT_MAX_FILES = 20",
+):
+    assert required_retention in source, required_retention
+PY
+
+# A false Pi setting must remain effective when no explicit PI_TELEMETRY
+# override is inherited through the launcher environment.
+env -u PI_TELEMETRY node --input-type=module - \
+    "$PI_CODING_AGENT_PACKAGE/dist/core/telemetry.js" <<'JS'
+import assert from "node:assert/strict";
+import { pathToFileURL } from "node:url";
+
+const telemetryModule = await import(pathToFileURL(process.argv[2]).href);
+const disabledSettings = { getEnableInstallTelemetry: () => false };
+assert.equal(telemetryModule.isInstallTelemetryEnabled(disabledSettings), false);
+assert.equal(telemetryModule.isInstallTelemetryEnabled(disabledSettings, "1"), true);
+JS
+
+pi_models_output=$(pi --list-models "${expected_pi_profile[model]}" 2>&1) \
+    || fail "Pi model listing failed with the local OpenTelemetry package."
+case "$pi_models_output" in
+    *"${expected_pi_profile[model]}"*) ;;
+    *) fail "Pi selected model is missing from the model listing." ;;
+esac
+
+# Exercise the package entrypoint with representative lifecycle events. This
+# uses the installed package and SDK while remaining independent of model
+# credentials, a collector, or any network endpoint.
+otel_smoke_dir=$(mktemp -d)
+chmod 700 "$otel_smoke_dir"
+(
+    export PI_OTEL_LOG_DIR="$otel_smoke_dir"
+    export OTEL_SDK_DISABLED=false
+    export OTEL_TRACES_EXPORTER=console
+    # shellcheck disable=SC1090
+    source "$PI_OBSERVABILITY_ENV_FILE"
+    node --experimental-strip-types --input-type=module - \
+        "$PI_LOCAL_OTEL_PACKAGE/src/index.ts" <<'JS'
+import { pathToFileURL } from "node:url";
+
+const secret = "AAB_E2E_PRIVATE_PAYLOAD_MUST_NOT_BE_LOGGED";
+const { default: localOtel } = await import(pathToFileURL(process.argv[2]).href);
+const handlers = new Map();
+const pi = {
+    on(name, handler) {
+        const registered = handlers.get(name) ?? [];
+        registered.push(handler);
+        handlers.set(name, registered);
+    },
+};
+localOtel(pi);
+
+const ctx = {
+    mode: "print",
+    sessionManager: { getSessionId: () => "aab-e2e-session" },
+    model: { api: "openai-responses", id: "aab-e2e-model", provider: "aab-e2e" },
+};
+const emit = async (name, event = {}) => {
+    for (const handler of handlers.get(name) ?? []) {
+        await handler({ type: name, ...event }, ctx);
+    }
+};
+
+await emit("session_start", { reason: "startup" });
+await emit("before_agent_start", { prompt: secret, systemPrompt: secret });
+await emit("turn_start", { turnIndex: 0, timestamp: Date.now() });
+await emit("before_provider_request", { payload: { secret } });
+await emit("after_provider_response", { status: 200, headers: { authorization: secret } });
+await emit("tool_execution_start", {
+    toolCallId: "aab-e2e-tool",
+    toolName: "read",
+    args: { secret },
+});
+await emit("tool_execution_end", {
+    toolCallId: "aab-e2e-tool",
+    toolName: "read",
+    result: { content: secret },
+    isError: false,
+});
+await emit("message_end", {
+    message: {
+        role: "assistant",
+        content: [{ type: "text", text: secret }],
+        model: "aab-e2e-model",
+        stopReason: "stop",
+        errorMessage: secret,
+        usage: { input: 2, output: 1, totalTokens: 3 },
+    },
+});
+await emit("turn_end", {
+    message: { content: secret },
+    toolResults: [{ content: secret }],
+});
+await emit("agent_settled");
+await emit("session_shutdown", { reason: "quit", targetSessionFile: secret });
+JS
+)
+[ "$(stat -c '%a' "$otel_smoke_dir")" = "700" ] \
+    || fail "Pi local OpenTelemetry log directory mode is not 700."
+otel_smoke_file=$(find "$otel_smoke_dir" -maxdepth 1 -type f -name 'pi-otel-*.jsonl' -print -quit)
+[ -n "$otel_smoke_file" ] || fail "Pi local OpenTelemetry smoke test did not create a JSONL file."
+[ "$(stat -c '%a' "$otel_smoke_file")" = "600" ] \
+    || fail "Pi local OpenTelemetry JSONL file mode is not 600."
+python3 - "$otel_smoke_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    records = [json.loads(line) for line in handle if line.strip()]
+assert records, records
+assert "AAB_E2E_PRIVATE_PAYLOAD_MUST_NOT_BE_LOGGED" not in json.dumps(records), records
+spans = [record["record"] for record in records if record.get("signal") == "traces"]
+assert spans, records
+names = {span.get("name") for span in spans}
+expected = {"pi.session", "pi.agent", "pi.turn", "pi.provider.request", "pi.llm.response", "pi.tool"}
+assert expected.issubset(names), (expected - names, names)
+for span in spans:
+    attributes = span.get("attributes", {})
+    forbidden = ("prompt", "message", "argument", "header", "payload", "content", "cwd")
+    for key in attributes:
+        normalized = key.lower()
+        assert not any(token in normalized for token in forbidden), attributes
+        assert normalized != "result" and not normalized.endswith((".result", "_result")), attributes
+PY
+rm -rf "$otel_smoke_dir"
+
 list_tools_json=$(mktemp)
 pi --list-tools json > "$list_tools_json" 2>/dev/null \
     || fail "Pi list-tools package command failed."
@@ -487,12 +729,6 @@ names = {tool["name"] for tool in tools}
 assert {"bash", "read"}.issubset(names), names
 PY
 rm -f "$list_tools_json"
-pi_models_output=$(pi --list-models "${expected_pi_profile[model]}" 2>&1) \
-    || fail "Pi model listing failed with the configured extensions."
-case "$pi_models_output" in
-    *"${expected_pi_profile[model]}"*) ;;
-    *) fail "Pi selected model is missing from the model listing." ;;
-esac
 pi list >/dev/null 2>&1 || fail "Pi package list failed through the profile launcher."
 mapfile -t owned_pi_sources < <(sed -E 's/#.*//' "$REPO_ROOT/pi_plugins.txt" \
     | awk 'NF && /^git:github\.com\/robobryce\/pi-/ { print }')
@@ -512,7 +748,7 @@ for source in "${owned_pi_sources[@]}"; do
     [ "$local_head" = "$remote_head" ] \
         || fail "AAB-owned Pi repository is not at default-branch HEAD: ${repo}."
 done
-pass "Pi profile, fast mode, rolling AAB-owned packages, and structured OpenTelemetry package are configured."
+pass "Pi profile, fast mode, rolling AAB-owned packages, and private local OpenTelemetry logging are configured."
 if [ "$expected_codex_source" = "first-party" ] && [ -n "${AAB_OPENAI_API_KEY:-}" ]; then
     [ -f "$CODEX_AUTH" ] || fail "Codex auth.json not written."
     AAB_EXPECTED_CODEX_API_KEY="$AAB_OPENAI_API_KEY" \
