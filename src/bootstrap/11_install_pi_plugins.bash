@@ -9,13 +9,17 @@ __AAB_PI_PLUGINS__
 AAB_PI_PLUGINS_EOF
 )
 
-_remove_legacy_owned_pi_npm_packages() {
-    local npm_root="${PI_DIR}/npm"
+_remove_legacy_pi_npm_packages() {
+    local npm_root="$PI_NPM_DIR"
     local package_json="${npm_root}/package.json"
+    local package_lock="${npm_root}/package-lock.json"
     if [ ! -d "${npm_root}/node_modules/pi-list-tools" ] \
         && [ ! -d "${npm_root}/node_modules/pi-print-stream" ] \
+        && [ ! -d "${npm_root}/node_modules/pi-otel" ] \
         && { [ ! -f "$package_json" ] \
-            || ! grep -Eq '"(pi-list-tools|pi-print-stream)"' "$package_json"; }; then
+            || ! grep -Eq '"(pi-list-tools|pi-print-stream|pi-otel)"' "$package_json"; } \
+        && { [ ! -f "$package_lock" ] \
+            || ! grep -Eq '"node_modules/(pi-list-tools|pi-print-stream|pi-otel)"' "$package_lock"; }; then
         return
     fi
 
@@ -24,14 +28,14 @@ _remove_legacy_owned_pi_npm_packages() {
         npm_bin=$(command -v npm || true)
     fi
     if [ -z "$npm_bin" ]; then
-        warn "npm unavailable; obsolete pinned copies of AAB-owned Pi packages were not removed."
+        warn "npm unavailable; obsolete Pi npm packages were not removed."
         return
     fi
 
-    log "Removing obsolete pinned npm copies of AAB-owned Pi packages."
+    log "Removing obsolete Pi npm packages."
     "$npm_bin" uninstall --prefix "$npm_root" --ignore-scripts --no-audit --no-fund \
-        pi-list-tools pi-print-stream 2>&1 | sed 's/^/  /' \
-        || warn "Could not remove obsolete pinned copies of AAB-owned Pi packages."
+        pi-list-tools pi-print-stream pi-otel 2>&1 | sed 's/^/  /' \
+        || warn "Could not remove obsolete Pi npm packages."
 }
 
 install_pi_plugins() {
@@ -41,7 +45,7 @@ install_pi_plugins() {
         return
     fi
 
-    _remove_legacy_owned_pi_npm_packages
+    _remove_legacy_pi_npm_packages
 
     local plugins_file="${AAB_PI_PLUGINS_FILE:-}"
     local content="$PI_PLUGINS_DEFAULT_CONTENT"

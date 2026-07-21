@@ -1,7 +1,11 @@
 # ---------------------------------------------------------------------------
 # Configure Pi's generated inference-gateway model catalog, unattended
-# defaults, and local fast-mode extension.
+# defaults, local fast-mode extension, and local-only OpenTelemetry logging.
 # ---------------------------------------------------------------------------
+PI_OBSERVABILITY_ENV_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_ENV_EOF'
+__AAB_PI_OBSERVABILITY_ENV__
+AAB_PI_OBSERVABILITY_ENV_EOF
+)
 PI_FAST_MODE_EXTENSION_CONTENT=$(cat <<'AAB_PI_FAST_MODE_EXTENSION_EOF'
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { clampThinkingLevel, streamOpenAIResponses } from "@earendil-works/pi-ai/compat";
@@ -243,6 +247,7 @@ _write_pi_embedded_asset() {
 }
 
 configure_pi_extensions() {
+    _write_pi_embedded_asset "$PI_OBSERVABILITY_ENV_FILE" "$PI_OBSERVABILITY_ENV_CONTENT" 600
     _write_pi_embedded_asset "$PI_FAST_MODE_EXTENSION" "$PI_FAST_MODE_EXTENSION_CONTENT" 600
-    log "Wrote Pi fast-mode extension."
+    log "Wrote Pi fast-mode and local OpenTelemetry configuration."
 }

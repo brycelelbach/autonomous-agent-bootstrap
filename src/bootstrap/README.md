@@ -1,6 +1,6 @@
 # Bootstrap source modules
 
-`bootstrap.bash` is compiled from these ordered `*.bash` modules by `tools/compile_bootstrap.py`.
+`bootstrap.bash` is compiled from these ordered `*.bash` modules and the source-controlled Pi launcher environment in `../pi/` by `tools/compile_bootstrap.py`.
 
 Edit the module that owns the behavior you are changing, then run:
 
@@ -14,11 +14,12 @@ High-traffic audit targets:
 - `04_install_node.bash` installs the pinned Node.js runtime used by Pi and its packages.
 - `06_install_gitleaks.bash` installs the pinned, checksum-verified gitleaks release binary.
 - `11_install_agent_plugins.bash` installs the plugin list embedded by the compiler from `agent_plugins.txt`.
-- `11_install_pi_plugins.bash` reinstalls the Pi package list embedded from `pi_plugins.txt`; AAB-owned repositories follow their default branches, while third-party sources remain pinned.
+- `11_install_pi_plugins.bash` reinstalls the Pi package list embedded from `pi_plugins.txt`; AAB-owned repositories, including the bounded local-only telemetry package, follow their default branches, while third-party sources remain pinned. It also removes obsolete npm-installed Pi packages during upgrades.
 - `12_model_profiles.bash` parses and resolves environment-defined model profiles.
 - `13_configure_claude.bash` owns Claude settings, onboarding, and shell defaults.
 - `13_configure_codex.bash` owns Codex instructions, config, and authentication.
-- `13_configure_pi.bash` owns Pi models, unattended settings, and the inline fast-mode extension.
+- `13_configure_pi.bash` owns Pi models, unattended settings, the inline fast-mode extension, and installation of the compiled launcher environment.
+- `../pi/` owns the launcher-scoped Pi observability environment, which configures no collector or network exporter and disables content capture. The telemetry adapter is installed separately from the `pi-local-otel` source in `pi_plugins.txt`.
 - `23_configure_git_hooks.bash` owns global git-hook configuration and rendering.
 - `26_configure_launchers.bash` owns launcher generation.
 - `27_configure_shell_startup.bash` sources per-harness shell defaults and owns PATH integration.

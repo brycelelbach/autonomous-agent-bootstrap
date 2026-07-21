@@ -70,6 +70,8 @@ PI_DIR="${HOME}/.pi/agent"
 PI_SETTINGS_FILE="${PI_DIR}/settings.json"
 PI_MODELS_FILE="${PI_DIR}/models.json"
 PI_MODELS_MARKER="${AAB_DIR}/pi-models-generated"
+PI_NPM_DIR="${PI_DIR}/npm"
+PI_OBSERVABILITY_ENV_FILE="${AAB_SHELL_CONFIG_DIR}/pi-observability.env"
 PI_FAST_MODE_EXTENSION="${PI_DIR}/extensions/fast-mode.ts"
 NODE_INSTALL_DIR="${HOME}/.local/share/aab/node"
 BREV_DIR="${HOME}/.brev"
@@ -1146,7 +1148,7 @@ PI_PLUGINS_DEFAULT_CONTENT=$(cat <<'AAB_PI_PLUGINS_EOF'
 
 npm:pi-codex-goal@0.1.37
 git:github.com/robobryce/pi-list-tools
-npm:pi-otel@0.1.0
+git:github.com/robobryce/pi-local-otel
 git:github.com/robobryce/pi-schedule-prompt
 git:github.com/nicobailon/pi-subagents@ea9b72f2e5bc0e0cbaacdab589576e858b12c03f
 git:github.com/robobryce/pi-patty-bg-tasks
@@ -1156,13 +1158,17 @@ git:github.com/robobryce/pi-print-stream
 AAB_PI_PLUGINS_EOF
 )
 
-_remove_legacy_owned_pi_npm_packages() {
-    local npm_root="${PI_DIR}/npm"
+_remove_legacy_pi_npm_packages() {
+    local npm_root="$PI_NPM_DIR"
     local package_json="${npm_root}/package.json"
+    local package_lock="${npm_root}/package-lock.json"
     if [ ! -d "${npm_root}/node_modules/pi-list-tools" ] \
         && [ ! -d "${npm_root}/node_modules/pi-print-stream" ] \
+        && [ ! -d "${npm_root}/node_modules/pi-otel" ] \
         && { [ ! -f "$package_json" ] \
-            || ! grep -Eq '"(pi-list-tools|pi-print-stream)"' "$package_json"; }; then
+            || ! grep -Eq '"(pi-list-tools|pi-print-stream|pi-otel)"' "$package_json"; } \
+        && { [ ! -f "$package_lock" ] \
+            || ! grep -Eq '"node_modules/(pi-list-tools|pi-print-stream|pi-otel)"' "$package_lock"; }; then
         return
     fi
 
@@ -1171,14 +1177,14 @@ _remove_legacy_owned_pi_npm_packages() {
         npm_bin=$(command -v npm || true)
     fi
     if [ -z "$npm_bin" ]; then
-        warn "npm unavailable; obsolete pinned copies of AAB-owned Pi packages were not removed."
+        warn "npm unavailable; obsolete Pi npm packages were not removed."
         return
     fi
 
-    log "Removing obsolete pinned npm copies of AAB-owned Pi packages."
+    log "Removing obsolete Pi npm packages."
     "$npm_bin" uninstall --prefix "$npm_root" --ignore-scripts --no-audit --no-fund \
-        pi-list-tools pi-print-stream 2>&1 | sed 's/^/  /' \
-        || warn "Could not remove obsolete pinned copies of AAB-owned Pi packages."
+        pi-list-tools pi-print-stream pi-otel 2>&1 | sed 's/^/  /' \
+        || warn "Could not remove obsolete Pi npm packages."
 }
 
 install_pi_plugins() {
@@ -1188,7 +1194,7 @@ install_pi_plugins() {
         return
     fi
 
-    _remove_legacy_owned_pi_npm_packages
+    _remove_legacy_pi_npm_packages
 
     local plugins_file="${AAB_PI_PLUGINS_FILE:-}"
     local content="$PI_PLUGINS_DEFAULT_CONTENT"
@@ -2236,8 +2242,32 @@ configure_codex() {
 # >>> src/bootstrap/13_configure_pi.bash >>>
 # ---------------------------------------------------------------------------
 # Configure Pi's generated inference-gateway model catalog, unattended
-# defaults, and local fast-mode extension.
+# defaults, local fast-mode extension, and local-only OpenTelemetry logging.
 # ---------------------------------------------------------------------------
+PI_OBSERVABILITY_ENV_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_ENV_EOF'
+# Pi observability defaults. Pi launchers source this file so these variables
+# stay scoped to Pi processes and never affect unrelated tools.
+
+export PI_TIMING="${PI_TIMING:-0}"
+export PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"
+
+# Match AAB's Claude and Codex policy: enable metadata-only OpenTelemetry while
+# preventing network exporters and GenAI message-content capture. The Pi
+# extension stores console-exported records in private local JSONL files.
+export OTEL_SDK_DISABLED="${OTEL_SDK_DISABLED:-false}"
+export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-pi-coding-agent}"
+export OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"
+export OTEL_METRICS_EXPORTER=none
+export OTEL_LOGS_EXPORTER=none
+export OTEL_RESOURCE_ATTRIBUTES=service.namespace=aab,deployment.environment.name=local
+export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false
+export OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_CLIENT_REQUEST=
+export OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_CLIENT_RESPONSE=
+export OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_REQUEST=
+export OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_RESPONSE=
+export PI_OTEL_LOG_DIR="${PI_OTEL_LOG_DIR:-$HOME/.pi/agent/debug}"
+AAB_PI_OBSERVABILITY_ENV_EOF
+)
 PI_FAST_MODE_EXTENSION_CONTENT=$(cat <<'AAB_PI_FAST_MODE_EXTENSION_EOF'
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { clampThinkingLevel, streamOpenAIResponses } from "@earendil-works/pi-ai/compat";
@@ -2479,8 +2509,9 @@ _write_pi_embedded_asset() {
 }
 
 configure_pi_extensions() {
+    _write_pi_embedded_asset "$PI_OBSERVABILITY_ENV_FILE" "$PI_OBSERVABILITY_ENV_CONTENT" 600
     _write_pi_embedded_asset "$PI_FAST_MODE_EXTENSION" "$PI_FAST_MODE_EXTENSION_CONTENT" 600
-    log "Wrote Pi fast-mode extension."
+    log "Wrote Pi fast-mode and local OpenTelemetry configuration."
 }
 # <<< src/bootstrap/13_configure_pi.bash <<<
 
@@ -3489,14 +3520,18 @@ set -euo pipefail
 
 real_bin="${AAB_PI_REAL_BIN:-$HOME/.local/bin/pi-aab-real}"
 env_file="${AAB_ENV_FILE:-$HOME/.aab/.env}"
+observability_env_file="${AAB_PI_OBSERVABILITY_ENV_FILE:-$HOME/.aab/shell/pi-observability.env}"
 if [ -f "$env_file" ]; then
     set -a
     . "$env_file"
     set +a
 fi
 
-# Keep Pi's built-in Ctrl+B binding. The packaged pi-otel extension defaults
-# to metadata-only capture and reads standard OTEL configuration directly.
+# Keep OpenTelemetry and its local JSONL capture scoped to Pi launchers.
+# shellcheck source=/dev/null
+[ ! -f "$observability_env_file" ] || . "$observability_env_file"
+
+# Keep Pi's built-in Ctrl+B binding even if the observability file is absent.
 export PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"
 
 if [ ! -x "$real_bin" ]; then
