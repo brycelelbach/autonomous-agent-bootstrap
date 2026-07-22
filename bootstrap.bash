@@ -1151,7 +1151,7 @@ git:github.com/robobryce/pi-list-tools
 git:github.com/robobryce/pi-local-otel
 git:github.com/robobryce/pi-schedule-prompt
 git:github.com/nicobailon/pi-subagents@ea9b72f2e5bc0e0cbaacdab589576e858b12c03f
-git:github.com/robobryce/pi-patty-bg-tasks
+git:github.com/robobryce/pi-bash-background
 git:github.com/robobryce/pi-web-access
 git:github.com/robobryce/pi-retry-empty
 git:github.com/robobryce/pi-print-stream
