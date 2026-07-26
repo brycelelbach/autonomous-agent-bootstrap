@@ -98,8 +98,9 @@ fi
 [ -f "$CODEX_MODEL_INSTRUCTIONS_FILE" ] || fail "Global Codex model instructions not written."
 grep -Fq 'You are Codex, an agent based on GPT-5.' "$CODEX_MODEL_INSTRUCTIONS_FILE"     || fail "Global Codex model instructions are incomplete."
 grep -Fq 'An event-driven monitoring call such as `wait_agent` is exempt' "$CODEX_MODEL_INSTRUCTIONS_FILE"     || fail "Global Codex model instructions do not exempt event-driven waits."
+grep -Fq 'set `fork_turns` to `"none"`' "$CODEX_MODEL_INSTRUCTIONS_FILE"     || fail "Global Codex model instructions do not disable inherited subagent turns."
 ! grep -Fq 'Avoid performing blocking sleep or wait calls longer than 60 seconds' "$CODEX_MODEL_INSTRUCTIONS_FILE"     || fail "Global Codex model instructions still cap blocking waits at 60 seconds."
-pass "Global Codex model instructions written without a blocking-wait cap."
+pass "Global Codex model instructions written with clean subagent context and without a blocking-wait cap."
 
 # 2. config.toml is present and puts Codex in unattended yolo mode.
 [ -f "$CODEX_CONFIG" ] || fail "Codex config.toml not written."

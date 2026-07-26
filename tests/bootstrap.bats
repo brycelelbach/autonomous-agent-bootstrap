@@ -364,13 +364,14 @@ PY
     ! grep -q '^export GH_TOKEN=' "$AAB_ENV_FILE"
 }
 
-@test "configure_codex_model_instructions writes the complete global prompt without a blocking-wait cap" {
+@test "configure_codex_model_instructions writes clean subagent context without a blocking-wait cap" {
     configure_codex_model_instructions
 
     [ -f "$CODEX_MODEL_INSTRUCTIONS_FILE" ]
     [ "$CODEX_MODEL_INSTRUCTIONS_FILE" = "$HOME/.codex/codex-instructions.md" ]
     cmp -s "$CODEX_MODEL_INSTRUCTIONS_FILE" <(emit_codex_model_instructions)
     grep -Fq 'An event-driven monitoring call such as `wait_agent` is exempt' "$CODEX_MODEL_INSTRUCTIONS_FILE"
+    grep -Fq 'set `fork_turns` to `"none"`' "$CODEX_MODEL_INSTRUCTIONS_FILE"
     ! grep -Fq 'Avoid performing blocking sleep or wait calls longer than 60 seconds' "$CODEX_MODEL_INSTRUCTIONS_FILE"
 }
 
