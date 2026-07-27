@@ -466,6 +466,7 @@ PY
     grep -q '^show_raw_agent_reasoning = true$' "$CODEX_CONFIG"
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
     grep -q '^fast_mode = true$' "$CODEX_CONFIG"
+    grep -q '^default_mode_request_user_input = false$' "$CODEX_CONFIG"
     grep -q '^approval_policy = "never"$' "$CODEX_CONFIG"
     grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG"
     grep -q '^web_search = "live"$' "$CODEX_CONFIG"
