@@ -2987,6 +2987,7 @@ _render_agent_rules() {
 - Be concise in replies.
 - Act autonomously without seeking operator input.
 - You are in a safe sandbox without credentials that could cause serious harm.
+- Write substantive PR descriptions in plain language. Explain the status quo and resulting behavior, name important architecture decisions, new components, and dependencies, and give concrete before/after examples when useful. Never omit a material artifact such as a new plugin or use only jargon-heavy bullets.
 
 ## Always use the configured git identity
 

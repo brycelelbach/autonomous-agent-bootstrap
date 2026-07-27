@@ -3028,9 +3028,11 @@ STUB
     ! grep -qF '# <<< autonomous-agent-bootstrap <<<' "$CLAUDE_MEMORY_FILE"
     grep -q "Operating principles" "$CLAUDE_MEMORY_FILE"
     grep -q "Act autonomously without seeking operator input" "$CLAUDE_MEMORY_FILE"
+    grep -q "Write substantive PR descriptions in plain language" "$CLAUDE_MEMORY_FILE"
     grep -q "Always use the configured git identity" "$CLAUDE_MEMORY_FILE"
     ! grep -qF '# >>> autonomous-agent-bootstrap >>>' "$CODEX_AGENTS_FILE"
     grep -q "Operating principles" "$CODEX_AGENTS_FILE"
+    grep -q "Never omit a material artifact such as a new plugin" "$CODEX_AGENTS_FILE"
     grep -q "Always use the configured git identity" "$CODEX_AGENTS_FILE"
     grep -q "Operating principles" "$AGENT_RULES_STATE_FILE"
 }
