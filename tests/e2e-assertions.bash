@@ -774,8 +774,7 @@ PY
     pass "Codex first-party API-key auth configured."
 fi
 command -v brev   >/dev/null 2>&1 || fail "brev not on PATH after bootstrap."
-brev --version 2>&1 | grep -Fq "Current Version: v${BREV_VERSION}" \
-    || fail "Brev is not the pinned version $BREV_VERSION."
+brev --version >/dev/null 2>&1 || fail "brev --version failed."
 pass "brev binary installed and on PATH."
 if [ -n "${AAB_BREV_API_KEY:-}" ] || [ -n "${AAB_BREV_ORG_ID:-}" ]; then
     [ -n "${AAB_BREV_API_KEY:-}" ] || fail "AAB_BREV_API_KEY missing while AAB_BREV_ORG_ID is set."

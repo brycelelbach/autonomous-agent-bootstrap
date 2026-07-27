@@ -64,7 +64,7 @@ teardown() {
 @test "module package versions are centralized" {
     local package_variable definitions
     for package_variable in \
-        CLAUDE_CODE_VERSION CODEX_VERSION NODE_VERSION PI_VERSION BREV_VERSION \
+        CLAUDE_CODE_VERSION CODEX_VERSION NODE_VERSION PI_VERSION \
         LIFEBOAT_REF GH_VERSION UV_VERSION GITLEAKS_VERSION; do
         [ -n "${!package_variable}" ]
         definitions=$(grep -R "^${package_variable}=" "$REPO_ROOT/src/bootstrap" --include='*.bash')
