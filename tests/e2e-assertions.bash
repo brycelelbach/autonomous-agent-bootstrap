@@ -890,6 +890,10 @@ for rule_file in "$CLAUDE_MEMORY_FILE" "$CODEX_AGENTS_FILE"; do
         || fail "agent rule file $rule_file has $rules_count rule sets, expected 1."
     grep -q 'Operating principles' "$rule_file" \
         || fail "agent rule file $rule_file missing the operating-principles heading."
+    grep -q 'Write substantive PR descriptions in plain language' "$rule_file" \
+        || fail "agent rule file $rule_file missing the PR-description guidance."
+    grep -q 'Never omit a material artifact such as a new plugin' "$rule_file" \
+        || fail "agent rule file $rule_file missing the material-artifact guidance."
     grep -q 'Always use the configured git identity' "$rule_file" \
         || fail "agent rule file $rule_file missing the git-identity rule heading."
 done
