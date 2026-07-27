@@ -1149,6 +1149,7 @@ PI_PLUGINS_DEFAULT_CONTENT=$(cat <<'AAB_PI_PLUGINS_EOF'
 npm:pi-codex-goal@0.1.37
 git:github.com/robobryce/pi-list-tools
 git:github.com/robobryce/pi-local-otel
+git:github.com/robobryce/pi-session-identity
 git:github.com/robobryce/pi-schedule-prompt
 git:github.com/nicobailon/pi-subagents@ea9b72f2e5bc0e0cbaacdab589576e858b12c03f
 git:github.com/robobryce/pi-bash-background
