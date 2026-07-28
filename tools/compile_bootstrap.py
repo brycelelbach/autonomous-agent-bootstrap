@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_DIR = ROOT / "src" / "bootstrap"
+SOURCE_DIR = ROOT / "src"
 OUTPUT = ROOT / "bootstrap.bash"
 AGENT_PLUGINS = ROOT / "agent_plugins.txt"
 PI_PLUGINS = ROOT / "pi_plugins.txt"
@@ -20,7 +20,7 @@ PI_OBSERVABILITY_ENV = PI_ASSET_DIR / "observability.env"
 GENERATED_HEADER = """# -----------------------------------------------------------------------------
 # GENERATED FILE: do not edit directly.
 #
-# Source lives in src/bootstrap/*.bash. Rebuild with:
+# Source lives in src/*.bash. Rebuild with:
 #   python3 tools/compile_bootstrap.py
 # -----------------------------------------------------------------------------
 
@@ -42,7 +42,7 @@ def compile_bootstrap(
             shebang, rest = text.split("\n", 1)
             parts.append(f"{shebang}\n{GENERATED_HEADER}{rest}")
         else:
-            parts.append(f"\n# >>> src/bootstrap/{path.name} >>>\n{text}# <<< src/bootstrap/{path.name} <<<\n")
+            parts.append(f"\n# >>> src/{path.name} >>>\n{text}# <<< src/{path.name} <<<\n")
     compiled = "".join(parts)
     agent_plugins = AGENT_PLUGINS.read_text().rstrip("\n")
     pi_plugins = PI_PLUGINS.read_text().rstrip("\n")

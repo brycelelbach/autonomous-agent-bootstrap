@@ -2,7 +2,7 @@
 # -----------------------------------------------------------------------------
 # GENERATED FILE: do not edit directly.
 #
-# Source lives in src/bootstrap/*.bash. Rebuild with:
+# Source lives in src/*.bash. Rebuild with:
 #   python3 tools/compile_bootstrap.py
 # -----------------------------------------------------------------------------
 
@@ -150,7 +150,7 @@ need_sudo() {
 }
 SUDO=$(need_sudo)
 
-# >>> src/bootstrap/00_versions.bash >>>
+# >>> src/00_versions.bash >>>
 # ---------------------------------------------------------------------------
 # Versions, immutable git refs, and release-asset checksums used directly by
 # bootstrap modules. Package-list pins remain in their sidecar files.
@@ -179,9 +179,9 @@ AUTOCUDA_PRIVATE_REPO="brycelelbach-private/autocuda"
 GITLEAKS_VERSION="8.18.4"
 GITLEAKS_SHA256_LINUX_X64="ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d"
 GITLEAKS_SHA256_LINUX_ARM64="bf5f7f466ebfade1296c8bd32cf7d3f592c2aa78836aa9980ffbe2cadca7a861"
-# <<< src/bootstrap/00_versions.bash <<<
+# <<< src/00_versions.bash <<<
 
-# >>> src/bootstrap/01_install_base_deps.bash >>>
+# >>> src/01_install_base_deps.bash >>>
 # ---------------------------------------------------------------------------
 # 0. Install the Ubuntu base dependencies listed in apt_packages.txt via
 # apt-get. Bare container images ship with apt-get but nothing else, so we
@@ -262,9 +262,9 @@ install_base_deps() {
     # preferred versions are available, permit apt to restore them.
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades --no-install-recommends "${install_packages[@]}"
 }
-# <<< src/bootstrap/01_install_base_deps.bash <<<
+# <<< src/01_install_base_deps.bash <<<
 
-# >>> src/bootstrap/03_install_claude.bash >>>
+# >>> src/03_install_claude.bash >>>
 # ---------------------------------------------------------------------------
 # 1. Install / upgrade Claude Code via the native installer.
 # ---------------------------------------------------------------------------
@@ -272,9 +272,9 @@ install_claude() {
     log "Installing Claude Code ${CLAUDE_CODE_VERSION} via native installer..."
     curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION"
 }
-# <<< src/bootstrap/03_install_claude.bash <<<
+# <<< src/03_install_claude.bash <<<
 
-# >>> src/bootstrap/04_install_codex.bash >>>
+# >>> src/04_install_codex.bash >>>
 # ---------------------------------------------------------------------------
 # 2. Install / upgrade Codex via OpenAI's standalone installer.
 # ---------------------------------------------------------------------------
@@ -343,9 +343,9 @@ _run_without_controlling_tty() {
         setsid "$@" </dev/null
     fi
 }
-# <<< src/bootstrap/04_install_codex.bash <<<
+# <<< src/04_install_codex.bash <<<
 
-# >>> src/bootstrap/04_install_node.bash >>>
+# >>> src/04_install_node.bash >>>
 # ---------------------------------------------------------------------------
 # Install the pinned Node.js runtime that backs Pi and its npm/git packages.
 # ---------------------------------------------------------------------------
@@ -406,9 +406,9 @@ install_node() {
         *) export PATH="${HOME}/.local/bin:${PATH}" ;;
     esac
 }
-# <<< src/bootstrap/04_install_node.bash <<<
+# <<< src/04_install_node.bash <<<
 
-# >>> src/bootstrap/05_install_brev.bash >>>
+# >>> src/05_install_brev.bash >>>
 # ---------------------------------------------------------------------------
 # 3. Install the latest Brev CLI release.
 # ---------------------------------------------------------------------------
@@ -477,9 +477,9 @@ install_brev() {
     rm -rf "$tmp_dir"
     log "Installed Brev CLI ${version} to ${HOME}/.local/bin/brev."
 }
-# <<< src/bootstrap/05_install_brev.bash <<<
+# <<< src/05_install_brev.bash <<<
 
-# >>> src/bootstrap/05_install_pi.bash >>>
+# >>> src/05_install_pi.bash >>>
 # ---------------------------------------------------------------------------
 # Install / upgrade Pi from its official npm package. The Node-backed CLI is
 # required because Pi package installation shells out to npm for runtime
@@ -509,9 +509,9 @@ install_pi() {
     ln -sfn "$installed_cli" "${HOME}/.local/bin/pi-aab-real"
     log "Installed Pi ${PI_VERSION} at ${installed_cli}."
 }
-# <<< src/bootstrap/05_install_pi.bash <<<
+# <<< src/05_install_pi.bash <<<
 
-# >>> src/bootstrap/06_install_gitleaks.bash >>>
+# >>> src/06_install_gitleaks.bash >>>
 # ---------------------------------------------------------------------------
 # Install gitleaks, the secret scanner the pre-commit hook runs. A
 # single static Go binary (MIT, offline — no network at scan time), pinned to
@@ -603,9 +603,9 @@ install_gitleaks() {
     rm -rf "$tmp"
     log "Installed gitleaks ${GITLEAKS_VERSION} at ${GITLEAKS_BIN}."
 }
-# <<< src/bootstrap/06_install_gitleaks.bash <<<
+# <<< src/06_install_gitleaks.bash <<<
 
-# >>> src/bootstrap/07_install_lifeboat.bash >>>
+# >>> src/07_install_lifeboat.bash >>>
 # ---------------------------------------------------------------------------
 # 3c. Install the lifeboat home-directory backup tool.
 #
@@ -634,9 +634,9 @@ install_lifeboat() {
         warn "Could not fetch lifeboat from ${url}; continuing without it."
     fi
 }
-# <<< src/bootstrap/07_install_lifeboat.bash <<<
+# <<< src/07_install_lifeboat.bash <<<
 
-# >>> src/bootstrap/08_install_gh.bash >>>
+# >>> src/08_install_gh.bash >>>
 # ---------------------------------------------------------------------------
 # 4. Install a pinned gh CLI standalone release. gh intentionally does not use
 # apt so every apt invocation remains centralized in install_base_deps().
@@ -686,9 +686,9 @@ install_gh() {
     rm -rf "$tmp_dir"
     log "Installed gh ${GH_VERSION} to ${HOME}/.local/bin/gh."
 }
-# <<< src/bootstrap/08_install_gh.bash <<<
+# <<< src/08_install_gh.bash <<<
 
-# >>> src/bootstrap/09_install_uv.bash >>>
+# >>> src/09_install_uv.bash >>>
 # ---------------------------------------------------------------------------
 # 4b. Ensure uv (the Python package / interpreter installer) is available,
 # installing it via its official installer when absent. uv installs the CLI
@@ -741,9 +741,9 @@ _github_git_env() {
         printf '%s\0' env
     fi
 }
-# <<< src/bootstrap/09_install_uv.bash <<<
+# <<< src/09_install_uv.bash <<<
 
-# >>> src/bootstrap/10_install_uv_tools.bash >>>
+# >>> src/10_install_uv_tools.bash >>>
 # ---------------------------------------------------------------------------
 # 4d. Install the CLI tools listed in uv_tools.txt with `uv tool install`. Each
 # tool gets its own isolated environment and its executables are symlinked into
@@ -807,9 +807,9 @@ install_uv_tools() {
             || warn "uv tool install ${tool} returned non-zero; install it manually if needed."
     done
 }
-# <<< src/bootstrap/10_install_uv_tools.bash <<<
+# <<< src/10_install_uv_tools.bash <<<
 
-# >>> src/bootstrap/11_install_agent_plugins.bash >>>
+# >>> src/11_install_agent_plugins.bash >>>
 # ---------------------------------------------------------------------------
 # Install agent plugins listed in agent_plugins.txt.
 #
@@ -1082,9 +1082,9 @@ install_codex_plugins() {
             warn "codex plugin add ${plugin}@${marketplace} returned non-zero."
     done
 }
-# <<< src/bootstrap/11_install_agent_plugins.bash <<<
+# <<< src/11_install_agent_plugins.bash <<<
 
-# >>> src/bootstrap/11_install_autocuda.bash >>>
+# >>> src/11_install_autocuda.bash >>>
 # ---------------------------------------------------------------------------
 # 4e. Install the private autocuda package as its own uv tool and run its
 # plugin registration, best effort.
@@ -1144,9 +1144,9 @@ PY
         rm -f "$snapshot"
     fi
 }
-# <<< src/bootstrap/11_install_autocuda.bash <<<
+# <<< src/11_install_autocuda.bash <<<
 
-# >>> src/bootstrap/11_install_pi_plugins.bash >>>
+# >>> src/11_install_pi_plugins.bash >>>
 # ---------------------------------------------------------------------------
 # Reinstall the Pi packages listed in pi_plugins.txt.
 #
@@ -1263,9 +1263,9 @@ install_pi_plugins() {
             || warn "Pi package install returned non-zero for ${source}."
     done
 }
-# <<< src/bootstrap/11_install_pi_plugins.bash <<<
+# <<< src/11_install_pi_plugins.bash <<<
 
-# >>> src/bootstrap/12_configure_aab_env_file.bash >>>
+# >>> src/12_configure_aab_env_file.bash >>>
 # ---------------------------------------------------------------------------
 # Persist shared model-profile and credential configuration in ~/.aab/.env.
 # ---------------------------------------------------------------------------
@@ -1330,9 +1330,9 @@ configure_github_shell() {
     mv -f "$tmp" "${GITHUB_SHELL_CONFIG_FILE}"
     log "Wrote GitHub shell configuration to ${GITHUB_SHELL_CONFIG_FILE}."
 }
-# <<< src/bootstrap/12_configure_aab_env_file.bash <<<
+# <<< src/12_configure_aab_env_file.bash <<<
 
-# >>> src/bootstrap/12_model_profiles.bash >>>
+# >>> src/12_model_profiles.bash >>>
 # ---------------------------------------------------------------------------
 # Parse, validate, and resolve environment-defined model profiles.
 # ---------------------------------------------------------------------------
@@ -1625,9 +1625,9 @@ require_inference_gateway() {
         return 1
     fi
 }
-# <<< src/bootstrap/12_model_profiles.bash <<<
+# <<< src/12_model_profiles.bash <<<
 
-# >>> src/bootstrap/13_configure_brev.bash >>>
+# >>> src/13_configure_brev.bash >>>
 # ---------------------------------------------------------------------------
 # Configure Brev API-key auth and skip interactive onboarding.
 #
@@ -1684,9 +1684,9 @@ configure_brev() {
     _configure_brev_auth
     _write_brev_onboarding
 }
-# <<< src/bootstrap/13_configure_brev.bash <<<
+# <<< src/13_configure_brev.bash <<<
 
-# >>> src/bootstrap/13_configure_claude.bash >>>
+# >>> src/13_configure_claude.bash >>>
 # ---------------------------------------------------------------------------
 # 5. Write ~/.claude/settings.json.
 # ---------------------------------------------------------------------------
@@ -1867,9 +1867,9 @@ configure_claude() {
     configure_claude_shell
     skip_claude_onboarding
 }
-# <<< src/bootstrap/13_configure_claude.bash <<<
+# <<< src/13_configure_claude.bash <<<
 
-# >>> src/bootstrap/13_configure_codex.bash >>>
+# >>> src/13_configure_codex.bash >>>
 # ---------------------------------------------------------------------------
 # Configure global Codex model instructions. model_instructions_file
 # replaces Codex's built-in model instructions, so this is a complete prompt,
@@ -2257,9 +2257,9 @@ configure_codex() {
     configure_codex_config
     configure_codex_auth
 }
-# <<< src/bootstrap/13_configure_codex.bash <<<
+# <<< src/13_configure_codex.bash <<<
 
-# >>> src/bootstrap/13_configure_pi.bash >>>
+# >>> src/13_configure_pi.bash >>>
 # ---------------------------------------------------------------------------
 # Configure Pi's generated inference-gateway model catalog, unattended
 # defaults, local fast-mode extension, and local-only OpenTelemetry logging.
@@ -2533,9 +2533,9 @@ configure_pi_extensions() {
     _write_pi_embedded_asset "$PI_FAST_MODE_EXTENSION" "$PI_FAST_MODE_EXTENSION_CONTENT" 600
     log "Wrote Pi fast-mode and local OpenTelemetry configuration."
 }
-# <<< src/bootstrap/13_configure_pi.bash <<<
+# <<< src/13_configure_pi.bash <<<
 
-# >>> src/bootstrap/20_configure_git.bash >>>
+# >>> src/20_configure_git.bash >>>
 # ---------------------------------------------------------------------------
 # 9. Configure git: identity + gh as github.com credential helper.
 # ---------------------------------------------------------------------------
@@ -2560,9 +2560,9 @@ configure_git() {
     fi
 }
 
-# <<< src/bootstrap/20_configure_git.bash <<<
+# <<< src/20_configure_git.bash <<<
 
-# >>> src/bootstrap/21_configure_ssh_keys.bash >>>
+# >>> src/21_configure_ssh_keys.bash >>>
 # ---------------------------------------------------------------------------
 # Write SSH keys supplied via $AAB_GH_AUTH_SSH_PRIVATE_KEY_B64 (for
 # github.com auth: clone/push over SSH) and/or
@@ -2727,9 +2727,9 @@ configure_signing_ssh_key() {
         warn "git not installed; skipping SSH signing config."
     fi
 }
-# <<< src/bootstrap/21_configure_ssh_keys.bash <<<
+# <<< src/21_configure_ssh_keys.bash <<<
 
-# >>> src/bootstrap/23_configure_git_hooks.bash >>>
+# >>> src/23_configure_git_hooks.bash >>>
 # ---------------------------------------------------------------------------
 # Configure a global git hook that enforces the bootstrap-configured git
 # identity (and signing, when configured) on every commit, regardless of the
@@ -2984,9 +2984,9 @@ configure_git_hooks() {
     git config --global core.hooksPath "${GIT_HOOKS_DIR}"
     log "Configured global git hooks at ${GIT_HOOKS_DIR} and set core.hooksPath (enforces the global commit identity and scans staged commits for secrets)."
 }
-# <<< src/bootstrap/23_configure_git_hooks.bash <<<
+# <<< src/23_configure_git_hooks.bash <<<
 
-# >>> src/bootstrap/24_configure_agent_rules.bash >>>
+# >>> src/24_configure_agent_rules.bash >>>
 # ---------------------------------------------------------------------------
 # 9d. Write the global agent rules to every harness's instruction file. Claude
 # Code reads ~/.claude/CLAUDE.md and Codex reads ~/.codex/AGENTS.md for every
@@ -3072,9 +3072,9 @@ PY
     mv "$current_rules" "$AGENT_RULES_STATE_FILE"
     rm -f "$previous_rules"
 }
-# <<< src/bootstrap/24_configure_agent_rules.bash <<<
+# <<< src/24_configure_agent_rules.bash <<<
 
-# >>> src/bootstrap/26_configure_launchers.bash >>>
+# >>> src/26_configure_launchers.bash >>>
 # ---------------------------------------------------------------------------
 # Write profile-driven Claude, Codex, and Pi launcher families.
 # ---------------------------------------------------------------------------
@@ -3645,9 +3645,9 @@ configure_pi_launchers() {
     _write_pi_launcher "${selected[name]}" "$provider" "${selected[model]}" "${selected[thinking]}" "$pi_bin"
     log "Wrote Pi profile launchers (selected=${selected[name]})."
 }
-# <<< src/bootstrap/26_configure_launchers.bash <<<
+# <<< src/26_configure_launchers.bash <<<
 
-# >>> src/bootstrap/27_configure_shell_startup.bash >>>
+# >>> src/27_configure_shell_startup.bash >>>
 # ---------------------------------------------------------------------------
 # 11. Rewrite the unattended-mode block in ~/.bashrc.
 #
@@ -3749,9 +3749,9 @@ configure_profile() {
     } >> "${PROFILE}"
     log "Wrote autonomous-agent-bootstrap block to ${PROFILE}."
 }
-# <<< src/bootstrap/27_configure_shell_startup.bash <<<
+# <<< src/27_configure_shell_startup.bash <<<
 
-# >>> src/bootstrap/28_configure_user_linger.bash >>>
+# >>> src/28_configure_user_linger.bash >>>
 # ---------------------------------------------------------------------------
 # Enable user lingering so the per-user systemd instance — and its bus at
 # $XDG_RUNTIME_DIR/bus — stays up across SSH sessions instead of dying with the
@@ -3787,9 +3787,9 @@ configure_user_linger() {
         warn "Could not enable user lingering for ${user}; run 'sudo loginctl enable-linger ${user}' so the user systemd bus stays up across sessions."
     fi
 }
-# <<< src/bootstrap/28_configure_user_linger.bash <<<
+# <<< src/28_configure_user_linger.bash <<<
 
-# >>> src/bootstrap/30_load_config_file.bash >>>
+# >>> src/30_load_config_file.bash >>>
 # ---------------------------------------------------------------------------
 # Optional config input (positional arg or stdin).
 #
@@ -3894,4 +3894,4 @@ main() {
 if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
     main "$@"
 fi
-# <<< src/bootstrap/30_load_config_file.bash <<<
+# <<< src/30_load_config_file.bash <<<

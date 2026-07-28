@@ -62,7 +62,7 @@ jobs:
           fetch-depth: 0
       - name: Install gitleaks
         run: |
-          source src/bootstrap/00_versions.bash
+          source src/00_versions.bash
           archive="$(mktemp)"
           curl -sSL \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \

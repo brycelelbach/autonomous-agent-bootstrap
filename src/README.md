@@ -1,6 +1,6 @@
 # Bootstrap source modules
 
-`bootstrap.bash` is compiled from these ordered `*.bash` modules and the source-controlled Pi launcher environment in `../pi/` by `tools/compile_bootstrap.py`.
+`bootstrap.bash` is compiled from these ordered `*.bash` modules and the source-controlled Pi launcher environment in `pi/` by `tools/compile_bootstrap.py`.
 
 Edit the module that owns the behavior you are changing, then run:
 
@@ -19,7 +19,7 @@ High-traffic audit targets:
 - `13_configure_claude.bash` owns Claude settings, onboarding, and shell defaults.
 - `13_configure_codex.bash` owns Codex instructions, config, and authentication.
 - `13_configure_pi.bash` owns Pi models, unattended settings, the inline fast-mode extension, and installation of the compiled launcher environment.
-- `../pi/` owns the launcher-scoped Pi observability environment, which configures no collector or network exporter and disables content capture. The telemetry adapter is installed separately from the `pi-local-otel` source in `pi_plugins.txt`.
+- `pi/` owns the launcher-scoped Pi observability environment, which configures no collector or network exporter and disables content capture. The telemetry adapter is installed separately from the `pi-local-otel` source in `pi_plugins.txt`.
 - `23_configure_git_hooks.bash` owns global git-hook configuration and rendering.
 - `26_configure_launchers.bash` owns launcher generation.
 - `27_configure_shell_startup.bash` sources per-harness shell defaults and owns PATH integration.
