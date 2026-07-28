@@ -13,7 +13,7 @@ You are operating in a safe sandbox without credentials that would allow you to 
 
 ## Edit bootstrap source modules
 
-`bootstrap.bash` is generated. Do not hand-edit it directly except by running the compiler. Make behavioral changes in the ordered modules under `src/bootstrap/`, then run `python3 tools/compile_bootstrap.py` so the single curlable `bootstrap.bash` artifact is refreshed. `./test.bash --lint` checks that the generated artifact is current.
+`bootstrap.bash` is generated. Do not hand-edit it directly except by running the compiler. Make behavioral changes in the ordered modules under `src/`, then run `python3 tools/compile_bootstrap.py` so the single curlable `bootstrap.bash` artifact is refreshed. `./test.bash --lint` checks that the generated artifact is current.
 
 ## Avoid documenting history
 

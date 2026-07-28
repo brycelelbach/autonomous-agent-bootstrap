@@ -67,8 +67,8 @@ teardown() {
         CLAUDE_CODE_VERSION CODEX_VERSION NODE_VERSION PI_VERSION \
         LIFEBOAT_REF GH_VERSION UV_VERSION GITLEAKS_VERSION; do
         [ -n "${!package_variable}" ]
-        definitions=$(grep -R "^${package_variable}=" "$REPO_ROOT/src/bootstrap" --include='*.bash')
-        [[ "$definitions" == "$REPO_ROOT/src/bootstrap/00_versions.bash:"* ]]
+        definitions=$(grep -H "^${package_variable}=" "$REPO_ROOT"/src/*.bash)
+        [[ "$definitions" == "$REPO_ROOT/src/00_versions.bash:"* ]]
         [ "$(printf '%s\n' "$definitions" | wc -l)" -eq 1 ]
     done
 }
@@ -2043,9 +2043,9 @@ SH
                 printf "%s\n" "$source_file"
             fi
         done
-    ' _ "$REPO_ROOT/src/bootstrap"
+    ' _ "$REPO_ROOT/src"
     [ "$status" -eq 0 ]
-    [ "$output" = "$REPO_ROOT/src/bootstrap/01_install_base_deps.bash" ]
+    [ "$output" = "$REPO_ROOT/src/01_install_base_deps.bash" ]
 }
 
 
