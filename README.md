@@ -53,13 +53,13 @@ The bootstrap also accepts the same variables through its optional sourced confi
 
 ## Generated Bootstrap
 
-`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/`. All non-apt, non-plugin package versions and immutable refs live in `src/00_versions.bash`; update that file when upgrading an installer. Claude, Codex, and Pi configuration live in `src/13_configure_claude.bash`, `src/13_configure_codex.bash`, and `src/13_configure_pi.bash`; Pi's short fast-mode extension is embedded directly in its configuration module, while its launcher-scoped observability environment lives in `src/pi/` and is embedded by the compiler. AAB-owned Pi repositories in `pi_plugins.txt`, including the `pi-local-otel` implementation, intentionally follow their default branches. After editing a module or Pi asset, run:
+`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/`. Source branches do not track the artifact; the compiler writes an ignored local copy for development and the publish workflow writes the distributable copy to a generated branch. All non-apt, non-plugin package versions and immutable refs live in `src/00_versions.bash`; update that file when upgrading an installer. Claude, Codex, and Pi configuration live in `src/13_configure_claude.bash`, `src/13_configure_codex.bash`, and `src/13_configure_pi.bash`; Pi's short fast-mode extension is embedded directly in its configuration module, while its launcher-scoped observability environment lives in `src/pi/` and is embedded by the compiler. AAB-owned Pi repositories in `pi_plugins.txt`, including the `pi-local-otel` implementation, intentionally follow their default branches. To build the artifact directly, run:
 
 ```bash
 python3 tools/compile_bootstrap.py
 ```
 
-`./test.bash --lint` runs `python3 tools/compile_bootstrap.py --check`, so CI fails if `bootstrap.bash` is stale. The `Publish generated bootstrap` workflow compiles every pushed branch and publishes a curlable artifact branch in the same repository: `main` publishes to `generated`, and any other branch publishes to `generated/<branch-name>`. Forks publish to their own generated branches with the same workflow because the compiled script stamps the fork repository and generated ref into its side-file URLs.
+Every test mode that exercises the bootstrap compiles its own artifact first, so tests and publication consume the same source. The `Publish generated bootstrap` workflow compiles every pushed branch and publishes a curlable artifact branch in the same repository: `main` publishes to `generated`, and any other branch publishes to `generated/<branch-name>`. Forks publish to their own generated branches with the same workflow because the compiled script stamps the fork repository and generated ref into its side-file URLs.
 
 ## Model Profiles
 

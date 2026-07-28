@@ -3,7 +3,7 @@
 # "works locally" == "will pass CI".
 #
 # Usage:
-#   ./test.bash              lint + unit (default; fast, no side effects)
+#   ./test.bash              lint + unit (default; fast, no host config changes)
 #   ./test.bash --lint       bash -n + shellcheck
 #   ./test.bash --unit       bats suite (tests/bootstrap.bats)
 #   ./test.bash --e2e        runs bootstrap.bash on THIS host + assertions.
@@ -35,12 +35,16 @@ need() {
         || { echo "test.bash: Missing dependency: $1." >&2; return 1; }
 }
 
+compile_bootstrap() {
+    need python3
+    python3 tools/compile_bootstrap.py
+}
+
 run_lint() {
     echo "=== lint ==="
     need bash
-    need python3
     need shellcheck
-    python3 tools/compile_bootstrap.py --check
+    compile_bootstrap
     bash -n bootstrap.bash
     shellcheck -S warning bootstrap.bash test.bash tests/e2e-assertions.bash
     # The global git hook is emitted from bootstrap.bash via a quoted heredoc,
@@ -57,15 +61,21 @@ run_lint() {
 run_unit() {
     echo "=== unit (bats) ==="
     need bats
-    need python3
+    compile_bootstrap
     bats tests/bootstrap.bats
 }
 
 run_e2e() {
     echo "=== e2e (runs bootstrap.bash on this host — DESTRUCTIVE) ==="
     # bootstrap.bash's install_base_deps step installs curl / python3 /
-    # git / sudo / ripgrep / pandoc / ca-certificates itself, so we only need bash here.
+    # git / sudo / ripgrep / pandoc / ca-certificates itself.
     need bash
+    if [ "${AAB_TEST_PRECOMPILED_BOOTSTRAP:-}" = 1 ]; then
+        [ -x bootstrap.bash ] \
+            || { echo "test.bash: Missing precompiled bootstrap.bash." >&2; return 1; }
+    else
+        compile_bootstrap
+    fi
     : "${AAB_GIT_AUTHOR_NAME:=CI Bot}"
     : "${AAB_GIT_AUTHOR_EMAIL:=ci@example.com}"
     : "${AAB_CLAUDE_FIRST_PARTY_PROFILES:=opus-4.8 model=claude-opus-4-8 haiku=claude-haiku-4-5 sonnet=claude-sonnet-4-6 opus=claude-opus-4-8 effort=max}"
@@ -101,6 +111,7 @@ run_e2e() {
 
 run_docker_e2e() {
     need docker
+    compile_bootstrap
     local -a docker_images=()
     read -r -a docker_images <<< "${AAB_TEST_DOCKER_IMAGES:-ubuntu:24.04 ubuntu:latest}"
     [ ${#docker_images[@]} -gt 0 ] \
@@ -114,6 +125,7 @@ run_docker_e2e() {
     for image in "${docker_images[@]}"; do
         echo "=== docker e2e (bootstrap in fresh ${image} container) ==="
         docker run --rm \
+            -e AAB_TEST_PRECOMPILED_BOOTSTRAP=1 \
             -e GITHUB_TOKEN \
             -e AAB_BREV_API_KEY \
             -e AAB_BREV_ORG_ID \

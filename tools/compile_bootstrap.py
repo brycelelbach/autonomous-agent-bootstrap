@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import argparse
-import difflib
 import os
 from pathlib import Path
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "src"
@@ -58,7 +56,6 @@ def compile_bootstrap(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="fail if bootstrap.bash is stale")
     parser.add_argument("--output", type=Path, default=OUTPUT, help="output path")
     parser.add_argument(
         "--bootstrap-repo",
@@ -76,19 +73,6 @@ def main() -> int:
         bootstrap_repo=args.bootstrap_repo,
         bootstrap_ref=args.bootstrap_ref,
     )
-    if args.check:
-        existing = args.output.read_text() if args.output.exists() else ""
-        if existing != compiled:
-            diff = difflib.unified_diff(
-                existing.splitlines(keepends=True),
-                compiled.splitlines(keepends=True),
-                fromfile=str(args.output),
-                tofile="compiled bootstrap.bash",
-            )
-            sys.stderr.writelines(diff)
-            return 1
-        return 0
-
     args.output.write_text(compiled)
     os.chmod(args.output, 0o755)
     return 0
