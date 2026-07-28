@@ -467,6 +467,7 @@ PY
     grep -q '^service_tier = "priority"$' "$CODEX_CONFIG"
     grep -q '^fast_mode = true$' "$CODEX_CONFIG"
     grep -q '^default_mode_request_user_input = false$' "$CODEX_CONFIG"
+    grep -q '^tool_suggest = false$' "$CODEX_CONFIG"
     grep -q '^approval_policy = "never"$' "$CODEX_CONFIG"
     grep -q '^sandbox_mode = "danger-full-access"$' "$CODEX_CONFIG"
     grep -q '^web_search = "live"$' "$CODEX_CONFIG"
@@ -3032,7 +3033,7 @@ STUB
     grep -q "Always use the configured git identity" "$CLAUDE_MEMORY_FILE"
     ! grep -qF '# >>> autonomous-agent-bootstrap >>>' "$CODEX_AGENTS_FILE"
     grep -q "Operating principles" "$CODEX_AGENTS_FILE"
-    grep -q "Never omit a material artifact such as a new plugin" "$CODEX_AGENTS_FILE"
+    grep -q "Summarize all changes made, not just their effect" "$CODEX_AGENTS_FILE"
     grep -q "Always use the configured git identity" "$CODEX_AGENTS_FILE"
     grep -q "Operating principles" "$AGENT_RULES_STATE_FILE"
 }
