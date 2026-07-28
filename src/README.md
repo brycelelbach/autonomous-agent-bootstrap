@@ -1,6 +1,6 @@
 # Bootstrap source modules
 
-`bootstrap.bash` is compiled from these ordered `*.bash` modules and the source-controlled Pi launcher environment in `pi/` by `tools/compile_bootstrap.py`.
+`bootstrap.bash` is compiled from these ordered `*.bash` modules and the source-controlled Pi launcher environment in `pi/` by `tools/compile_bootstrap.py`. The compiler writes an ignored repository-root artifact for local use; the publish workflow writes the distributable copy to a generated branch.
 
 Edit the module that owns the behavior you are changing, then run:
 
