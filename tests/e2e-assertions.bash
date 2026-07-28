@@ -188,6 +188,8 @@ grep -Fxq "fast_mode = ${expected_codex_fast_mode}" "$CODEX_CONFIG" \
     || fail "Codex fast-mode feature is not ${expected_codex_fast_mode}."
 grep -Fxq 'default_mode_request_user_input = false' "$CODEX_CONFIG" \
     || fail "Codex request-user-input feature is not disabled in default mode."
+grep -Fxq 'tool_suggest = false' "$CODEX_CONFIG" \
+    || fail "Codex tool suggestions are not disabled."
 grep -q '^check_for_update_on_startup = false$' "$CODEX_CONFIG" \
     || fail "Codex startup update check is not disabled."
 grep -q '^\[otel\]$' "$CODEX_CONFIG" \
@@ -891,8 +893,8 @@ for rule_file in "$CLAUDE_MEMORY_FILE" "$CODEX_AGENTS_FILE"; do
         || fail "agent rule file $rule_file missing the operating-principles heading."
     grep -q 'Write substantive PR descriptions in plain language' "$rule_file" \
         || fail "agent rule file $rule_file missing the PR-description guidance."
-    grep -q 'Never omit a material artifact such as a new plugin' "$rule_file" \
-        || fail "agent rule file $rule_file missing the material-artifact guidance."
+    grep -q 'Summarize all changes made, not just their effect' "$rule_file" \
+        || fail "agent rule file $rule_file missing the complete-change-summary guidance."
     grep -q 'Always use the configured git identity' "$rule_file" \
         || fail "agent rule file $rule_file missing the git-identity rule heading."
 done
