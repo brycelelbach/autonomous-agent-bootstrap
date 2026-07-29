@@ -18,8 +18,9 @@ High-traffic audit targets:
 - `12_model_profiles.bash` parses and resolves environment-defined model profiles.
 - `13_configure_claude.bash` owns Claude settings, onboarding, and shell defaults.
 - `13_configure_codex.bash` owns Codex instructions, config, and authentication.
-- `13_configure_pi.bash` owns Pi models, unattended settings, the inline fast-mode extension, and installation of the compiled launcher environment.
+- `13_configure_pi.bash` owns Pi models, unattended settings, and installation of the compiled launcher environment.
 - `pi/` owns the launcher-scoped Pi observability environment, which configures no collector or network exporter and disables content capture. The telemetry adapter is installed separately from the `pi-local-otel` source in `pi_plugins.txt`.
+- AAB-owned Pi provider extensions, including `pi-fast-mode`, are installed from their current default branches through `pi_plugins.txt`.
 - `23_configure_git_hooks.bash` owns global git-hook configuration and rendering.
 - `26_configure_launchers.bash` owns launcher generation.
 - `27_configure_shell_startup.bash` sources per-harness shell defaults and owns PATH integration.

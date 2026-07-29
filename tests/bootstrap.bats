@@ -87,9 +87,12 @@ teardown() {
     [[ "$PI_OBSERVABILITY_ENV_CONTENT" != *"__AAB_PI_OBSERVABILITY_ENV__"* ]]
     [[ "$PI_OBSERVABILITY_ENV_CONTENT" == *'OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"'* ]]
     [[ "$PI_OBSERVABILITY_ENV_CONTENT" != *"PI_TELEMETRY"* ]]
-    [[ "$PI_FAST_MODE_EXTENSION_CONTENT" == *'serviceTier: "priority"'* ]]
+    [[ ! -v PI_FAST_MODE_EXTENSION_CONTENT ]]
+    ! grep -Fq 'AAB_PI_FAST_MODE_EXTENSION' "$REPO_ROOT/bootstrap.bash"
+    ! grep -Fq 'streamOpenAIResponses' "$REPO_ROOT/bootstrap.bash"
     for owned_repo in \
-        pi-list-tools pi-local-otel pi-session-identity pi-schedule-prompt pi-bash-background \
+        pi-fast-mode pi-list-tools pi-local-otel pi-session-identity \
+        pi-schedule-prompt pi-bash-background \
         pi-web-access pi-retry-empty pi-print-stream; do
         [ "$(grep -Fxc "git:github.com/robobryce/${owned_repo}" "$REPO_ROOT/pi_plugins.txt")" -eq 1 ]
     done
@@ -1325,9 +1328,14 @@ SH
 }
 
 @test "configure_pi_settings writes machine-independent unattended defaults" {
-    mkdir -p "$(dirname "$PI_SETTINGS_FILE")"
-    cat > "$PI_SETTINGS_FILE" <<'JSON'
+    local legacy_fast_mode_extension="${PI_DIR}/extensions/fast-mode.ts"
+    mkdir -p "$(dirname "$PI_SETTINGS_FILE")" "$(dirname "$legacy_fast_mode_extension")"
+    printf '%s\n' 'legacy inline extension' > "$legacy_fast_mode_extension"
+    cat > "$PI_SETTINGS_FILE" <<JSON
 {
+  "extensions": [
+    "$legacy_fast_mode_extension"
+  ],
   "packages": [
     "npm:pi-list-tools@0.1.0",
     "npm:pi-print-stream@0.1.0"
@@ -1340,11 +1348,11 @@ JSON
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         configure_pi_settings
 
-    python3 - "$PI_SETTINGS_FILE" "$PI_FAST_MODE_EXTENSION" <<'PY'
+    python3 - "$PI_SETTINGS_FILE" <<'PY'
 import json
 import sys
 
-settings_path, fast_mode_extension = sys.argv[1:]
+settings_path = sys.argv[1]
 with open(settings_path, encoding="utf-8") as handle:
     data = json.load(handle)
 assert data["defaultProvider"] == "aab-gateway-fast", data
@@ -1361,19 +1369,19 @@ assert data["retry"] == {
     "provider": {"timeoutMs": 240000, "maxRetries": 0},
 }, data
 assert data["enabledModels"] == ["anthropic/claude-opus-4-8", "deepseek-v4-pro"], data
-assert data["extensions"] == [fast_mode_extension], data
+assert data["extensions"] == [], data
 assert data["packages"] == [], data
 assert "trackingId" not in data and "lastChangelogVersion" not in data, data
 PY
+    [ ! -e "$legacy_fast_mode_extension" ]
+    [ ! -L "$legacy_fast_mode_extension" ]
 }
 
-@test "configure_pi_extensions writes private fast-mode and observability assets" {
+@test "configure_pi_extensions writes the private observability asset" {
     configure_pi_extensions
 
     [ "$(cat "$PI_OBSERVABILITY_ENV_FILE")" = "$PI_OBSERVABILITY_ENV_CONTENT" ]
-    [ "$(cat "$PI_FAST_MODE_EXTENSION")" = "$PI_FAST_MODE_EXTENSION_CONTENT" ]
     [ "$(stat -c '%a' "$PI_OBSERVABILITY_ENV_FILE")" = "600" ]
-    [ "$(stat -c '%a' "$PI_FAST_MODE_EXTENSION")" = "600" ]
 }
 
 @test "install_pi_plugins reinstalls every non-comment source without profile flags" {
@@ -1486,6 +1494,8 @@ SH
     done < <(sed -E 's/#.*//' "$REPO_ROOT/pi_plugins.txt" \
         | awk 'NF && /^git:github\.com\/robobryce\/pi-/ { print }')
     grep -Fxq 'install git:github.com/robobryce/pi-local-otel --no-approve' \
+        "$TEST_HOME/pi-package-invocations"
+    grep -Fxq 'install git:github.com/robobryce/pi-fast-mode --no-approve' \
         "$TEST_HOME/pi-package-invocations"
     ! grep -Eq '(^| )npm:pi-otel(@| |$)' "$TEST_HOME/pi-package-invocations"
 }
