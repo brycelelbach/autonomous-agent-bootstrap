@@ -12,8 +12,6 @@ SOURCE_DIR = ROOT / "src"
 OUTPUT = ROOT / "bootstrap.bash"
 AGENT_PLUGINS = ROOT / "agent_plugins.txt"
 PI_PLUGINS = ROOT / "pi_plugins.txt"
-PI_ASSET_DIR = ROOT / "src" / "pi"
-PI_OBSERVABILITY_ENV = PI_ASSET_DIR / "observability.env"
 
 GENERATED_HEADER = """# -----------------------------------------------------------------------------
 # GENERATED FILE: do not edit directly.
@@ -44,13 +42,11 @@ def compile_bootstrap(
     compiled = "".join(parts)
     agent_plugins = AGENT_PLUGINS.read_text().rstrip("\n")
     pi_plugins = PI_PLUGINS.read_text().rstrip("\n")
-    pi_observability_env = PI_OBSERVABILITY_ENV.read_text().rstrip("\n")
     return (
         compiled.replace("__AAB_BOOTSTRAP_REPO__", bootstrap_repo)
         .replace("__AAB_BOOTSTRAP_REF__", bootstrap_ref)
         .replace("__AAB_AGENT_PLUGINS__", agent_plugins)
         .replace("__AAB_PI_PLUGINS__", pi_plugins)
-        .replace("__AAB_PI_OBSERVABILITY_ENV__", pi_observability_env)
     )
 
 

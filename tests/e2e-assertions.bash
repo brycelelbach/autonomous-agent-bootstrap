@@ -27,7 +27,6 @@ PI_SETTINGS_FILE="${HOME}/.pi/agent/settings.json"
 PI_CODING_AGENT_PACKAGE="${HOME}/.local/lib/node_modules/@earendil-works/pi-coding-agent"
 PI_NPM_DIR="${HOME}/.pi/agent/npm"
 PI_LIST_TOOLS_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-list-tools"
-PI_OBSERVABILITY_ENV_FILE="${HOME}/.aab/shell/pi-observability.env"
 PI_FAST_MODE_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-fast-mode"
 PI_LEGACY_FAST_MODE_EXTENSION="${HOME}/.pi/agent/extensions/fast-mode.ts"
 PI_LOCAL_OTEL_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-local-otel"
@@ -439,14 +438,13 @@ PY
     || fail "Pi is not the pinned version $PI_VERSION."
 [ -f "$PI_SETTINGS_FILE" ] || fail "Pi settings.json not written."
 [ -f "$PI_LIST_TOOLS_PACKAGE/list-tools.ts" ] || fail "Pi list-tools package not installed."
-[ -f "$PI_OBSERVABILITY_ENV_FILE" ] || fail "Pi observability environment file not written."
+[ ! -e "${HOME}/.aab/shell/pi-observability.env" ] \
+    || fail "Obsolete Pi observability environment file still exists."
 [ -d "$PI_FAST_MODE_PACKAGE/.git" ] || fail "Pi fast-mode Git package not installed."
 [ ! -e "$PI_LEGACY_FAST_MODE_EXTENSION" ] && [ ! -L "$PI_LEGACY_FAST_MODE_EXTENSION" ] \
     || fail "Legacy inline Pi fast-mode extension is still installed."
 [ -d "$PI_LOCAL_OTEL_PACKAGE/.git" ] || fail "Pi local OpenTelemetry Git package not installed."
 [ ! -e "$PI_UNSUPPORTED_OTEL_PACKAGE" ] || fail "Unsupported Pi package pi-otel is still installed."
-[ "$(stat -c '%a' "$PI_OBSERVABILITY_ENV_FILE")" = "600" ] \
-    || fail "$PI_OBSERVABILITY_ENV_FILE mode is not 600."
 python3 - "$PI_SETTINGS_FILE" \
     "$REPO_ROOT/pi_plugins.txt" "${expected_pi_profile[model]}" "${expected_pi_profile[fast]}" <<'PY'
 import json
@@ -574,16 +572,6 @@ if npm_lock_path.exists():
     assert "pi-otel" not in npm_packages.get("", {}).get("dependencies", {}), npm_packages
 PY
 
-grep -Fxq 'export OTEL_SDK_DISABLED="${OTEL_SDK_DISABLED:-false}"' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi OpenTelemetry SDK does not default to enabled with an opt-out."
-grep -Fxq 'export OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi traces do not default to console export with an opt-out."
-grep -Fxq 'export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi GenAI message-content capture is not disabled."
-! grep -Eq '^[[:space:]]*export[[:space:]]+PI_TELEMETRY=' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi local OpenTelemetry config overrides separate install/update telemetry."
-! grep -Eqi 'OTEL_EXPORTER_OTLP|https?://|exporter-otlp' "$PI_OBSERVABILITY_ENV_FILE" \
-    || fail "Pi observability config contains an OTLP endpoint or exporter."
 grep -Fq 'ConsoleSpanExporter' "$PI_LOCAL_OTEL_PACKAGE/src/index.ts" \
     || fail "Pi local OpenTelemetry extension does not use ConsoleSpanExporter."
 python3 - "$PI_LOCAL_OTEL_PACKAGE/src" <<'PY'
@@ -648,10 +636,7 @@ otel_smoke_dir=$(mktemp -d)
 chmod 700 "$otel_smoke_dir"
 (
     export PI_OTEL_LOG_DIR="$otel_smoke_dir"
-    export OTEL_SDK_DISABLED=false
-    export OTEL_TRACES_EXPORTER=console
-    # shellcheck disable=SC1090
-    source "$PI_OBSERVABILITY_ENV_FILE"
+    unset OTEL_SDK_DISABLED OTEL_TRACES_EXPORTER OTEL_SERVICE_NAME
     node --experimental-strip-types --input-type=module - \
         "$PI_LOCAL_OTEL_PACKAGE/src/index.ts" <<'JS'
 import { pathToFileURL } from "node:url";

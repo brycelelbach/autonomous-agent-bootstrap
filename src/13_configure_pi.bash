@@ -1,11 +1,7 @@
 # ---------------------------------------------------------------------------
-# Configure Pi's generated inference-gateway model catalog, unattended
-# defaults, and local-only OpenTelemetry logging.
+# Configure Pi's generated inference-gateway model catalog and unattended
+# defaults.
 # ---------------------------------------------------------------------------
-PI_OBSERVABILITY_ENV_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_ENV_EOF'
-__AAB_PI_OBSERVABILITY_ENV__
-AAB_PI_OBSERVABILITY_ENV_EOF
-)
 
 configure_pi_models() {
     local profiles line
@@ -210,19 +206,6 @@ PY
     rm -f "$records"
     chmod 600 "$tmp"
     mv -f "$tmp" "$PI_SETTINGS_FILE"
+    rm -f "${AAB_SHELL_CONFIG_DIR}/pi-observability.env"
     log "Wrote ${PI_SETTINGS_FILE} with unattended Pi defaults."
-}
-
-_write_pi_embedded_asset() {
-    local path="$1" content="$2" mode="$3" tmp
-    mkdir -p "$(dirname "$path")"
-    tmp=$(mktemp "${path}.tmp.XXXXXX")
-    printf '%s\n' "$content" > "$tmp"
-    chmod "$mode" "$tmp"
-    mv -f "$tmp" "$path"
-}
-
-configure_pi_extensions() {
-    _write_pi_embedded_asset "$PI_OBSERVABILITY_ENV_FILE" "$PI_OBSERVABILITY_ENV_CONTENT" 600
-    log "Wrote Pi local OpenTelemetry configuration."
 }

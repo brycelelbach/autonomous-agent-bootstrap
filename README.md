@@ -53,7 +53,7 @@ The bootstrap also accepts the same variables through its optional sourced confi
 
 ## Generated Bootstrap
 
-`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/`. Source branches do not track the artifact; the compiler writes an ignored local copy for development and the publish workflow writes the distributable copy to a generated branch. All non-apt, non-plugin package versions and immutable refs live in `src/00_versions.bash`; update that file when upgrading an installer. Claude, Codex, and Pi configuration live in `src/13_configure_claude.bash`, `src/13_configure_codex.bash`, and `src/13_configure_pi.bash`; Pi's launcher-scoped observability environment lives in `src/pi/` and is embedded by the compiler. AAB-owned Pi repositories in `pi_plugins.txt`, including `pi-fast-mode` and the `pi-local-otel` implementation, intentionally follow their default branches. To build the artifact directly, run:
+`bootstrap.bash` is a generated, curlable artifact compiled from ordered source modules in `src/`. Source branches do not track the artifact; the compiler writes an ignored local copy for development and the publish workflow writes the distributable copy to a generated branch. All non-apt, non-plugin package versions and immutable refs live in `src/00_versions.bash`; update that file when upgrading an installer. Claude, Codex, and Pi configuration live in `src/13_configure_claude.bash`, `src/13_configure_codex.bash`, and `src/13_configure_pi.bash`. AAB-owned Pi repositories in `pi_plugins.txt`, including `pi-fast-mode` and the `pi-local-otel` implementation, intentionally follow their default branches. To build the artifact directly, run:
 
 ```bash
 python3 tools/compile_bootstrap.py
@@ -178,7 +178,6 @@ All variables are optional unless a configured third-party profile needs the inf
 | `~/.pi/agent/git/github.com/robobryce/pi-fast-mode/` | Priority-service provider extension refreshed from its default branch by each bootstrap. |
 | `~/.pi/agent/git/github.com/robobryce/pi-list-tools/` | Tool-registry inspection package refreshed from its default branch by each bootstrap. |
 | `~/.pi/agent/git/github.com/robobryce/pi-local-otel/` | Metadata-only local telemetry package refreshed from its default branch by each bootstrap. Its exact official OpenTelemetry dependencies and `ConsoleSpanExporter` capture produce private local JSONL output without a collector or network exporter. |
-| `~/.aab/shell/pi-observability.env` | Launcher-scoped Pi OpenTelemetry configuration that disables network exporters and content capture. |
 | `~/.pi/agent/debug/pi-otel-*.jsonl` | Private mode-`0600`, per-process local Pi span logs in a mode-`0700` directory. Under normal startup and shutdown, defaults bound current-node managed history to 20 files of at most 8 MiB each; active, foreign-node, and legacy files are preserved. |
 | `~/.aab/shell/github.env` | Private `GH_TOKEN` export generated from `AAB_GH_TOKEN`. Mode `0600`; sourced by the managed shell block. |
 | `~/.claude/settings.json` | Rewritten with unattended Claude defaults and plugin entries; existing file is backed up. |

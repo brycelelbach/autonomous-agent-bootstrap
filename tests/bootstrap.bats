@@ -15,7 +15,6 @@ setup() {
           AAB_CODEX_DEFAULT_PROFILE AAB_CODEX_SERVICE_TIER \
           AAB_CODEX_AGENT_MAX_THREADS \
           AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
-          AAB_PI_OBSERVABILITY_ENV_FILE \
           AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
           AAB_ANTHROPIC_API_KEY AAB_OPENAI_API_KEY \
           AAB_BREV_API_KEY AAB_BREV_ORG_ID BREV_API_KEY BREV_ORG_ID \
@@ -78,15 +77,11 @@ teardown() {
     [[ "$AGENT_PLUGINS_DEFAULT_CONTENT" != *"__AAB_AGENT_PLUGINS__"* ]]
 }
 
-@test "Pi package defaults and local observability env are compiled into bootstrap.bash" {
+@test "Pi package defaults are compiled into bootstrap.bash" {
     local owned_repo
 
     [ "$PI_PLUGINS_DEFAULT_CONTENT" = "$(cat "$REPO_ROOT/pi_plugins.txt")" ]
     [[ "$PI_PLUGINS_DEFAULT_CONTENT" != *"__AAB_PI_PLUGINS__"* ]]
-    [ "$PI_OBSERVABILITY_ENV_CONTENT" = "$(cat "$REPO_ROOT/src/pi/observability.env")" ]
-    [[ "$PI_OBSERVABILITY_ENV_CONTENT" != *"__AAB_PI_OBSERVABILITY_ENV__"* ]]
-    [[ "$PI_OBSERVABILITY_ENV_CONTENT" == *'OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"'* ]]
-    [[ "$PI_OBSERVABILITY_ENV_CONTENT" != *"PI_TELEMETRY"* ]]
     [[ ! -v PI_FAST_MODE_EXTENSION_CONTENT ]]
     ! grep -Fq 'AAB_PI_FAST_MODE_EXTENSION' "$REPO_ROOT/bootstrap.bash"
     ! grep -Fq 'streamOpenAIResponses' "$REPO_ROOT/bootstrap.bash"
@@ -1181,15 +1176,13 @@ SH
 }
 
 @test "configure_pi_models and configure_pi_launchers create pi-model aliases" {
-    mkdir -p "$HOME/.local/bin" "$(dirname "$PI_OBSERVABILITY_ENV_FILE")"
-    cp "$REPO_ROOT/src/pi/observability.env" "$PI_OBSERVABILITY_ENV_FILE"
-    printf '\nexport AAB_TEST_PI_OBSERVABILITY=local-only\n' >> "$PI_OBSERVABILITY_ENV_FILE"
+    mkdir -p "$HOME/.local/bin"
     cat > "$HOME/.local/bin/pi-aab-real" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$@" > "$TEST_HOME/pi-launcher-args"
 printf '%s\n' "\${AAB_PI_DEFAULT_PROFILE:-}" > "$TEST_HOME/pi-launcher-default-profile"
+printf '%s\n' "\${PI_TIMING:-}" > "$TEST_HOME/pi-launcher-timing"
 printf '%s\n' "\${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-}" > "$TEST_HOME/pi-launcher-patty-disable-ctrl-b"
-printf '%s\n' "\${AAB_TEST_PI_OBSERVABILITY:-}" > "$TEST_HOME/pi-launcher-observability"
 printf '%s\n' "\${PI_TELEMETRY:-}" > "$TEST_HOME/pi-launcher-install-telemetry"
 printf '%s\n' "\${OTEL_SERVICE_NAME:-}" > "$TEST_HOME/pi-launcher-otel-service"
 printf '%s\n' "\${OTEL_TRACES_EXPORTER:-}" > "$TEST_HOME/pi-launcher-otel-traces-exporter"
@@ -1224,17 +1217,18 @@ SH
     grep -Fxq -- '--thinking' "$TEST_HOME/pi-launcher-args"
     grep -Fxq 'max' "$TEST_HOME/pi-launcher-args"
     ! grep -Fxq 'ultra' "$TEST_HOME/pi-launcher-args"
+    [ "$(cat "$TEST_HOME/pi-launcher-timing")" = "0" ]
     [ "$(cat "$TEST_HOME/pi-launcher-patty-disable-ctrl-b")" = "1" ]
-    [ "$(cat "$TEST_HOME/pi-launcher-observability")" = "local-only" ]
     [ -z "$(cat "$TEST_HOME/pi-launcher-install-telemetry")" ]
-    [ "$(cat "$TEST_HOME/pi-launcher-otel-service")" = "pi-coding-agent" ]
-    [ "$(cat "$TEST_HOME/pi-launcher-otel-traces-exporter")" = "console" ]
-    [ "$(cat "$TEST_HOME/pi-launcher-otel-sdk-disabled")" = "false" ]
-    [ "$(cat "$TEST_HOME/pi-launcher-otel-content-capture")" = "false" ]
+    [ -z "$(cat "$TEST_HOME/pi-launcher-otel-service")" ]
+    [ -z "$(cat "$TEST_HOME/pi-launcher-otel-traces-exporter")" ]
+    [ -z "$(cat "$TEST_HOME/pi-launcher-otel-sdk-disabled")" ]
+    [ -z "$(cat "$TEST_HOME/pi-launcher-otel-content-capture")" ]
 
-    PI_TELEMETRY=0 OTEL_SDK_DISABLED=true OTEL_TRACES_EXPORTER=none \
+    PI_TELEMETRY=0 PI_TIMING=1 OTEL_SDK_DISABLED=true OTEL_TRACES_EXPORTER=none \
         "$HOME/.local/bin/pi-gpt-5.6" -p hello
     [ "$(cat "$TEST_HOME/pi-launcher-install-telemetry")" = "0" ]
+    [ "$(cat "$TEST_HOME/pi-launcher-timing")" = "1" ]
     [ "$(cat "$TEST_HOME/pi-launcher-otel-sdk-disabled")" = "true" ]
     [ "$(cat "$TEST_HOME/pi-launcher-otel-traces-exporter")" = "none" ]
 
@@ -1330,8 +1324,10 @@ SH
 @test "configure_pi_settings writes machine-independent unattended defaults" {
     local legacy_fast_mode_extension="${PI_DIR}/extensions/fast-mode.ts"
     local previous_fast_mode_source="${PI_FAST_MODE_SOURCE}@1111111111111111111111111111111111111111"
-    mkdir -p "$(dirname "$PI_SETTINGS_FILE")" "$(dirname "$legacy_fast_mode_extension")"
+    mkdir -p "$(dirname "$PI_SETTINGS_FILE")" \
+        "$(dirname "$legacy_fast_mode_extension")" "$AAB_SHELL_CONFIG_DIR"
     printf '%s\n' 'legacy inline extension' > "$legacy_fast_mode_extension"
+    printf '%s\n' stale > "$AAB_SHELL_CONFIG_DIR/pi-observability.env"
     cat > "$PI_SETTINGS_FILE" <<JSON
 {
   "extensions": [
@@ -1377,6 +1373,7 @@ assert "trackingId" not in data and "lastChangelogVersion" not in data, data
 PY
     [ "$(cat "$legacy_fast_mode_extension")" = 'legacy inline extension' ]
     [ "$PI_PREVIOUS_FAST_MODE_SOURCE" = "$previous_fast_mode_source" ]
+    [ ! -e "$AAB_SHELL_CONFIG_DIR/pi-observability.env" ]
 }
 
 @test "configure_pi_settings tolerates a non-list prior package registry" {
@@ -1395,13 +1392,6 @@ with open(sys.argv[1], encoding="utf-8") as handle:
     data = json.load(handle)
 assert data["packages"] == [], data
 PY
-}
-
-@test "configure_pi_extensions writes the private observability asset" {
-    configure_pi_extensions
-
-    [ "$(cat "$PI_OBSERVABILITY_ENV_FILE")" = "$PI_OBSERVABILITY_ENV_CONTENT" ]
-    [ "$(stat -c '%a' "$PI_OBSERVABILITY_ENV_FILE")" = "600" ]
 }
 
 @test "install_pi_plugins reinstalls every non-comment source without profile flags" {
