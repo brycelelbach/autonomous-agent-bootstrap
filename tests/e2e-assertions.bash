@@ -28,7 +28,8 @@ PI_CODING_AGENT_PACKAGE="${HOME}/.local/lib/node_modules/@earendil-works/pi-codi
 PI_NPM_DIR="${HOME}/.pi/agent/npm"
 PI_LIST_TOOLS_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-list-tools"
 PI_OBSERVABILITY_ENV_FILE="${HOME}/.aab/shell/pi-observability.env"
-PI_FAST_MODE_EXTENSION="${HOME}/.pi/agent/extensions/fast-mode.ts"
+PI_FAST_MODE_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-fast-mode"
+PI_LEGACY_FAST_MODE_EXTENSION="${HOME}/.pi/agent/extensions/fast-mode.ts"
 PI_LOCAL_OTEL_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-local-otel"
 PI_UNSUPPORTED_OTEL_PACKAGE="${PI_NPM_DIR}/node_modules/pi-otel"
 
@@ -439,21 +440,19 @@ PY
 [ -f "$PI_SETTINGS_FILE" ] || fail "Pi settings.json not written."
 [ -f "$PI_LIST_TOOLS_PACKAGE/list-tools.ts" ] || fail "Pi list-tools package not installed."
 [ -f "$PI_OBSERVABILITY_ENV_FILE" ] || fail "Pi observability environment file not written."
-[ -f "$PI_FAST_MODE_EXTENSION" ] || fail "Pi fast-mode extension not written."
+[ -d "$PI_FAST_MODE_PACKAGE/.git" ] || fail "Pi fast-mode Git package not installed."
+[ ! -e "$PI_LEGACY_FAST_MODE_EXTENSION" ] && [ ! -L "$PI_LEGACY_FAST_MODE_EXTENSION" ] \
+    || fail "Legacy inline Pi fast-mode extension is still installed."
 [ -d "$PI_LOCAL_OTEL_PACKAGE/.git" ] || fail "Pi local OpenTelemetry Git package not installed."
 [ ! -e "$PI_UNSUPPORTED_OTEL_PACKAGE" ] || fail "Unsupported Pi package pi-otel is still installed."
-for private_pi_asset in \
-    "$PI_OBSERVABILITY_ENV_FILE" \
-    "$PI_FAST_MODE_EXTENSION"; do
-    [ "$(stat -c '%a' "$private_pi_asset")" = "600" ] \
-        || fail "$private_pi_asset mode is not 600."
-done
-python3 - "$PI_SETTINGS_FILE" "$PI_FAST_MODE_EXTENSION" \
+[ "$(stat -c '%a' "$PI_OBSERVABILITY_ENV_FILE")" = "600" ] \
+    || fail "$PI_OBSERVABILITY_ENV_FILE mode is not 600."
+python3 - "$PI_SETTINGS_FILE" \
     "$REPO_ROOT/pi_plugins.txt" "${expected_pi_profile[model]}" "${expected_pi_profile[fast]}" <<'PY'
 import json
 import sys
 
-settings_path, fast_mode_extension, plugins_path, expected_model, fast = sys.argv[1:]
+settings_path, plugins_path, expected_model, fast = sys.argv[1:]
 with open(settings_path, encoding="utf-8") as handle:
     data = json.load(handle)
 expected_provider = "aab-gateway-fast" if fast == "true" else "aab-gateway"
@@ -470,7 +469,7 @@ assert data["retry"] == {
     "maxRetries": 15,
     "provider": {"timeoutMs": 240000, "maxRetries": 0},
 }, data
-assert data["extensions"] == [fast_mode_extension], data
+assert data["extensions"] == [], data
 assert "trackingId" not in data and "lastChangelogVersion" not in data, data
 expected_packages = []
 with open(plugins_path, encoding="utf-8") as handle:
@@ -490,8 +489,31 @@ obsolete = {
 }
 assert obsolete.isdisjoint(data["packages"]), data["packages"]
 PY
-grep -Fq 'serviceTier: "priority"' "$PI_FAST_MODE_EXTENSION" \
-    || fail "Pi fast-mode extension is incomplete."
+
+[ "$(grep -Fxc 'git:github.com/robobryce/pi-fast-mode' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ] \
+    || fail "pi_plugins.txt must contain one rolling robobryce/pi-fast-mode source."
+pi_fast_mode_origin=$(git -C "$PI_FAST_MODE_PACKAGE" remote get-url origin)
+case "$pi_fast_mode_origin" in
+    https://github.com/robobryce/pi-fast-mode|https://github.com/robobryce/pi-fast-mode.git|git@github.com:robobryce/pi-fast-mode.git) ;;
+    *) fail "Pi fast-mode checkout has unexpected origin $pi_fast_mode_origin." ;;
+esac
+python3 - "$PI_FAST_MODE_PACKAGE" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+package_dir = Path(sys.argv[1])
+with (package_dir / "package.json").open(encoding="utf-8") as handle:
+    manifest = json.load(handle)
+assert manifest["name"] == "pi-fast-mode", manifest
+assert manifest["type"] == "module", manifest
+assert manifest["pi"]["extensions"] == ["./src/index.ts"], manifest
+assert not manifest.get("dependencies"), manifest.get("dependencies")
+entrypoint = (package_dir / "src" / "index.ts").read_text(encoding="utf-8")
+assert 'serviceTier: "priority"' in entrypoint, entrypoint
+assert '"aab-gateway-fast"' in entrypoint, entrypoint
+assert '"aab-openai-responses-fast"' in entrypoint, entrypoint
+PY
 
 [ "$(grep -Fxc 'git:github.com/robobryce/pi-local-otel' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ] \
     || fail "pi_plugins.txt must contain one rolling robobryce/pi-local-otel source."

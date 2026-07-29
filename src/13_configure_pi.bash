@@ -1,35 +1,10 @@
 # ---------------------------------------------------------------------------
 # Configure Pi's generated inference-gateway model catalog, unattended
-# defaults, local fast-mode extension, and local-only OpenTelemetry logging.
+# defaults, and local-only OpenTelemetry logging.
 # ---------------------------------------------------------------------------
 PI_OBSERVABILITY_ENV_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_ENV_EOF'
 __AAB_PI_OBSERVABILITY_ENV__
 AAB_PI_OBSERVABILITY_ENV_EOF
-)
-PI_FAST_MODE_EXTENSION_CONTENT=$(cat <<'AAB_PI_FAST_MODE_EXTENSION_EOF'
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { clampThinkingLevel, streamOpenAIResponses } from "@earendil-works/pi-ai/compat";
-
-export default function fastMode(pi: ExtensionAPI) {
-	pi.registerProvider("aab-gateway-fast", {
-		api: "aab-openai-responses-fast",
-		streamSimple(model, context, options) {
-			const responseModel = { ...model, api: "openai-responses" as const };
-			const clampedReasoning = options?.reasoning
-				? clampThinkingLevel(responseModel, options.reasoning)
-				: undefined;
-			const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
-
-			return streamOpenAIResponses(responseModel, context, {
-				...options,
-				maxTokens: options?.maxTokens ?? model.maxTokens,
-				reasoningEffort,
-				serviceTier: "priority",
-			});
-		},
-	});
-}
-AAB_PI_FAST_MODE_EXTENSION_EOF
 )
 
 configure_pi_models() {
@@ -151,6 +126,7 @@ PY
 
 configure_pi_settings() {
     local profiles records line selected_provider="" selected_model=""
+    local legacy_fast_mode_extension="${PI_DIR}/extensions/fast-mode.ts"
     local -A profile=() selected=()
     profiles=$(_profile_list_for pi third-party)
     records=$(mktemp)
@@ -169,7 +145,7 @@ configure_pi_settings() {
         selected_model="${selected[model]}"
     fi
 
-    mkdir -p "$PI_DIR" "$(dirname "$PI_FAST_MODE_EXTENSION")"
+    mkdir -p "$PI_DIR"
     if [ -f "$PI_SETTINGS_FILE" ]; then
         local backup
         backup="${PI_SETTINGS_FILE}.bak.$(date +%Y%m%d-%H%M%S)"
@@ -179,13 +155,13 @@ configure_pi_settings() {
 
     local tmp
     tmp=$(mktemp "${PI_SETTINGS_FILE}.tmp.XXXXXX")
-    python3 - "$PI_SETTINGS_FILE" "$records" "$PI_FAST_MODE_EXTENSION" \
+    python3 - "$PI_SETTINGS_FILE" "$records" \
         "$selected_provider" "$selected_model" "$tmp" <<'PY'
 import json
 from pathlib import Path
 import sys
 
-settings_path, models_path, fast_mode_extension, provider, model, output_path = sys.argv[1:]
+settings_path, models_path, provider, model, output_path = sys.argv[1:]
 data = {}
 try:
     with open(settings_path, encoding="utf-8") as handle:
@@ -208,7 +184,7 @@ data.update(
             "maxRetries": 15,
             "provider": {"timeoutMs": 240000, "maxRetries": 0},
         },
-        "extensions": [fast_mode_extension],
+        "extensions": [],
         "packages": [],
     }
 )
@@ -234,6 +210,7 @@ PY
     rm -f "$records"
     chmod 600 "$tmp"
     mv -f "$tmp" "$PI_SETTINGS_FILE"
+    rm -f "$legacy_fast_mode_extension"
     log "Wrote ${PI_SETTINGS_FILE} with unattended Pi defaults."
 }
 
@@ -248,6 +225,5 @@ _write_pi_embedded_asset() {
 
 configure_pi_extensions() {
     _write_pi_embedded_asset "$PI_OBSERVABILITY_ENV_FILE" "$PI_OBSERVABILITY_ENV_CONTENT" 600
-    _write_pi_embedded_asset "$PI_FAST_MODE_EXTENSION" "$PI_FAST_MODE_EXTENSION_CONTENT" 600
-    log "Wrote Pi fast-mode and local OpenTelemetry configuration."
+    log "Wrote Pi local OpenTelemetry configuration."
 }
