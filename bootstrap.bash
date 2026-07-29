@@ -2157,6 +2157,7 @@ check_for_update_on_startup = false
 [features]
 fast_mode = ${fast_mode}
 default_mode_request_user_input = false
+tool_suggest = false
 
 [otel]
 environment = "dev"
