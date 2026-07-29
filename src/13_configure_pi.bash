@@ -126,8 +126,8 @@ PY
 
 configure_pi_settings() {
     local profiles records line selected_provider="" selected_model=""
-    local legacy_fast_mode_extension="${PI_DIR}/extensions/fast-mode.ts"
     local -A profile=() selected=()
+    _remember_pi_fast_mode_package_registration
     profiles=$(_profile_list_for pi third-party)
     records=$(mktemp)
     while IFS= read -r line; do
@@ -210,7 +210,6 @@ PY
     rm -f "$records"
     chmod 600 "$tmp"
     mv -f "$tmp" "$PI_SETTINGS_FILE"
-    rm -f "$legacy_fast_mode_extension"
     log "Wrote ${PI_SETTINGS_FILE} with unattended Pi defaults."
 }
 

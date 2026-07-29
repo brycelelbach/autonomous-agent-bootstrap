@@ -1329,6 +1329,7 @@ SH
 
 @test "configure_pi_settings writes machine-independent unattended defaults" {
     local legacy_fast_mode_extension="${PI_DIR}/extensions/fast-mode.ts"
+    local previous_fast_mode_source="${PI_FAST_MODE_SOURCE}@1111111111111111111111111111111111111111"
     mkdir -p "$(dirname "$PI_SETTINGS_FILE")" "$(dirname "$legacy_fast_mode_extension")"
     printf '%s\n' 'legacy inline extension' > "$legacy_fast_mode_extension"
     cat > "$PI_SETTINGS_FILE" <<JSON
@@ -1337,6 +1338,7 @@ SH
     "$legacy_fast_mode_extension"
   ],
   "packages": [
+    "$previous_fast_mode_source",
     "npm:pi-list-tools@0.1.0",
     "npm:pi-print-stream@0.1.0"
   ]
@@ -1373,8 +1375,26 @@ assert data["extensions"] == [], data
 assert data["packages"] == [], data
 assert "trackingId" not in data and "lastChangelogVersion" not in data, data
 PY
-    [ ! -e "$legacy_fast_mode_extension" ]
-    [ ! -L "$legacy_fast_mode_extension" ]
+    [ "$(cat "$legacy_fast_mode_extension")" = 'legacy inline extension' ]
+    [ "$PI_PREVIOUS_FAST_MODE_SOURCE" = "$previous_fast_mode_source" ]
+}
+
+@test "configure_pi_settings tolerates a non-list prior package registry" {
+    mkdir -p "$(dirname "$PI_SETTINGS_FILE")"
+    printf '{"packages":{"unexpected":true}}\n' > "$PI_SETTINGS_FILE"
+    PI_PREVIOUS_FAST_MODE_SOURCE='stale'
+
+    configure_pi_settings
+
+    [ -z "$PI_PREVIOUS_FAST_MODE_SOURCE" ]
+    python3 - "$PI_SETTINGS_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+assert data["packages"] == [], data
+PY
 }
 
 @test "configure_pi_extensions writes the private observability asset" {
@@ -1398,6 +1418,9 @@ npm:one@1.0.0
 git:github.com/example/two@0123456789abcdef
 EOF
     export AAB_PI_PLUGINS_FILE="$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PROFILES='slow model=slow effort=high fast=false'
+    mkdir -p "${PI_DIR}/extensions"
+    printf '%s\n' 'legacy inline extension' > "${PI_DIR}/extensions/fast-mode.ts"
 
     install_pi_plugins
 
@@ -1412,6 +1435,207 @@ EOF
     grep -Fxq 'install npm:one@1.0.0 --no-approve' "$TEST_HOME/pi-package-invocations"
     grep -Fxq 'install git:github.com/example/two@0123456789abcdef --no-approve' "$TEST_HOME/pi-package-invocations"
     [ "$(wc -l < "$TEST_HOME/pi-package-invocations")" -eq 4 ]
+    [ ! -e "${PI_DIR}/extensions/fast-mode.ts" ]
+    [ ! -L "${PI_DIR}/extensions/fast-mode.ts" ]
+}
+
+@test "install_pi_plugins adds required fast mode omitted by a replacement list" {
+    mkdir -p "$HOME/.local/bin" "${PI_DIR}/extensions"
+    cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TEST_HOME/pi-required-package-invocations"
+if [ "$1" = install ] && [ "$2" = 'git:github.com/robobryce/pi-fast-mode' ]; then
+    package="$TEST_HOME/.pi/agent/git/github.com/robobryce/pi-fast-mode"
+    mkdir -p "$package/.git" "$package/src"
+    printf '{}\n' > "$package/package.json"
+    : > "$package/src/index.ts"
+    printf '{"packages":["git:github.com/robobryce/pi-fast-mode"]}\n' \
+        > "$TEST_HOME/.pi/agent/settings.json"
+fi
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real"
+    printf '%s\n' 'npm:one@1.0.0' > "$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PLUGINS_FILE="$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PROFILES='fast model=fast effort=high fast=true'
+    ln -s "$TEST_HOME/missing-fast-mode.ts" "${PI_DIR}/extensions/fast-mode.ts"
+
+    install_pi_plugins
+
+    grep -Fxq 'install npm:one@1.0.0 --no-approve' \
+        "$TEST_HOME/pi-required-package-invocations"
+    grep -Fxq "install ${PI_FAST_MODE_SOURCE} --no-approve" \
+        "$TEST_HOME/pi-required-package-invocations"
+    [ "$(wc -l < "$TEST_HOME/pi-required-package-invocations")" -eq 4 ]
+    [ ! -e "${PI_DIR}/extensions/fast-mode.ts" ]
+    [ ! -L "${PI_DIR}/extensions/fast-mode.ts" ]
+}
+
+@test "install_pi_plugins fails fast and preserves legacy fast mode when replacement fails" {
+    local previous_source="${PI_FAST_MODE_SOURCE}@1111111111111111111111111111111111111111"
+    local attempted_source="${PI_FAST_MODE_SOURCE}@2222222222222222222222222222222222222222"
+    mkdir -p "$HOME/.local/bin" "${PI_DIR}/extensions" \
+        "${PI_FAST_MODE_CHECKOUT}/.git" "${PI_FAST_MODE_CHECKOUT}/src"
+    cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TEST_HOME/pi-required-package-failure-invocations"
+case "${1:-} ${2:-}" in
+install\ git:github.com/robobryce/pi-fast-mode*)
+    package="$TEST_HOME/.pi/agent/git/github.com/robobryce/pi-fast-mode"
+    mkdir -p "$package/.git" "$package/src"
+    printf '{}\n' > "$package/package.json"
+    : > "$package/src/index.ts"
+    printf '%s\n' 'partial standalone provider' > "$package/marker"
+    printf '{"packages":["%s"]}\n' "$2" > "$TEST_HOME/.pi/agent/settings.json"
+    printf '%s\n' 'Fast-mode fetch failed.' >&2
+    exit 42
+    ;;
+esac
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real"
+    printf '%s\n' "$attempted_source" > "$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PLUGINS_FILE="$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PROFILES='fast model=fast effort=high fast=true'
+    PI_PREVIOUS_FAST_MODE_SOURCE="$previous_source"
+    printf '%s\n' 'legacy inline extension' > "${PI_DIR}/extensions/fast-mode.ts"
+    printf '{}\n' > "${PI_FAST_MODE_CHECKOUT}/package.json"
+    : > "${PI_FAST_MODE_CHECKOUT}/src/index.ts"
+    printf '%s\n' 'previous standalone provider' > "${PI_FAST_MODE_CHECKOUT}/marker"
+    printf '{"packages":["%s"]}\n' "$previous_source" > "$PI_SETTINGS_FILE"
+
+    run install_pi_plugins
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'Fast-mode fetch failed.'* ]]
+    [[ "$output" == *'Required Pi fast-mode package installation failed'*'previous provider will be restored.'* ]]
+    grep -Fxq "install ${attempted_source} --no-approve" \
+        "$TEST_HOME/pi-required-package-failure-invocations"
+    [ "$(cat "${PI_DIR}/extensions/fast-mode.ts")" = 'legacy inline extension' ]
+    [ "$(cat "${PI_FAST_MODE_CHECKOUT}/marker")" = 'previous standalone provider' ]
+    python3 - "$PI_SETTINGS_FILE" "$previous_source" "$attempted_source" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+assert sys.argv[2] in data["packages"], data
+assert sys.argv[3] not in data["packages"], data
+PY
+
+    rm -rf "$PI_FAST_MODE_CHECKOUT" "${PI_DIR}/extensions/fast-mode.ts"
+    rm -f "$PI_SETTINGS_FILE"
+    PI_PREVIOUS_FAST_MODE_SOURCE=""
+    run install_pi_plugins
+
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'Required Pi fast-mode package installation failed'* ]]
+    [ ! -e "$PI_FAST_MODE_CHECKOUT" ]
+    [ ! -e "${PI_DIR}/extensions/fast-mode.ts" ]
+    python3 - "$PI_SETTINGS_FILE" "$attempted_source" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+assert sys.argv[2] not in data["packages"], data
+PY
+}
+
+@test "install_pi_plugins restores fast mode when replacement is interrupted" {
+    mkdir -p "$HOME/.local/bin" "${PI_DIR}/extensions" \
+        "${PI_FAST_MODE_CHECKOUT}/.git" "${PI_FAST_MODE_CHECKOUT}/src" "$TEST_HOME/tmp"
+    cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = install ] && [ "$2" = 'git:github.com/robobryce/pi-fast-mode' ]; then
+    kill -TERM "$PPID"
+    sleep 1
+fi
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real"
+    printf '%s\n' "$PI_FAST_MODE_SOURCE" > "$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PLUGINS_FILE="$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PROFILES='fast model=fast effort=high fast=true'
+    export TMPDIR="$TEST_HOME/tmp"
+    PI_PREVIOUS_FAST_MODE_SOURCE="$PI_FAST_MODE_SOURCE"
+    printf '%s\n' 'legacy inline extension' > "${PI_DIR}/extensions/fast-mode.ts"
+    printf '{}\n' > "${PI_FAST_MODE_CHECKOUT}/package.json"
+    : > "${PI_FAST_MODE_CHECKOUT}/src/index.ts"
+    printf '%s\n' 'previous standalone provider' > "${PI_FAST_MODE_CHECKOUT}/marker"
+    printf '{"packages":["%s"]}\n' "$PI_FAST_MODE_SOURCE" > "$PI_SETTINGS_FILE"
+
+    run install_pi_plugins
+
+    [ "$status" -ne 0 ]
+    [ "$(cat "${PI_DIR}/extensions/fast-mode.ts")" = 'legacy inline extension' ]
+    [ "$(cat "${PI_FAST_MODE_CHECKOUT}/marker")" = 'previous standalone provider' ]
+    [ -z "$(find "$TMPDIR" -mindepth 1 -maxdepth 1 -print -quit)" ]
+}
+
+@test "install_pi_plugins restores legacy fast mode after a late interruption" {
+    mkdir -p "$HOME/.local/bin" "${PI_DIR}/extensions" "$TEST_HOME/tmp"
+    cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = install ] && [ "$2" = 'git:github.com/robobryce/pi-fast-mode' ]; then
+    package="$TEST_HOME/.pi/agent/git/github.com/robobryce/pi-fast-mode"
+    mkdir -p "$package/.git" "$package/src"
+    printf '{}\n' > "$package/package.json"
+    : > "$package/src/index.ts"
+    printf '{"packages":["git:github.com/robobryce/pi-fast-mode"]}\n' \
+        > "$TEST_HOME/.pi/agent/settings.json"
+fi
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real"
+    printf '%s\n' "$PI_FAST_MODE_SOURCE" > "$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PLUGINS_FILE="$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PROFILES='fast model=fast effort=high fast=true'
+    export TMPDIR="$TEST_HOME/tmp"
+    PI_PREVIOUS_FAST_MODE_SOURCE=""
+    printf '%s\n' 'legacy inline extension' > "${PI_DIR}/extensions/fast-mode.ts"
+    printf '{"packages":[]}\n' > "$PI_SETTINGS_FILE"
+    _remove_legacy_pi_fast_mode_extension() {
+        rm -f "${PI_DIR}/extensions/fast-mode.ts"
+        kill -TERM "$BASHPID"
+    }
+
+    run install_pi_plugins
+
+    [ "$status" -ne 0 ]
+    [ "$(cat "${PI_DIR}/extensions/fast-mode.ts")" = 'legacy inline extension' ]
+    [ ! -e "$PI_FAST_MODE_CHECKOUT" ]
+    python3 - "$PI_SETTINGS_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+assert data["packages"] == [], data
+PY
+    [ -z "$(find "$TMPDIR" -mindepth 1 -maxdepth 1 -print -quit)" ]
+}
+
+@test "install_pi_plugins does not invent a missing prior fast-mode registration" {
+    mkdir -p "${PI_FAST_MODE_CHECKOUT}/.git" "${PI_FAST_MODE_CHECKOUT}/src" \
+        "${PI_DIR}/extensions"
+    printf '{}\n' > "${PI_FAST_MODE_CHECKOUT}/package.json"
+    : > "${PI_FAST_MODE_CHECKOUT}/src/index.ts"
+    printf '%s\n' 'orphaned standalone checkout' > "${PI_FAST_MODE_CHECKOUT}/marker"
+    printf '%s\n' 'legacy inline extension' > "${PI_DIR}/extensions/fast-mode.ts"
+    printf '{"packages":[]}\n' > "$PI_SETTINGS_FILE"
+    export AAB_PI_PROFILES='fast model=fast effort=high fast=true'
+    PI_PREVIOUS_FAST_MODE_SOURCE=""
+
+    run install_pi_plugins
+
+    [ "$status" -ne 0 ]
+    [ "$(cat "${PI_FAST_MODE_CHECKOUT}/marker")" = 'orphaned standalone checkout' ]
+    [ "$(cat "${PI_DIR}/extensions/fast-mode.ts")" = 'legacy inline extension' ]
+    python3 - "$PI_SETTINGS_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+assert data["packages"] == [], data
+PY
 }
 
 @test "install_pi_plugins replaces stale package state on repeated runs" {
@@ -1475,6 +1699,27 @@ SH
     [[ "$output" == *'WARN:'*'Pi package removal returned non-zero'* ]]
     grep -Fxq 'install git:github.com/example/rolling --no-approve' \
         "$TEST_HOME/pi-package-removal-failure-invocations"
+}
+
+@test "install_pi_plugins keeps unrelated package installation best-effort" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = install ]; then
+    printf '%s\n' 'Optional package fetch failed.' >&2
+    exit 42
+fi
+SH
+    chmod +x "$HOME/.local/bin/pi-aab-real"
+    printf '%s\n' 'git:github.com/example/optional' > "$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PLUGINS_FILE="$TEST_HOME/pi-plugins.txt"
+    export AAB_PI_PROFILES='slow model=slow effort=high fast=false'
+
+    run install_pi_plugins
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'Optional package fetch failed.'* ]]
+    [[ "$output" == *'Pi package install returned non-zero'* ]]
 }
 
 @test "install_pi_plugins installs rolling owned repositories and pinned third-party packages from defaults" {

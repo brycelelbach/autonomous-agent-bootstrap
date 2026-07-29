@@ -149,7 +149,7 @@ All variables are optional unless a configured third-party profile needs the inf
 | `AAB_GH_AUTH_SSH_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key for GitHub SSH auth. |
 | `AAB_GIT_SSH_SIGNING_PRIVATE_KEY_B64` | Base64-encoded OpenSSH private key for git commit/tag signing. |
 | `AAB_AGENT_PLUGINS_FILE` | Optional local replacement for the plugin marketplace list compiled into `bootstrap.bash`. |
-| `AAB_PI_PLUGINS_FILE` | Optional local replacement for the Pi package list compiled into `bootstrap.bash`. |
+| `AAB_PI_PLUGINS_FILE` | Optional local replacement for the Pi package list compiled into `bootstrap.bash`. When any Pi profile uses `fast=true`, AAB still installs the required `pi-fast-mode` provider if the replacement omits it. |
 | `AAB_APT_PACKAGES_FILE` | Path to a local list of version-pinned Ubuntu package specifications to install with `apt-get`. |
 | `AAB_APT_PACKAGES_URL` | URL for the Debian-package list when no local file is used. |
 | `AAB_UV_TOOLS_FILE` | Path to a local list of CLI tools to install with `uv tool install`. |
