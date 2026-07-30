@@ -111,6 +111,10 @@ expected_codex_name="${expected_codex_profile[name]}"
 expected_codex_model="${expected_codex_profile[model]}"
 expected_codex_base_url="${AAB_INFERENCE_GATEWAY_URL:-}"
 expected_codex_agent_max_threads="${AAB_CODEX_AGENT_MAX_THREADS:-8}"
+codex_gateway_env_headers="{}"
+# Populated through namerefs; names are validated even though assertions use values.
+# shellcheck disable=SC2034
+declare -a codex_gateway_header_names=() codex_gateway_header_values=()
 expected_codex_agent_max_threads_valid=1
 case "${expected_codex_profile[fast]}" in
     true) expected_codex_service_tier="priority" ;;
@@ -140,6 +144,18 @@ if [ "$expected_codex_source" = "third-party" ]; then
         || fail "Codex inference-gateway env key is not AAB_INFERENCE_GATEWAY_API_KEY."
     grep -q '^requires_openai_auth = false$' "$CODEX_CONFIG" \
         || fail "Codex inference-gateway provider unexpectedly requires OpenAI login."
+    codex_gateway_env_headers=$(_codex_gateway_env_http_headers_toml)
+    _parse_codex_gateway_http_headers codex_gateway_header_names codex_gateway_header_values
+    if [ "$codex_gateway_env_headers" != "{}" ]; then
+        grep -Fqx "env_http_headers = ${codex_gateway_env_headers}" "$CODEX_CONFIG" \
+            || fail "Codex inference-gateway environment header mapping is missing."
+        grep -Fq 'export AAB_CODEX_GATEWAY_HTTP_HEADERS=' "$AAB_ENV_FILE" \
+            || fail "Codex inference-gateway headers are not persisted in the private AAB environment file."
+        for header_index in "${!codex_gateway_header_values[@]}"; do
+            ! grep -Fq -- "${codex_gateway_header_values[$header_index]}" "$CODEX_CONFIG" \
+                || fail "Codex inference-gateway header value leaked into config.toml."
+        done
+    fi
     [ -f "$CODEX_GATEWAY_MODEL_CATALOG" ] \
         || fail "Codex gateway model catalog not written."
     python3 - "$CODEX_GATEWAY_MODEL_CATALOG" "$expected_codex_model" <<'PY'
@@ -210,6 +226,8 @@ grep -q '^inherit = "all"$' "$CODEX_CONFIG" \
     || fail "Codex shell env inheritance is not all."
 grep -q '^ignore_default_excludes = true$' "$CODEX_CONFIG" \
     || fail "Codex shell env token inheritance is not enabled."
+grep -Fqx 'exclude = ["AAB_CODEX_GATEWAY_HTTP_HEADERS", "AAB_CODEX_GATEWAY_HTTP_HEADER_*"]' "$CODEX_CONFIG" \
+    || fail "Codex shell environment does not exclude inference-gateway header secrets from tools."
 grep -q '^\[features.multi_agent_v2\]$' "$CODEX_CONFIG" \
     || fail "Codex multi-agent V2 config section is missing."
 grep -Fxq "max_concurrent_threads_per_session = ${expected_codex_multi_agent_v2_slots}" "$CODEX_CONFIG" \
@@ -388,6 +406,14 @@ codex_profile_launcher="$HOME/.local/bin/codex-${expected_codex_source}-${expect
 [ "$(readlink "$HOME/.local/bin/codex")" = "$codex_profile_launcher" ] \
     || fail "Codex launcher entrypoint does not select ${expected_codex_source}/${expected_codex_name}."
 [ -x "$codex_profile_launcher" ] || fail "Codex selected profile launcher missing at ${codex_profile_launcher}."
+if [ "${expected_codex_source}" = "third-party" ] && [ "$codex_gateway_env_headers" != "{}" ]; then
+    grep -Fq 'configure_gateway_http_headers' "$codex_profile_launcher" \
+        || fail "Codex profile launcher does not configure inference-gateway headers at runtime."
+    for header_index in "${!codex_gateway_header_values[@]}"; do
+        ! grep -Fq -- "${codex_gateway_header_values[$header_index]}" "$codex_profile_launcher" \
+            || fail "Codex inference-gateway header value leaked into the profile launcher."
+    done
+fi
 [ -x "$HOME/.local/bin/codex-aab-real" ] \
     || fail "Codex real binary link not installed."
 "$HOME/.local/bin/codex-aab-real" --version 2>&1 | grep -Fq "$CODEX_VERSION" \

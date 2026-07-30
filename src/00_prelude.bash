@@ -136,6 +136,50 @@ _write_shell_export() {
     printf 'export %s=%q\n' "$name" "$value"
 }
 
+# Parse newline-delimited Header=Value entries without exposing values in
+# generated Codex configuration or launcher arguments. Header names use a
+# conservative token subset suitable for custom HTTP headers.
+_parse_codex_gateway_http_headers() {
+    local names_name="$1" values_name="$2"
+    local -n names_ref="$names_name" values_ref="$values_name"
+    names_ref=()
+    values_ref=()
+
+    local raw="${AAB_CODEX_GATEWAY_HTTP_HEADERS:-}"
+    local line name value normalized line_number=0
+    local -A seen=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        line_number=$((line_number + 1))
+        [ -n "$line" ] || continue
+        if [[ "$line" != *=* ]]; then
+            warn "AAB_CODEX_GATEWAY_HTTP_HEADERS entry ${line_number} must use Header=Value syntax."
+            return 1
+        fi
+        name=${line%%=*}
+        value=${line#*=}
+        if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            warn "AAB_CODEX_GATEWAY_HTTP_HEADERS entry ${line_number} has an invalid header name."
+            return 1
+        fi
+        if [ -z "$value" ] || [[ "$value" =~ [[:cntrl:]] ]]; then
+            warn "AAB_CODEX_GATEWAY_HTTP_HEADERS entry ${line_number} must have a non-empty single-line value."
+            return 1
+        fi
+        normalized=${name,,}
+        if [[ -v "seen[$normalized]" ]]; then
+            warn "AAB_CODEX_GATEWAY_HTTP_HEADERS contains duplicate header names."
+            return 1
+        fi
+        seen[$normalized]=1
+        names_ref+=("$name")
+        values_ref+=("$value")
+    done <<< "$raw"
+}
+
+_codex_gateway_header_env_name() {
+    printf 'AAB_CODEX_GATEWAY_HTTP_HEADER_%s' "$1"
+}
+
 need_sudo() {
     if [ "$(id -u)" -eq 0 ]; then echo ""; else echo "sudo"; fi
 }

@@ -97,6 +97,10 @@ if [ -f "$env_file" ]; then
     . "$env_file"
     set +a
 fi
+unset AAB_CODEX_GATEWAY_HTTP_HEADERS
+while IFS= read -r header_env_name; do
+    unset "$header_env_name"
+done < <(compgen -A variable AAB_CODEX_GATEWAY_HTTP_HEADER_)
 
 if [ ! -x "$real_bin" ]; then
     printf '[bootstrap] WARN: Claude real binary not executable: %s\n' "$real_bin" >&2
@@ -311,6 +315,8 @@ if [ -f "$env_file" ]; then
     . "$env_file"
     set +a
 fi
+gateway_http_headers="${AAB_CODEX_GATEWAY_HTTP_HEADERS:-}"
+unset AAB_CODEX_GATEWAY_HTTP_HEADERS
 
 if [ ! -x "$real_bin" ]; then
     printf '[bootstrap] WARN: Codex real binary not executable: %s\n' "$real_bin" >&2
@@ -331,6 +337,49 @@ canonical_dir() {
     else
         printf '%s' "$dir"
     fi
+}
+
+configure_gateway_http_headers() {
+    local line name value normalized name_escaped env_name
+    local line_number=0 header_index=0 separator=""
+    local -A seen=()
+    gateway_env_http_headers="{ "
+    while IFS= read -r line || [ -n "$line" ]; do
+        line_number=$((line_number + 1))
+        [ -n "$line" ] || continue
+        if [[ "$line" != *=* ]]; then
+            printf '[bootstrap] WARN: AAB_CODEX_GATEWAY_HTTP_HEADERS entry %s must use Header=Value syntax.\n' "$line_number" >&2
+            exit 1
+        fi
+        name=${line%%=*}
+        value=${line#*=}
+        if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            printf '[bootstrap] WARN: AAB_CODEX_GATEWAY_HTTP_HEADERS entry %s has an invalid header name.\n' "$line_number" >&2
+            exit 1
+        fi
+        if [ -z "$value" ] || [[ "$value" =~ [[:cntrl:]] ]]; then
+            printf '[bootstrap] WARN: AAB_CODEX_GATEWAY_HTTP_HEADERS entry %s must have a non-empty single-line value.\n' "$line_number" >&2
+            exit 1
+        fi
+        normalized=${name,,}
+        if [[ -v "seen[$normalized]" ]]; then
+            printf '[bootstrap] WARN: AAB_CODEX_GATEWAY_HTTP_HEADERS contains duplicate header names.\n' >&2
+            exit 1
+        fi
+        seen[$normalized]=1
+        env_name="AAB_CODEX_GATEWAY_HTTP_HEADER_${header_index}"
+        export "$env_name=$value"
+        name_escaped=$(toml_escape "$name")
+        gateway_env_http_headers+="${separator}\"${name_escaped}\" = \"${env_name}\""
+        separator=", "
+        header_index=$((header_index + 1))
+    done <<< "$gateway_http_headers"
+    if [ "$header_index" -eq 0 ]; then
+        gateway_env_http_headers="{}"
+    else
+        gateway_env_http_headers+=" }"
+    fi
+    gateway_http_headers=""
 }
 
 [ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
@@ -361,8 +410,13 @@ case "$profile_source" in
             printf '[bootstrap] WARN: Codex profile %s requires AAB_INFERENCE_GATEWAY_URL.\n' "$profile_name" >&2
             exit 1
         fi
+        configure_gateway_http_headers
         base_url_escaped=$(toml_escape "$AAB_INFERENCE_GATEWAY_URL")
-        provider_override="model_providers={\"aab-gateway\"={name=\"AAB Inference Gateway\",base_url=\"${base_url_escaped}\",env_key=\"AAB_INFERENCE_GATEWAY_API_KEY\",requires_openai_auth=false,wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
+        gateway_headers_fragment=""
+        if [ "$gateway_env_http_headers" != "{}" ]; then
+            gateway_headers_fragment=",env_http_headers=${gateway_env_http_headers}"
+        fi
+        provider_override="model_providers={\"aab-gateway\"={name=\"AAB Inference Gateway\",base_url=\"${base_url_escaped}\",env_key=\"AAB_INFERENCE_GATEWAY_API_KEY\"${gateway_headers_fragment},requires_openai_auth=false,wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
         config_args+=(-c 'model_provider="aab-gateway"' -c "$provider_override")
         ;;
 esac
@@ -472,6 +526,10 @@ if [ -f "$env_file" ]; then
     . "$env_file"
     set +a
 fi
+unset AAB_CODEX_GATEWAY_HTTP_HEADERS
+while IFS= read -r header_env_name; do
+    unset "$header_env_name"
+done < <(compgen -A variable AAB_CODEX_GATEWAY_HTTP_HEADER_)
 
 export PI_TIMING="${PI_TIMING:-0}"
 export PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"

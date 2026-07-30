@@ -21,6 +21,11 @@ configure_aab_env_file() {
         pi_profile_name="${pi_profile[name]}"
     fi
 
+    # Populated through namerefs by the parser; both arrays validate the input.
+    # shellcheck disable=SC2034
+    local -a codex_gateway_header_names=() codex_gateway_header_values=()
+    _parse_codex_gateway_http_headers codex_gateway_header_names codex_gateway_header_values || return 1
+
     local tmp
     tmp=$(mktemp "${AAB_ENV_FILE}.tmp.XXXXXX")
     {
@@ -35,6 +40,7 @@ configure_aab_env_file() {
         _write_shell_export AAB_PI_DEFAULT_PROFILE "$pi_profile_name"
         _write_shell_export AAB_INFERENCE_GATEWAY_URL "${AAB_INFERENCE_GATEWAY_URL:-}"
         _write_shell_export AAB_INFERENCE_GATEWAY_API_KEY "${AAB_INFERENCE_GATEWAY_API_KEY:-}"
+        _write_shell_export AAB_CODEX_GATEWAY_HTTP_HEADERS "${AAB_CODEX_GATEWAY_HTTP_HEADERS:-}"
         _write_shell_export AAB_ANTHROPIC_API_KEY "${AAB_ANTHROPIC_API_KEY:-}"
         _write_shell_export AAB_OPENAI_API_KEY "${AAB_OPENAI_API_KEY:-}"
         _write_shell_export AAB_CODEX_SERVICE_TIER "${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
