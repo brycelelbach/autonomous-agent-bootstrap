@@ -143,6 +143,50 @@ _write_shell_export() {
     printf 'export %s=%q\n' "$name" "$value"
 }
 
+# Parse newline-delimited Header=Value entries without exposing values in
+# generated Codex configuration or launcher arguments. Header names use a
+# conservative token subset suitable for custom HTTP headers.
+_parse_codex_gateway_http_headers() {
+    local names_name="$1" values_name="$2"
+    local -n names_ref="$names_name" values_ref="$values_name"
+    names_ref=()
+    values_ref=()
+
+    local raw="${AAB_CODEX_GATEWAY_HTTP_HEADERS:-}"
+    local line name value normalized line_number=0
+    local -A seen=()
+    while IFS= read -r line || [ -n "$line" ]; do
+        line_number=$((line_number + 1))
+        [ -n "$line" ] || continue
+        if [[ "$line" != *=* ]]; then
+            warn "AAB_CODEX_GATEWAY_HTTP_HEADERS entry ${line_number} must use Header=Value syntax."
+            return 1
+        fi
+        name=${line%%=*}
+        value=${line#*=}
+        if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            warn "AAB_CODEX_GATEWAY_HTTP_HEADERS entry ${line_number} has an invalid header name."
+            return 1
+        fi
+        if [ -z "$value" ] || [[ "$value" =~ [[:cntrl:]] ]]; then
+            warn "AAB_CODEX_GATEWAY_HTTP_HEADERS entry ${line_number} must have a non-empty single-line value."
+            return 1
+        fi
+        normalized=${name,,}
+        if [[ -v "seen[$normalized]" ]]; then
+            warn "AAB_CODEX_GATEWAY_HTTP_HEADERS contains duplicate header names."
+            return 1
+        fi
+        seen[$normalized]=1
+        names_ref+=("$name")
+        values_ref+=("$value")
+    done <<< "$raw"
+}
+
+_codex_gateway_header_env_name() {
+    printf 'AAB_CODEX_GATEWAY_HTTP_HEADER_%s' "$1"
+}
+
 need_sudo() {
     if [ "$(id -u)" -eq 0 ]; then echo ""; else echo "sudo"; fi
 }
@@ -1574,6 +1618,11 @@ configure_aab_env_file() {
         pi_profile_name="${pi_profile[name]}"
     fi
 
+    # Populated through namerefs by the parser; both arrays validate the input.
+    # shellcheck disable=SC2034
+    local -a codex_gateway_header_names=() codex_gateway_header_values=()
+    _parse_codex_gateway_http_headers codex_gateway_header_names codex_gateway_header_values || return 1
+
     local tmp
     tmp=$(mktemp "${AAB_ENV_FILE}.tmp.XXXXXX")
     {
@@ -1588,6 +1637,7 @@ configure_aab_env_file() {
         _write_shell_export AAB_PI_DEFAULT_PROFILE "$pi_profile_name"
         _write_shell_export AAB_INFERENCE_GATEWAY_URL "${AAB_INFERENCE_GATEWAY_URL:-}"
         _write_shell_export AAB_INFERENCE_GATEWAY_API_KEY "${AAB_INFERENCE_GATEWAY_API_KEY:-}"
+        _write_shell_export AAB_CODEX_GATEWAY_HTTP_HEADERS "${AAB_CODEX_GATEWAY_HTTP_HEADERS:-}"
         _write_shell_export AAB_ANTHROPIC_API_KEY "${AAB_ANTHROPIC_API_KEY:-}"
         _write_shell_export AAB_OPENAI_API_KEY "${AAB_OPENAI_API_KEY:-}"
         _write_shell_export AAB_CODEX_SERVICE_TIER "${AAB_CODEX_SERVICE_TIER:-$DEFAULT_CODEX_SERVICE_TIER}"
@@ -2339,6 +2389,28 @@ _toml_escape() {
     printf '%s' "$s"
 }
 
+_codex_gateway_env_http_headers_toml() {
+    # Values are intentionally unused here; only their environment names enter TOML.
+    # shellcheck disable=SC2034
+    local -a names=() values=()
+    _parse_codex_gateway_http_headers names values || return 1
+
+    if [ "${#names[@]}" -eq 0 ]; then
+        printf '{}'
+        return
+    fi
+
+    local index name_escaped env_name separator=""
+    printf '{ '
+    for index in "${!names[@]}"; do
+        name_escaped=$(_toml_escape "${names[$index]}")
+        env_name=$(_codex_gateway_header_env_name "$index")
+        printf '%s"%s" = "%s"' "$separator" "$name_escaped" "$env_name"
+        separator=", "
+    done
+    printf ' }'
+}
+
 _normalize_codex_service_tier() {
     local service_tier="${1:-$DEFAULT_CODEX_SERVICE_TIER}"
     case "$service_tier" in
@@ -2408,7 +2480,7 @@ configure_codex_config() {
     multi_agent_v2_max_concurrent_threads_per_session=$((agent_max_threads + 1))
 
     local model_escaped effort_escaped model_instructions_file_escaped
-    local home_escaped cwd cwd_escaped gateway_url_escaped
+    local home_escaped cwd cwd_escaped gateway_url_escaped gateway_env_http_headers
     model_escaped=$(_toml_escape "$model")
     effort_escaped=$(_toml_escape "$effort")
     model_instructions_file_escaped=$(_toml_escape "$CODEX_MODEL_INSTRUCTIONS_FILE")
@@ -2416,6 +2488,7 @@ configure_codex_config() {
     cwd="${PWD:-$HOME}"
     cwd_escaped=$(_toml_escape "$cwd")
     gateway_url_escaped=$(_toml_escape "${AAB_INFERENCE_GATEWAY_URL:-}")
+    gateway_env_http_headers=$(_codex_gateway_env_http_headers_toml)
 
     cat > "${CODEX_CONFIG}" <<TOML
 model = "${model_escaped}"
@@ -2457,6 +2530,7 @@ hide_full_access_warning = true
 [shell_environment_policy]
 inherit = "all"
 ignore_default_excludes = true
+exclude = ["AAB_CODEX_GATEWAY_HTTP_HEADERS", "AAB_CODEX_GATEWAY_HTTP_HEADER_*"]
 TOML
 
     if [ "${profile[source]}" = "third-party" ]; then
@@ -2472,6 +2546,9 @@ request_max_retries = 4
 stream_max_retries = 5
 stream_idle_timeout_ms = 300000
 TOML
+        if [ "$gateway_env_http_headers" != "{}" ]; then
+            printf 'env_http_headers = %s\n' "$gateway_env_http_headers" >> "${CODEX_CONFIG}"
+        fi
     fi
 
     cat >> "${CODEX_CONFIG}" <<TOML
@@ -3397,6 +3474,10 @@ if [ -f "$env_file" ]; then
     . "$env_file"
     set +a
 fi
+unset AAB_CODEX_GATEWAY_HTTP_HEADERS
+while IFS= read -r header_env_name; do
+    unset "$header_env_name"
+done < <(compgen -A variable AAB_CODEX_GATEWAY_HTTP_HEADER_)
 
 if [ ! -x "$real_bin" ]; then
     printf '[bootstrap] WARN: Claude real binary not executable: %s\n' "$real_bin" >&2
@@ -3611,6 +3692,8 @@ if [ -f "$env_file" ]; then
     . "$env_file"
     set +a
 fi
+gateway_http_headers="${AAB_CODEX_GATEWAY_HTTP_HEADERS:-}"
+unset AAB_CODEX_GATEWAY_HTTP_HEADERS
 
 if [ ! -x "$real_bin" ]; then
     printf '[bootstrap] WARN: Codex real binary not executable: %s\n' "$real_bin" >&2
@@ -3631,6 +3714,49 @@ canonical_dir() {
     else
         printf '%s' "$dir"
     fi
+}
+
+configure_gateway_http_headers() {
+    local line name value normalized name_escaped env_name
+    local line_number=0 header_index=0 separator=""
+    local -A seen=()
+    gateway_env_http_headers="{ "
+    while IFS= read -r line || [ -n "$line" ]; do
+        line_number=$((line_number + 1))
+        [ -n "$line" ] || continue
+        if [[ "$line" != *=* ]]; then
+            printf '[bootstrap] WARN: AAB_CODEX_GATEWAY_HTTP_HEADERS entry %s must use Header=Value syntax.\n' "$line_number" >&2
+            exit 1
+        fi
+        name=${line%%=*}
+        value=${line#*=}
+        if [[ ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            printf '[bootstrap] WARN: AAB_CODEX_GATEWAY_HTTP_HEADERS entry %s has an invalid header name.\n' "$line_number" >&2
+            exit 1
+        fi
+        if [ -z "$value" ] || [[ "$value" =~ [[:cntrl:]] ]]; then
+            printf '[bootstrap] WARN: AAB_CODEX_GATEWAY_HTTP_HEADERS entry %s must have a non-empty single-line value.\n' "$line_number" >&2
+            exit 1
+        fi
+        normalized=${name,,}
+        if [[ -v "seen[$normalized]" ]]; then
+            printf '[bootstrap] WARN: AAB_CODEX_GATEWAY_HTTP_HEADERS contains duplicate header names.\n' >&2
+            exit 1
+        fi
+        seen[$normalized]=1
+        env_name="AAB_CODEX_GATEWAY_HTTP_HEADER_${header_index}"
+        export "$env_name=$value"
+        name_escaped=$(toml_escape "$name")
+        gateway_env_http_headers+="${separator}\"${name_escaped}\" = \"${env_name}\""
+        separator=", "
+        header_index=$((header_index + 1))
+    done <<< "$gateway_http_headers"
+    if [ "$header_index" -eq 0 ]; then
+        gateway_env_http_headers="{}"
+    else
+        gateway_env_http_headers+=" }"
+    fi
+    gateway_http_headers=""
 }
 
 [ -n "${AAB_GH_TOKEN:-}" ] && export GH_TOKEN="$AAB_GH_TOKEN"
@@ -3661,8 +3787,13 @@ case "$profile_source" in
             printf '[bootstrap] WARN: Codex profile %s requires AAB_INFERENCE_GATEWAY_URL.\n' "$profile_name" >&2
             exit 1
         fi
+        configure_gateway_http_headers
         base_url_escaped=$(toml_escape "$AAB_INFERENCE_GATEWAY_URL")
-        provider_override="model_providers={\"aab-gateway\"={name=\"AAB Inference Gateway\",base_url=\"${base_url_escaped}\",env_key=\"AAB_INFERENCE_GATEWAY_API_KEY\",requires_openai_auth=false,wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
+        gateway_headers_fragment=""
+        if [ "$gateway_env_http_headers" != "{}" ]; then
+            gateway_headers_fragment=",env_http_headers=${gateway_env_http_headers}"
+        fi
+        provider_override="model_providers={\"aab-gateway\"={name=\"AAB Inference Gateway\",base_url=\"${base_url_escaped}\",env_key=\"AAB_INFERENCE_GATEWAY_API_KEY\"${gateway_headers_fragment},requires_openai_auth=false,wire_api=\"responses\",request_max_retries=4,stream_max_retries=5,stream_idle_timeout_ms=300000}}"
         config_args+=(-c 'model_provider="aab-gateway"' -c "$provider_override")
         ;;
 esac
@@ -3772,6 +3903,10 @@ if [ -f "$env_file" ]; then
     . "$env_file"
     set +a
 fi
+unset AAB_CODEX_GATEWAY_HTTP_HEADERS
+while IFS= read -r header_env_name; do
+    unset "$header_env_name"
+done < <(compgen -A variable AAB_CODEX_GATEWAY_HTTP_HEADER_)
 
 export PI_TIMING="${PI_TIMING:-0}"
 export PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"
