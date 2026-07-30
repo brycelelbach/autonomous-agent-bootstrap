@@ -71,7 +71,6 @@ PI_SETTINGS_FILE="${PI_DIR}/settings.json"
 PI_MODELS_FILE="${PI_DIR}/models.json"
 PI_MODELS_MARKER="${AAB_DIR}/pi-models-generated"
 PI_NPM_DIR="${PI_DIR}/npm"
-PI_OBSERVABILITY_ENV_FILE="${AAB_SHELL_CONFIG_DIR}/pi-observability.env"
 NODE_INSTALL_DIR="${HOME}/.local/share/aab/node"
 BREV_DIR="${HOME}/.brev"
 BREV_ONBOARDING="${BREV_DIR}/onboarding_step.json"
@@ -2547,33 +2546,9 @@ configure_codex() {
 
 # >>> src/13_configure_pi.bash >>>
 # ---------------------------------------------------------------------------
-# Configure Pi's generated inference-gateway model catalog, unattended
-# defaults, and local-only OpenTelemetry logging.
+# Configure Pi's generated inference-gateway model catalog and unattended
+# defaults.
 # ---------------------------------------------------------------------------
-PI_OBSERVABILITY_ENV_CONTENT=$(cat <<'AAB_PI_OBSERVABILITY_ENV_EOF'
-# Pi observability defaults. Pi launchers source this file so these variables
-# stay scoped to Pi processes and never affect unrelated tools.
-
-export PI_TIMING="${PI_TIMING:-0}"
-export PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"
-
-# Match AAB's Claude and Codex policy: enable metadata-only OpenTelemetry while
-# preventing network exporters and GenAI message-content capture. The Pi
-# extension stores console-exported records in private local JSONL files.
-export OTEL_SDK_DISABLED="${OTEL_SDK_DISABLED:-false}"
-export OTEL_SERVICE_NAME="${OTEL_SERVICE_NAME:-pi-coding-agent}"
-export OTEL_TRACES_EXPORTER="${OTEL_TRACES_EXPORTER:-console}"
-export OTEL_METRICS_EXPORTER=none
-export OTEL_LOGS_EXPORTER=none
-export OTEL_RESOURCE_ATTRIBUTES=service.namespace=aab,deployment.environment.name=local
-export OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=false
-export OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_CLIENT_REQUEST=
-export OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_CLIENT_RESPONSE=
-export OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_REQUEST=
-export OTEL_INSTRUMENTATION_HTTP_CAPTURE_HEADERS_SERVER_RESPONSE=
-export PI_OTEL_LOG_DIR="${PI_OTEL_LOG_DIR:-$HOME/.pi/agent/debug}"
-AAB_PI_OBSERVABILITY_ENV_EOF
-)
 
 configure_pi_models() {
     local profiles line
@@ -2778,21 +2753,8 @@ PY
     rm -f "$records"
     chmod 600 "$tmp"
     mv -f "$tmp" "$PI_SETTINGS_FILE"
+    rm -f "${AAB_SHELL_CONFIG_DIR}/pi-observability.env"
     log "Wrote ${PI_SETTINGS_FILE} with unattended Pi defaults."
-}
-
-_write_pi_embedded_asset() {
-    local path="$1" content="$2" mode="$3" tmp
-    mkdir -p "$(dirname "$path")"
-    tmp=$(mktemp "${path}.tmp.XXXXXX")
-    printf '%s\n' "$content" > "$tmp"
-    chmod "$mode" "$tmp"
-    mv -f "$tmp" "$path"
-}
-
-configure_pi_extensions() {
-    _write_pi_embedded_asset "$PI_OBSERVABILITY_ENV_FILE" "$PI_OBSERVABILITY_ENV_CONTENT" 600
-    log "Wrote Pi local OpenTelemetry configuration."
 }
 # <<< src/13_configure_pi.bash <<<
 
@@ -3805,18 +3767,13 @@ set -euo pipefail
 
 real_bin="${AAB_PI_REAL_BIN:-$HOME/.local/bin/pi-aab-real}"
 env_file="${AAB_ENV_FILE:-$HOME/.aab/.env}"
-observability_env_file="${AAB_PI_OBSERVABILITY_ENV_FILE:-$HOME/.aab/shell/pi-observability.env}"
 if [ -f "$env_file" ]; then
     set -a
     . "$env_file"
     set +a
 fi
 
-# Keep OpenTelemetry and its local JSONL capture scoped to Pi launchers.
-# shellcheck source=/dev/null
-[ ! -f "$observability_env_file" ] || . "$observability_env_file"
-
-# Keep Pi's built-in Ctrl+B binding even if the observability file is absent.
+export PI_TIMING="${PI_TIMING:-0}"
 export PI_PATTY_BG_TASKS_DISABLE_CTRL_B="${PI_PATTY_BG_TASKS_DISABLE_CTRL_B:-1}"
 
 if [ ! -x "$real_bin" ]; then
@@ -4132,7 +4089,6 @@ main() {
     configure_codex
     configure_pi_models
     configure_pi_settings
-    configure_pi_extensions
     configure_git
     configure_auth_ssh_key
     configure_signing_ssh_key
