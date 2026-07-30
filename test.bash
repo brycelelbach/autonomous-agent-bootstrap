@@ -88,6 +88,7 @@ run_e2e() {
     : "${AAB_PI_DEFAULT_PROFILE:=gpt-5.6}"
     : "${AAB_INFERENCE_GATEWAY_URL:=https://gateway.example.com/v1}"
     : "${AAB_INFERENCE_GATEWAY_API_KEY:=gateway-e2e-test-key}"
+    : "${AAB_CODEX_GATEWAY_HTTP_HEADERS:=brev-override=brev-override-e2e-test-value}"
     : "${AAB_OPENAI_API_KEY:=codex-e2e-test-key}"
     : "${AAB_GH_TOKEN:=${GITHUB_TOKEN:-}}"
     export AAB_GIT_AUTHOR_NAME AAB_GIT_AUTHOR_EMAIL \
@@ -97,6 +98,7 @@ run_e2e() {
            AAB_CODEX_DEFAULT_PROFILE \
            AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
            AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
+           AAB_CODEX_GATEWAY_HTTP_HEADERS \
            AAB_OPENAI_API_KEY AAB_GH_TOKEN
 
     bash bootstrap.bash
@@ -143,7 +145,20 @@ redact_secrets() {
     sed -E \
         -e 's/sk-[A-Za-z0-9_-]+/sk-REDACTED/g' \
         -e 's/nvapi-[A-Za-z0-9_-]+/nvapi-REDACTED/g' \
-        -e 's/(ghp_|github_pat_)[A-Za-z0-9_]+/GITHUB_TOKEN_REDACTED/g'
+        -e 's/(ghp_|github_pat_)[A-Za-z0-9_]+/GITHUB_TOKEN_REDACTED/g' \
+        | python3 -c '
+import os
+import sys
+
+text = sys.stdin.read()
+for line in os.environ.get("AAB_CODEX_GATEWAY_HTTP_HEADERS", "").splitlines():
+    if "=" not in line:
+        continue
+    value = line.split("=", 1)[1]
+    if value:
+        text = text.replace(value, "CODEX_GATEWAY_HEADER_REDACTED")
+sys.stdout.write(text)
+'
 }
 
 run_smoke() {
@@ -151,6 +166,7 @@ run_smoke() {
     need timeout
     need claude
     need codex
+    need python3
 
     local expected="${AAB_SMOKE_EXPECTED:-AAB_SMOKE_OK}"
     local prompt="${AAB_SMOKE_PROMPT:-Reply with exactly ${expected}.}"

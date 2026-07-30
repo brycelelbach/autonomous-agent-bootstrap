@@ -114,7 +114,23 @@ All third-party profiles share one inference gateway:
 ```bash
 export AAB_INFERENCE_GATEWAY_URL=https://gateway.example.com/v1
 export AAB_INFERENCE_GATEWAY_API_KEY=...
+
+# Optional Codex-only gateway headers, one Header=Value entry per line.
+# Values stay in the private ~/.aab/.env file and are not written to config.toml.
+export AAB_CODEX_GATEWAY_HTTP_HEADERS='brev-override=...'
 ```
+
+`AAB_CODEX_GATEWAY_HTTP_HEADERS` applies to every third-party Codex profile,
+not to first-party Codex, Claude, or Pi. Separate multiple headers with newlines;
+blank lines are ignored and the first `=` separates each name from its value, so
+values may contain additional `=` characters. Names must begin with an
+alphanumeric character and contain only alphanumerics, `.`, `_`, or `-`; names
+are unique case-insensitively, and values must be non-empty single-line strings.
+The private `~/.aab/.env` file retains the configured values. Codex launchers
+convert them to temporary per-header environment variables and use
+`env_http_headers`, keeping values out of `config.toml`, launcher source, and
+process arguments. Those temporary variables are excluded from model-run tool
+subprocesses.
 
 First-party profiles map `AAB_ANTHROPIC_API_KEY` and `AAB_OPENAI_API_KEY` to the harness-native variables when present. If a key is absent, the launcher leaves the harness's interactive device/login state untouched.
 
@@ -137,6 +153,7 @@ All variables are optional unless a configured third-party profile needs the inf
 | `PI_OTEL_MAX_FILE_BYTES`, `PI_OTEL_MAX_FILES` | Optional positive-integer overrides for local span retention. Defaults cap each file at 8 MiB and target 20 current-node managed files. Active, foreign-node, and legacy files are preserved conservatively. |
 | `AAB_INFERENCE_GATEWAY_URL` | Shared base URL used by every third-party Claude/Codex profile and every Pi profile. |
 | `AAB_INFERENCE_GATEWAY_API_KEY` | Shared inference-gateway key. It is mapped to each harness without placing the key on a command line. |
+| `AAB_CODEX_GATEWAY_HTTP_HEADERS` | Optional newline-delimited `Header=Value` entries added to third-party Codex requests. Values are persisted only in private environment variables; generated Codex configuration and launcher arguments contain their variable names, not the values. |
 | `AAB_ANTHROPIC_API_KEY` | Optional first-party Anthropic key. Mapped to `ANTHROPIC_API_KEY` only for first-party Claude launchers. If absent, Claude's existing interactive login is used. |
 | `AAB_OPENAI_API_KEY` | Optional first-party OpenAI key. Used to configure Codex API-key auth and mapped to `OPENAI_API_KEY` only for first-party Codex launchers. If absent, Codex's existing interactive login is used. |
 | `AAB_CODEX_SERVICE_TIER` | Codex service tier used by profiles that omit `fast`: `priority`, `flex`, `default`, or `fast` as an alias for `priority`. Defaults to `priority`. |

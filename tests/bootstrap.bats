@@ -13,7 +13,8 @@ setup() {
           AAB_CLAUDE_DEFAULT_PROFILE \
           AAB_CODEX_FIRST_PARTY_PROFILES AAB_CODEX_THIRD_PARTY_PROFILES \
           AAB_CODEX_DEFAULT_PROFILE AAB_CODEX_SERVICE_TIER \
-          AAB_CODEX_AGENT_MAX_THREADS \
+          AAB_CODEX_AGENT_MAX_THREADS AAB_CODEX_GATEWAY_HTTP_HEADERS \
+          AAB_CODEX_GATEWAY_HTTP_HEADER_0 AAB_CODEX_GATEWAY_HTTP_HEADER_1 \
           AAB_PI_PROFILES AAB_PI_DEFAULT_PROFILE \
           AAB_INFERENCE_GATEWAY_URL AAB_INFERENCE_GATEWAY_API_KEY \
           AAB_ANTHROPIC_API_KEY AAB_OPENAI_API_KEY \
@@ -333,6 +334,7 @@ PY
         AAB_PI_DEFAULT_PROFILE="opus-4.8" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
+        AAB_CODEX_GATEWAY_HTTP_HEADERS=$'brev-override=private-override\nX-Route=blue=green' \
         AAB_GH_TOKEN="ghp_test_token" \
         configure_aab_env_file
 
@@ -347,7 +349,30 @@ PY
     [ "$AAB_PI_DEFAULT_PROFILE" = "opus-4.8" ]
     [ "$AAB_INFERENCE_GATEWAY_URL" = "https://gateway.example.com/v1" ]
     [ "$AAB_INFERENCE_GATEWAY_API_KEY" = "gateway-test-key" ]
+    [ "$AAB_CODEX_GATEWAY_HTTP_HEADERS" = $'brev-override=private-override\nX-Route=blue=green' ]
+    ! grep -q '^export AAB_CODEX_GATEWAY_HTTP_HEADER_' "$AAB_ENV_FILE"
     [ "$AAB_GH_TOKEN" = "ghp_test_token" ]
+}
+
+@test "Codex gateway headers reject malformed and duplicate entries without echoing values" {
+    AAB_CODEX_GATEWAY_HTTP_HEADERS="missing-separator" run configure_aab_env_file
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"must use Header=Value syntax"* ]]
+    [[ "$output" != *"missing-separator"* ]]
+
+    AAB_CODEX_GATEWAY_HTTP_HEADERS=$'X-Route=one\nx-route=two' run configure_aab_env_file
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"duplicate header names"* ]]
+    [[ "$output" != *"=one"* ]]
+    [[ "$output" != *"=two"* ]]
+
+    AAB_CODEX_GATEWAY_HTTP_HEADERS="Bad Header=value" run configure_aab_env_file
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"invalid header name"* ]]
+
+    AAB_CODEX_GATEWAY_HTTP_HEADERS="X-Empty=" run configure_aab_env_file
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"non-empty single-line value"* ]]
 }
 
 @test "configure_aab_env_file persists only AAB-prefixed first-party API keys" {
@@ -421,6 +446,9 @@ fi
 printf '%s\n' "\$@" > "$TEST_HOME/codex-launcher-args"
 printf '%s\n' "\${AAB_CODEX_DEFAULT_PROFILE:-}" > "$TEST_HOME/codex-launcher-default-profile"
 printf '%s\n' "\${OPENAI_API_KEY:-}" > "$TEST_HOME/codex-launcher-api-key"
+printf '%s\n' "\${AAB_CODEX_GATEWAY_HTTP_HEADERS:-}" > "$TEST_HOME/codex-launcher-raw-headers"
+printf '%s\n' "\${AAB_CODEX_GATEWAY_HTTP_HEADER_0:-}" > "$TEST_HOME/codex-launcher-header-0"
+printf '%s\n' "\${AAB_CODEX_GATEWAY_HTTP_HEADER_1:-}" > "$TEST_HOME/codex-launcher-header-1"
 SH
     chmod +x "$FAKE_CODEX_CATALOG_BIN"
 }
@@ -504,6 +532,7 @@ PY
     AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.5 model=openai/openai/gpt-5.5 effort=xhigh" \
         AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.5" \
         AAB_INFERENCE_GATEWAY_URL="https://inference-api.nvidia.com/v1" \
+        AAB_CODEX_GATEWAY_HTTP_HEADERS=$'brev-override=private-override\nX-Route=blue=green' \
         configure_codex_config
 
     grep -q '^model = "openai/openai/gpt-5.5"$' "$CODEX_CONFIG"
@@ -514,6 +543,10 @@ PY
     grep -q '^env_key = "AAB_INFERENCE_GATEWAY_API_KEY"$' "$CODEX_CONFIG"
     grep -q '^requires_openai_auth = false$' "$CODEX_CONFIG"
     grep -q '^wire_api = "responses"$' "$CODEX_CONFIG"
+    grep -Fqx 'env_http_headers = { "brev-override" = "AAB_CODEX_GATEWAY_HTTP_HEADER_0", "X-Route" = "AAB_CODEX_GATEWAY_HTTP_HEADER_1" }' "$CODEX_CONFIG"
+    grep -Fqx 'exclude = ["AAB_CODEX_GATEWAY_HTTP_HEADERS", "AAB_CODEX_GATEWAY_HTTP_HEADER_*"]' "$CODEX_CONFIG"
+    ! grep -Fq 'private-override' "$CODEX_CONFIG"
+    ! grep -Fq 'blue=green' "$CODEX_CONFIG"
 }
 
 @test "configure_codex_config passes arbitrary profile effort through" {
@@ -993,6 +1026,7 @@ SH
         AAB_CODEX_DEFAULT_PROFILE="third-party/gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
+        AAB_CODEX_GATEWAY_HTTP_HEADERS=$'brev-override=private-override\nX-Route=blue=green' \
         AAB_OPENAI_API_KEY="first-party-key" \
         configure_aab_env_file
     AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra fast=true" \
@@ -1016,11 +1050,20 @@ SH
     grep -Fq 'env_key="AAB_INFERENCE_GATEWAY_API_KEY"' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'requires_openai_auth=false' "$TEST_HOME/codex-launcher-args"
     grep -Fq 'base_url="https://gateway.example.com/v1"' "$TEST_HOME/codex-launcher-args"
+    grep -Fq 'env_http_headers={ "brev-override" = "AAB_CODEX_GATEWAY_HTTP_HEADER_0", "X-Route" = "AAB_CODEX_GATEWAY_HTTP_HEADER_1" }' "$TEST_HOME/codex-launcher-args"
+    ! grep -Fq 'private-override' "$TEST_HOME/codex-launcher-args"
+    ! grep -Fq 'blue=green' "$TEST_HOME/codex-launcher-args"
+    [ "$(cat "$TEST_HOME/codex-launcher-raw-headers")" = "" ]
+    [ "$(cat "$TEST_HOME/codex-launcher-header-0")" = "private-override" ]
+    [ "$(cat "$TEST_HOME/codex-launcher-header-1")" = "blue=green" ]
     [ "$(cat "$TEST_HOME/codex-launcher-api-key")" = "" ]
 
     "$HOME/.local/bin/codex-first-party-gpt-5.6-sol" exec hello
     [ "$(cat "$TEST_HOME/codex-launcher-default-profile")" = "third-party/gpt-5.6" ]
     [ "$(cat "$TEST_HOME/codex-launcher-api-key")" = "first-party-key" ]
+    [ "$(cat "$TEST_HOME/codex-launcher-raw-headers")" = "" ]
+    [ "$(cat "$TEST_HOME/codex-launcher-header-0")" = "" ]
+    [ "$(cat "$TEST_HOME/codex-launcher-header-1")" = "" ]
 
     python3 - "$CODEX_GATEWAY_MODEL_CATALOG" <<'PY'
 import json
@@ -1058,6 +1101,7 @@ printf '%s\n' "\$@" > "$TEST_HOME/claude-launcher-args"
     printf 'subagent_model=%s\n' "\${CLAUDE_CODE_SUBAGENT_MODEL:-}"
     printf 'debug=%s\n' "\${DEBUG_SDK:-}"
     printf 'auto_compact_window=%s\n' "\${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}"
+    printf 'codex_gateway_headers=%s\n' "\${AAB_CODEX_GATEWAY_HTTP_HEADERS:-}"
 } > "$TEST_HOME/claude-launcher-env"
 SH
     chmod +x "$TEST_HOME/real-claude"
@@ -1067,6 +1111,7 @@ SH
         AAB_CLAUDE_DEFAULT_PROFILE="third-party/deepseek-v4" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
+        AAB_CODEX_GATEWAY_HTTP_HEADERS="brev-override=private-override" \
         AAB_ANTHROPIC_API_KEY="first-party-key" \
         configure_aab_env_file
     AAB_CLAUDE_THIRD_PARTY_PROFILES="deepseek-v4 model=deepseek-v4-pro haiku=deepseek-v4-flash effort=high context=1000000" \
@@ -1102,6 +1147,7 @@ SH
     grep -Fxq 'subagent_model=deepseek-v4-pro[1m]' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'debug=1' "$TEST_HOME/claude-launcher-env"
     grep -Fxq 'auto_compact_window=1000000' "$TEST_HOME/claude-launcher-env"
+    grep -Fxq 'codex_gateway_headers=' "$TEST_HOME/claude-launcher-env"
 
     "$HOME/.local/bin/claude-first-party-claude-opus-4-8" -p hello
     grep -Fxq 'default_profile=third-party/deepseek-v4' "$TEST_HOME/claude-launcher-env"
@@ -1188,6 +1234,7 @@ printf '%s\n' "\${OTEL_SERVICE_NAME:-}" > "$TEST_HOME/pi-launcher-otel-service"
 printf '%s\n' "\${OTEL_TRACES_EXPORTER:-}" > "$TEST_HOME/pi-launcher-otel-traces-exporter"
 printf '%s\n' "\${OTEL_SDK_DISABLED:-}" > "$TEST_HOME/pi-launcher-otel-sdk-disabled"
 printf '%s\n' "\${OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT:-}" > "$TEST_HOME/pi-launcher-otel-content-capture"
+printf '%s\n' "\${AAB_CODEX_GATEWAY_HTTP_HEADERS:-}" > "$TEST_HOME/pi-launcher-codex-gateway-headers"
 SH
     chmod +x "$HOME/.local/bin/pi-aab-real"
 
@@ -1195,6 +1242,7 @@ SH
         AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
         AAB_INFERENCE_GATEWAY_URL="https://gateway.example.com/v1" \
         AAB_INFERENCE_GATEWAY_API_KEY="gateway-test-key" \
+        AAB_CODEX_GATEWAY_HTTP_HEADERS="brev-override=private-override" \
         configure_aab_env_file
     AAB_PI_PROFILES=$'opus-4.8 model=aws/anthropic/bedrock-claude-opus-4-8 effort=max context=1000000 max_tokens=128000\ngpt-5.6 model=openai/openai/gpt-5.6-sol effort=max context=1050000 max_tokens=128000 fast=true' \
         AAB_PI_DEFAULT_PROFILE="gpt-5.6" \
@@ -1224,6 +1272,7 @@ SH
     [ -z "$(cat "$TEST_HOME/pi-launcher-otel-traces-exporter")" ]
     [ -z "$(cat "$TEST_HOME/pi-launcher-otel-sdk-disabled")" ]
     [ -z "$(cat "$TEST_HOME/pi-launcher-otel-content-capture")" ]
+    [ -z "$(cat "$TEST_HOME/pi-launcher-codex-gateway-headers")" ]
 
     PI_TELEMETRY=0 PI_TIMING=1 OTEL_SDK_DISABLED=true OTEL_TRACES_EXPORTER=none \
         "$HOME/.local/bin/pi-gpt-5.6" -p hello

@@ -182,6 +182,28 @@ _toml_escape() {
     printf '%s' "$s"
 }
 
+_codex_gateway_env_http_headers_toml() {
+    # Values are intentionally unused here; only their environment names enter TOML.
+    # shellcheck disable=SC2034
+    local -a names=() values=()
+    _parse_codex_gateway_http_headers names values || return 1
+
+    if [ "${#names[@]}" -eq 0 ]; then
+        printf '{}'
+        return
+    fi
+
+    local index name_escaped env_name separator=""
+    printf '{ '
+    for index in "${!names[@]}"; do
+        name_escaped=$(_toml_escape "${names[$index]}")
+        env_name=$(_codex_gateway_header_env_name "$index")
+        printf '%s"%s" = "%s"' "$separator" "$name_escaped" "$env_name"
+        separator=", "
+    done
+    printf ' }'
+}
+
 _normalize_codex_service_tier() {
     local service_tier="${1:-$DEFAULT_CODEX_SERVICE_TIER}"
     case "$service_tier" in
@@ -251,7 +273,7 @@ configure_codex_config() {
     multi_agent_v2_max_concurrent_threads_per_session=$((agent_max_threads + 1))
 
     local model_escaped effort_escaped model_instructions_file_escaped
-    local home_escaped cwd cwd_escaped gateway_url_escaped
+    local home_escaped cwd cwd_escaped gateway_url_escaped gateway_env_http_headers
     model_escaped=$(_toml_escape "$model")
     effort_escaped=$(_toml_escape "$effort")
     model_instructions_file_escaped=$(_toml_escape "$CODEX_MODEL_INSTRUCTIONS_FILE")
@@ -259,6 +281,7 @@ configure_codex_config() {
     cwd="${PWD:-$HOME}"
     cwd_escaped=$(_toml_escape "$cwd")
     gateway_url_escaped=$(_toml_escape "${AAB_INFERENCE_GATEWAY_URL:-}")
+    gateway_env_http_headers=$(_codex_gateway_env_http_headers_toml)
 
     cat > "${CODEX_CONFIG}" <<TOML
 model = "${model_escaped}"
@@ -300,6 +323,7 @@ hide_full_access_warning = true
 [shell_environment_policy]
 inherit = "all"
 ignore_default_excludes = true
+exclude = ["AAB_CODEX_GATEWAY_HTTP_HEADERS", "AAB_CODEX_GATEWAY_HTTP_HEADER_*"]
 TOML
 
     if [ "${profile[source]}" = "third-party" ]; then
@@ -315,6 +339,9 @@ request_max_retries = 4
 stream_max_retries = 5
 stream_idle_timeout_ms = 300000
 TOML
+        if [ "$gateway_env_http_headers" != "{}" ]; then
+            printf 'env_http_headers = %s\n' "$gateway_env_http_headers" >> "${CODEX_CONFIG}"
+        fi
     fi
 
     cat >> "${CODEX_CONFIG}" <<TOML
