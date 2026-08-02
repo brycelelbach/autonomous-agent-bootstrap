@@ -963,6 +963,10 @@ else
     pass "User lingering enabled for $linger_user."
 fi
 
+command -v tmux >/dev/null 2>&1 || fail "tmux not on PATH after bootstrap."
+tmux -V >/dev/null 2>&1 || fail "tmux is present but does not run."
+pass "tmux installed, on PATH, and runnable."
+
 # 15. The uv_tools.txt CLI tools are installed as isolated uv tools: each tool's
 # executables are symlinked from ~/.local/bin into its environment under
 # ~/.local/share/uv/tools/, and the managed PATH puts ~/.local/bin ahead of the

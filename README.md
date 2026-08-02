@@ -23,7 +23,7 @@ A single idempotent bash script that turns a fresh Linux host into a ready-to-us
 
 - Ubuntu 22.04 or later with `bash` and `apt-get`
 - Passwordless `sudo`, or run as root
-- Bare `ubuntu:24.04` and current `ubuntu:latest` images are valid. The bootstrap prefers the [`apt_packages.txt`](./apt_packages.txt) Ubuntu 22.04 versions and falls back to the current distribution's versions when those pins are unavailable, then installs pinned Node.js and checksum-verified standalone `gh` releases.
+- Bare `ubuntu:24.04` and current `ubuntu:latest` images are valid. The bootstrap prefers the [`apt_packages.txt`](./apt_packages.txt) Ubuntu 22.04 versions, including `tmux`, and falls back to the current distribution's versions when those pins are unavailable, then installs pinned Node.js and checksum-verified standalone `gh` releases.
 
 ## Quick Start
 
