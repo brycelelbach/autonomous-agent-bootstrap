@@ -191,9 +191,6 @@ configure_claude_launchers() {
         profiles=$(_profile_list_for claude "$source")
         while IFS= read -r line; do
             _parse_model_profile_line claude "$source" "$line" profile
-            if [ "$source" = "third-party" ]; then
-                require_inference_gateway "Claude profile '${profile[name]}'"
-            fi
             launcher="${HOME}/.local/bin/claude-${source}-${profile[name]}"
             _write_claude_launcher \
                 "$source" "${profile[name]}" "${profile[model]}" \
@@ -483,9 +480,6 @@ configure_codex_launchers() {
         profiles=$(_profile_list_for codex "$source")
         while IFS= read -r line; do
             _parse_model_profile_line codex "$source" "$line" profile
-            if [ "$source" = "third-party" ]; then
-                require_inference_gateway "Codex profile '${profile[name]}'"
-            fi
             service_tier=$(_codex_profile_service_tier "${profile[fast]}")
             fast_mode=false
             [ "$service_tier" != priority ] || fast_mode=true

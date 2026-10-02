@@ -1193,6 +1193,40 @@ SH
     grep -Fxq 'opus=bedrock/opus-4-8' "$TEST_HOME/claude-launcher-env"
 }
 
+@test "configure launchers defer missing inference gateway validation until runtime" {
+    mkdir -p "$HOME/.local/bin"
+    cat > "$TEST_HOME/real-claude" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+    chmod +x "$TEST_HOME/real-claude"
+    ln -s "$TEST_HOME/real-claude" "$HOME/.local/bin/claude"
+    setup_fake_codex_catalog
+    ln -s "$FAKE_CODEX_CATALOG_BIN" "$HOME/.local/bin/codex"
+
+    AAB_CLAUDE_FIRST_PARTY_PROFILES="opus-4.8 model=claude-opus-4-8 effort=max" \
+        AAB_CLAUDE_THIRD_PARTY_PROFILES="deepseek-v4 model=vendor/deepseek-v4 effort=high" \
+        AAB_CLAUDE_DEFAULT_PROFILE="first-party/opus-4.8" \
+        configure_claude_launchers
+    AAB_CODEX_FIRST_PARTY_PROFILES="gpt-5.5 model=gpt-5.5 effort=xhigh" \
+        AAB_CODEX_THIRD_PARTY_PROFILES="gpt-5.6 model=openai/openai/gpt-5.6-sol effort=ultra" \
+        AAB_CODEX_DEFAULT_PROFILE="first-party/gpt-5.5" \
+        configure_codex_launchers
+
+    [ -x "$HOME/.local/bin/claude-third-party-deepseek-v4" ]
+    [ -x "$HOME/.local/bin/codex-third-party-gpt-5.6" ]
+
+    run env -u AAB_INFERENCE_GATEWAY_URL \
+        "$HOME/.local/bin/claude-third-party-deepseek-v4" -p hello
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Claude profile deepseek-v4 requires AAB_INFERENCE_GATEWAY_URL."* ]]
+
+    run env -u AAB_INFERENCE_GATEWAY_URL \
+        "$HOME/.local/bin/codex-third-party-gpt-5.6" exec hello
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Codex profile gpt-5.6 requires AAB_INFERENCE_GATEWAY_URL."* ]]
+}
+
 @test "configure_claude_launchers uses profile subagent override or main model" {
     mkdir -p "$HOME/.local/bin"
     cat > "$TEST_HOME/real-claude" <<SH
