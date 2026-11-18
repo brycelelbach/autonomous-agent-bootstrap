@@ -774,7 +774,8 @@ SH
     setup_fake_uv
     # A PATH without ~/.local/bin: install_uv must prepend it so executables that
     # `uv tool install` symlinks there resolve later in the same run.
-    PATH="$FAKE_UV_BIN:/usr/bin:/bin" install_uv
+    export PATH="$FAKE_UV_BIN:/usr/bin:/bin"
+    install_uv
     case ":${PATH}:" in
         *":${HOME}/.local/bin:"*) ;;
         *) printf 'PATH is %s\n' "$PATH"; return 1 ;;
