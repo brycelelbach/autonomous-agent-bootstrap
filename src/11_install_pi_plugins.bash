@@ -9,8 +9,8 @@ PI_PLUGINS_DEFAULT_CONTENT=$(cat <<'AAB_PI_PLUGINS_EOF'
 __AAB_PI_PLUGINS__
 AAB_PI_PLUGINS_EOF
 )
-PI_FAST_MODE_SOURCE="git:github.com/robobryce/pi-fast-mode"
-PI_FAST_MODE_CHECKOUT="${PI_DIR}/git/github.com/robobryce/pi-fast-mode"
+PI_FAST_MODE_SOURCE="git:github.com/brycelelbach/pi-fast-mode"
+PI_FAST_MODE_CHECKOUT="${PI_DIR}/git/github.com/brycelelbach/pi-fast-mode"
 PI_PREVIOUS_FAST_MODE_SOURCE=""
 
 _pi_fast_mode_required() {

@@ -90,15 +90,15 @@ teardown() {
         pi-fast-mode pi-list-tools pi-local-otel pi-session-identity \
         pi-schedule-prompt pi-bash-background \
         pi-web-access pi-retry-empty pi-print-stream; do
-        [ "$(grep -Fxc "git:github.com/robobryce/${owned_repo}" "$REPO_ROOT/pi_plugins.txt")" -eq 1 ]
+        [ "$(grep -Fxc "git:github.com/brycelelbach/${owned_repo}" "$REPO_ROOT/pi_plugins.txt")" -eq 1 ]
     done
     ! grep -Eq '^npm:pi-otel(@|$)' "$REPO_ROOT/pi_plugins.txt"
     [ ! -e "$REPO_ROOT/src/pi/otel-console.cjs" ]
     [ ! -e "$REPO_ROOT/src/pi/local-otel.ts" ]
-    ! grep -Eq '^git:github\.com/robobryce/pi-[^@[:space:]]+@' "$REPO_ROOT/pi_plugins.txt"
+    ! grep -Eq '^git:github\.com/brycelelbach/pi-[^@[:space:]]+@' "$REPO_ROOT/pi_plugins.txt"
     ! grep -Eq '^npm:(pi-list-tools|pi-print-stream)(@|$)' "$REPO_ROOT/pi_plugins.txt"
     grep -Fq 'git:github.com/nicobailon/pi-subagents@' "$REPO_ROOT/pi_plugins.txt"
-    ! grep -Fq 'robobryce/pi-subagents' "$REPO_ROOT/pi_plugins.txt"
+    ! grep -Fq 'brycelelbach/pi-subagents' "$REPO_ROOT/pi_plugins.txt"
 }
 
 @test "Claude profiles inherit unspecified tier models from the primary model" {
@@ -1484,12 +1484,12 @@ EOF
     cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$TEST_HOME/pi-required-package-invocations"
-if [ "$1" = install ] && [ "$2" = 'git:github.com/robobryce/pi-fast-mode' ]; then
-    package="$TEST_HOME/.pi/agent/git/github.com/robobryce/pi-fast-mode"
+if [ "$1" = install ] && [ "$2" = 'git:github.com/brycelelbach/pi-fast-mode' ]; then
+    package="$TEST_HOME/.pi/agent/git/github.com/brycelelbach/pi-fast-mode"
     mkdir -p "$package/.git" "$package/src"
     printf '{}\n' > "$package/package.json"
     : > "$package/src/index.ts"
-    printf '{"packages":["git:github.com/robobryce/pi-fast-mode"]}\n' \
+    printf '{"packages":["git:github.com/brycelelbach/pi-fast-mode"]}\n' \
         > "$TEST_HOME/.pi/agent/settings.json"
 fi
 SH
@@ -1519,8 +1519,8 @@ SH
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$TEST_HOME/pi-required-package-failure-invocations"
 case "${1:-} ${2:-}" in
-install\ git:github.com/robobryce/pi-fast-mode*)
-    package="$TEST_HOME/.pi/agent/git/github.com/robobryce/pi-fast-mode"
+install\ git:github.com/brycelelbach/pi-fast-mode*)
+    package="$TEST_HOME/.pi/agent/git/github.com/brycelelbach/pi-fast-mode"
     mkdir -p "$package/.git" "$package/src"
     printf '{}\n' > "$package/package.json"
     : > "$package/src/index.ts"
@@ -1585,7 +1585,7 @@ PY
         "${PI_FAST_MODE_CHECKOUT}/.git" "${PI_FAST_MODE_CHECKOUT}/src" "$TEST_HOME/tmp"
     cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
 #!/usr/bin/env bash
-if [ "$1" = install ] && [ "$2" = 'git:github.com/robobryce/pi-fast-mode' ]; then
+if [ "$1" = install ] && [ "$2" = 'git:github.com/brycelelbach/pi-fast-mode' ]; then
     kill -TERM "$PPID"
     sleep 1
 fi
@@ -1614,12 +1614,12 @@ SH
     mkdir -p "$HOME/.local/bin" "${PI_DIR}/extensions" "$TEST_HOME/tmp"
     cat > "$HOME/.local/bin/pi-aab-real" <<'SH'
 #!/usr/bin/env bash
-if [ "$1" = install ] && [ "$2" = 'git:github.com/robobryce/pi-fast-mode' ]; then
-    package="$TEST_HOME/.pi/agent/git/github.com/robobryce/pi-fast-mode"
+if [ "$1" = install ] && [ "$2" = 'git:github.com/brycelelbach/pi-fast-mode' ]; then
+    package="$TEST_HOME/.pi/agent/git/github.com/brycelelbach/pi-fast-mode"
     mkdir -p "$package/.git" "$package/src"
     printf '{}\n' > "$package/package.json"
     : > "$package/src/index.ts"
-    printf '{"packages":["git:github.com/robobryce/pi-fast-mode"]}\n' \
+    printf '{"packages":["git:github.com/brycelelbach/pi-fast-mode"]}\n' \
         > "$TEST_HOME/.pi/agent/settings.json"
 fi
 SH
@@ -1777,10 +1777,10 @@ SH
         grep -Fxq "remove ${source} --no-approve" "$TEST_HOME/pi-package-invocations"
         grep -Fxq "install ${source} --no-approve" "$TEST_HOME/pi-package-invocations"
     done < <(sed -E 's/#.*//' "$REPO_ROOT/pi_plugins.txt" \
-        | awk 'NF && /^git:github\.com\/robobryce\/pi-/ { print }')
-    grep -Fxq 'install git:github.com/robobryce/pi-local-otel --no-approve' \
+        | awk 'NF && /^git:github\.com\/brycelelbach\/pi-/ { print }')
+    grep -Fxq 'install git:github.com/brycelelbach/pi-local-otel --no-approve' \
         "$TEST_HOME/pi-package-invocations"
-    grep -Fxq 'install git:github.com/robobryce/pi-fast-mode --no-approve' \
+    grep -Fxq 'install git:github.com/brycelelbach/pi-fast-mode --no-approve' \
         "$TEST_HOME/pi-package-invocations"
     ! grep -Eq '(^| )npm:pi-otel(@| |$)' "$TEST_HOME/pi-package-invocations"
 }
@@ -1818,9 +1818,9 @@ JSON
     [ ! -d "$npm_root/node_modules/pi-otel" ]
     ! grep -Fq '"pi-otel"' "$npm_root/package.json"
     ! grep -Fq 'pi-otel' "$npm_root/package-lock.json"
-    grep -Fxq 'pi install git:github.com/robobryce/pi-list-tools --no-approve' \
+    grep -Fxq 'pi install git:github.com/brycelelbach/pi-list-tools --no-approve' \
         "$TEST_HOME/pi-package-migration-invocations"
-    grep -Fxq 'pi install git:github.com/robobryce/pi-print-stream --no-approve' \
+    grep -Fxq 'pi install git:github.com/brycelelbach/pi-print-stream --no-approve' \
         "$TEST_HOME/pi-package-migration-invocations"
 }
 

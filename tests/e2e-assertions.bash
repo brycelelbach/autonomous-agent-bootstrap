@@ -26,10 +26,10 @@ PI_MODELS_FILE="${HOME}/.pi/agent/models.json"
 PI_SETTINGS_FILE="${HOME}/.pi/agent/settings.json"
 PI_CODING_AGENT_PACKAGE="${HOME}/.local/lib/node_modules/@earendil-works/pi-coding-agent"
 PI_NPM_DIR="${HOME}/.pi/agent/npm"
-PI_LIST_TOOLS_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-list-tools"
-PI_FAST_MODE_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-fast-mode"
+PI_LIST_TOOLS_PACKAGE="${HOME}/.pi/agent/git/github.com/brycelelbach/pi-list-tools"
+PI_FAST_MODE_PACKAGE="${HOME}/.pi/agent/git/github.com/brycelelbach/pi-fast-mode"
 PI_LEGACY_FAST_MODE_EXTENSION="${HOME}/.pi/agent/extensions/fast-mode.ts"
-PI_LOCAL_OTEL_PACKAGE="${HOME}/.pi/agent/git/github.com/robobryce/pi-local-otel"
+PI_LOCAL_OTEL_PACKAGE="${HOME}/.pi/agent/git/github.com/brycelelbach/pi-local-otel"
 PI_UNSUPPORTED_OTEL_PACKAGE="${PI_NPM_DIR}/node_modules/pi-otel"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -514,11 +514,11 @@ obsolete = {
 assert obsolete.isdisjoint(data["packages"]), data["packages"]
 PY
 
-[ "$(grep -Fxc 'git:github.com/robobryce/pi-fast-mode' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ] \
-    || fail "pi_plugins.txt must contain one rolling robobryce/pi-fast-mode source."
+[ "$(grep -Fxc 'git:github.com/brycelelbach/pi-fast-mode' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ] \
+    || fail "pi_plugins.txt must contain one rolling brycelelbach/pi-fast-mode source."
 pi_fast_mode_origin=$(git -C "$PI_FAST_MODE_PACKAGE" remote get-url origin)
 case "$pi_fast_mode_origin" in
-    https://github.com/robobryce/pi-fast-mode|https://github.com/robobryce/pi-fast-mode.git|git@github.com:robobryce/pi-fast-mode.git) ;;
+    https://github.com/brycelelbach/pi-fast-mode|https://github.com/brycelelbach/pi-fast-mode.git|git@github.com:brycelelbach/pi-fast-mode.git) ;;
     *) fail "Pi fast-mode checkout has unexpected origin $pi_fast_mode_origin." ;;
 esac
 python3 - "$PI_FAST_MODE_PACKAGE" <<'PY'
@@ -539,11 +539,11 @@ assert '"aab-gateway-fast"' in entrypoint, entrypoint
 assert '"aab-openai-responses-fast"' in entrypoint, entrypoint
 PY
 
-[ "$(grep -Fxc 'git:github.com/robobryce/pi-local-otel' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ] \
-    || fail "pi_plugins.txt must contain one rolling robobryce/pi-local-otel source."
+[ "$(grep -Fxc 'git:github.com/brycelelbach/pi-local-otel' "$REPO_ROOT/pi_plugins.txt")" -eq 1 ] \
+    || fail "pi_plugins.txt must contain one rolling brycelelbach/pi-local-otel source."
 pi_local_otel_origin=$(git -C "$PI_LOCAL_OTEL_PACKAGE" remote get-url origin)
 case "$pi_local_otel_origin" in
-    https://github.com/robobryce/pi-local-otel|https://github.com/robobryce/pi-local-otel.git|git@github.com:robobryce/pi-local-otel.git) ;;
+    https://github.com/brycelelbach/pi-local-otel|https://github.com/brycelelbach/pi-local-otel.git|git@github.com:brycelelbach/pi-local-otel.git) ;;
     *) fail "Pi local OpenTelemetry checkout has unexpected origin $pi_local_otel_origin." ;;
 esac
 [ -f "$PI_LOCAL_OTEL_PACKAGE/src/index.ts" ] \
@@ -769,7 +769,7 @@ PY
 rm -f "$list_tools_json"
 pi list >/dev/null 2>&1 || fail "Pi package list failed through the profile launcher."
 mapfile -t owned_pi_sources < <(sed -E 's/#.*//' "$REPO_ROOT/pi_plugins.txt" \
-    | awk 'NF && /^git:github\.com\/robobryce\/pi-/ { print }')
+    | awk 'NF && /^git:github\.com\/brycelelbach\/pi-/ { print }')
 [ "${#owned_pi_sources[@]}" -gt 0 ] || fail "No AAB-owned Pi repositories are configured."
 for source in "${owned_pi_sources[@]}"; do
     case "$source" in
