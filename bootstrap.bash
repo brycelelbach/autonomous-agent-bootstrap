@@ -1206,20 +1206,20 @@ PI_PLUGINS_DEFAULT_CONTENT=$(cat <<'AAB_PI_PLUGINS_EOF'
 # Lines beginning with '#' and blank lines are ignored.
 
 npm:pi-codex-goal@0.1.37
-git:github.com/robobryce/pi-fast-mode
-git:github.com/robobryce/pi-list-tools
-git:github.com/robobryce/pi-local-otel
-git:github.com/robobryce/pi-session-identity
-git:github.com/robobryce/pi-schedule-prompt
+git:github.com/brycelelbach/pi-fast-mode
+git:github.com/brycelelbach/pi-list-tools
+git:github.com/brycelelbach/pi-local-otel
+git:github.com/brycelelbach/pi-session-identity
+git:github.com/brycelelbach/pi-schedule-prompt
 git:github.com/nicobailon/pi-subagents@ea9b72f2e5bc0e0cbaacdab589576e858b12c03f
-git:github.com/robobryce/pi-bash-background
-git:github.com/robobryce/pi-web-access
-git:github.com/robobryce/pi-retry-empty
-git:github.com/robobryce/pi-print-stream
+git:github.com/brycelelbach/pi-bash-background
+git:github.com/brycelelbach/pi-web-access
+git:github.com/brycelelbach/pi-retry-empty
+git:github.com/brycelelbach/pi-print-stream
 AAB_PI_PLUGINS_EOF
 )
-PI_FAST_MODE_SOURCE="git:github.com/robobryce/pi-fast-mode"
-PI_FAST_MODE_CHECKOUT="${PI_DIR}/git/github.com/robobryce/pi-fast-mode"
+PI_FAST_MODE_SOURCE="git:github.com/brycelelbach/pi-fast-mode"
+PI_FAST_MODE_CHECKOUT="${PI_DIR}/git/github.com/brycelelbach/pi-fast-mode"
 PI_PREVIOUS_FAST_MODE_SOURCE=""
 
 _pi_fast_mode_required() {
